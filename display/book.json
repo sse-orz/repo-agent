@@ -1,0 +1,66 @@
+{
+  "title": "Wiki Agent Documentation",
+  "author": "sse-orz",
+  "description": "Documentation for the Wiki Agent project",
+  "language": "zh-CN",
+  "isbn": "",
+  "plugins": [
+    "highlight",
+    "search",
+    "sharing",
+    "fontsettings",
+    "theme-default",
+    "prism",
+    "anchors",
+    "expandable-chapters",
+    "splitter",
+    "back-to-top-button",
+    "page-toc-button",
+    "github",
+    "github-buttons",
+    "alerts",
+    "include-codeblock",
+    "lunr"
+  ],
+  "pluginsConfig": {
+    "sharing": {
+      "facebook": false,
+      "twitter": false,
+      "google": false,
+      "weibo": false,
+      "instapaper": false,
+      "vk": false,
+      "all": ["facebook", "google", "twitter", "weibo", "instapaper"]
+    },
+    "prism": {
+      "css": [
+        "prismjs/themes/prism-tomorrow.css"
+      ]
+    },
+    "github": {
+      "url": "https://github.com/sse-orz/repo-agent"
+    },
+    "github-buttons": {
+      "repo": "sse-orz/repo-agent",
+      "types": ["star", "watch", "fork"],
+      "size": "small"
+    },
+    "alerts": {},
+    "lunr": {}
+  },
+  "links": {
+    "sidebar": {
+      "Home": "https://github.com/sse-orz/repo-agent",
+      "Issues": "https://github.com/sse-orz/repo-agent/issues",
+      "Wiki": "https://github.com/sse-orz/repo-agent/wiki"
+    }
+  },
+  "structure": {
+    "readme": "README.md",
+    "summary": "SUMMARY.md"
+  },
+  "variables": {
+    "version": "1.0.0"
+  },
+  "gitbook": ">=3.0.0"
+}

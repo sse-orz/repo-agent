@@ -10,6 +10,9 @@ wheels/
 .venv
 
 .env
-.repos
-.wikis
-.logs
+.repos/
+.wikis/
+.logs/
+node_modules/
+_book/
+SUMMARY.md

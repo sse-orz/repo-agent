@@ -59,6 +59,50 @@ def preprocess_repo(repo_name: str) -> tuple[str, str, str, str]:
     return platform, owner, repo, repo_path
 
 
+def display_book():
+    # use gitbook to display the generated wiki
+    wiki_root = ".wikis"
+    display_root = "display"
+    import os
+    import subprocess
+
+    subprocess.run(["cp", "-r", wiki_root, display_root])
+
+    os.chdir(display_root)
+    subprocess.run(
+        ["bash", "-c", "source ~/.nvm/nvm.sh && nvm use v10.24.1 && gitbook init"]
+    )
+
+    summary_path = "SUMMARY.md"
+    with open(summary_path, "w") as f:
+        f.write("# Summary\n\n")
+        f.write("* [Introduction](README.md)\n")
+        for repo in os.listdir("."):
+            if os.path.isdir(repo) and repo == wiki_root:
+                # Scan for all .md files in the repo directory
+                for root, dirs, files in os.walk(repo):
+                    md_files = [file for file in files if file.endswith(".md")]
+                    if md_files:
+                        rel_root = os.path.relpath(root, ".")
+                        indent_level = rel_root.count(os.sep) - 1
+                        indent = "  " * indent_level
+                        if rel_root != repo:
+                            folder_name = os.path.basename(root)
+                            f.write(f"{indent}* {folder_name}\n")
+                        for md in sorted(md_files):
+                            md_path = os.path.join(rel_root, md)
+                            f.write(f"{indent}  * [{md}]({md_path})\n")
+    # gitbook install
+    subprocess.run(
+        ["bash", "-c", "source ~/.nvm/nvm.sh && nvm use v10.24.1 && gitbook install"]
+    )
+
+    # serve the gitbook
+    subprocess.run(
+        ["bash", "-c", "source ~/.nvm/nvm.sh && nvm use v10.24.1 && gitbook serve"]
+    )
+
+
 def main():
     # 1.1 check mode for user input (generate wiki files or ask for repo)
     # 1.2 user input (get repo name or url)
@@ -83,6 +127,7 @@ def main():
     match mode:
         case "generate":
             print("Wiki generation completed. Exiting.")
+            display_book()
             return
         case "ask":
             print("Entering Q&A mode. Type 'exit' to quit.")
@@ -91,4 +136,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    display_book()
