@@ -153,5 +153,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # main()
-    display_book()
+    main()
+    # display_book()

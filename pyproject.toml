@@ -25,3 +25,6 @@ dependencies = [
     "langgraph-supervisor>=0.0.29",
     "langgraph-swarm>=0.0.14",
 ]
+
+[tool.setuptools.packages.find]
+include = ["agents*", "assets*", "display*", "utils*"]
