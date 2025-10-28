@@ -137,11 +137,15 @@ class PythonAnalyzer(LanguageAnalyzer):
         params_node = node.child_by_field_name("parameters")
         params = params_node.text.decode("utf-8") if params_node else ""
 
+        return_type_node = node.child_by_field_name("return_type")
+        return_type = return_type_node.text.decode("utf-8") if return_type_node else None
+
         docstring = self.get_docstring(node)
 
         function_info = {
             "name": name,
             "parameters": params,
+            "return_type": return_type,
             "docstring": docstring,
             "start_line": node.start_point[0] + 1,
             "end_line": node.end_point[0] + 1,
@@ -236,6 +240,425 @@ class JavaScriptAnalyzer(LanguageAnalyzer):
         function_info = {
             "name": name,
             "parameters": params,
+            "return_type": None,
+            "docstring": self.get_docstring(node),
+            "start_line": node.start_point[0] + 1,
+            "end_line": node.end_point[0] + 1,
+        }
+
+        if not is_method:
+            self.stats["functions"].append(function_info)
+
+        return function_info
+
+class GoAnalyzer(LanguageAnalyzer):
+    """
+    Analyzer for Go code.
+    """
+
+    def _traverse(self, node):
+        if node.type == "type_declaration":
+            self._extract_class_info(node)
+        elif node.type == "function_declaration":
+            # Avoid capturing methods inside type traversal
+            if not self._is_in_type(node):
+                self._extract_function_info(node)
+        elif node.type == "method_declaration":
+            # Methods are handled separately, but for now treat as functions
+            self._extract_function_info(node, is_method=True)
+
+        for child in node.children:
+            self._traverse(child)
+
+    def _is_in_type(self, node):
+        parent = node.parent
+        while parent:
+            if parent.type == "type_declaration":
+                return True
+            parent = parent.parent
+        return False
+
+    def get_docstring(self, node):
+        """Extracts the docstring from a given node, if available."""
+        lines = self.code.split("\n")
+        start_line = node.start_point[0]
+        doc_lines = []
+        for i in range(start_line - 1, -1, -1):
+            line = lines[i].strip()
+            if line.startswith("//"):
+                doc_lines.insert(0, line[2:].strip())
+            elif line:
+                break
+        if doc_lines:
+            return "\n".join(doc_lines)
+        return None
+
+    def _extract_class_info(self, node):
+        type_spec = node.child_by_field_name("type")
+        if type_spec and type_spec.type in ("struct_type", "interface_type"):
+            name_node = node.child_by_field_name("name")
+            name = (
+                name_node.text.decode("utf-8")
+                if name_node
+                else "AnonymousType"
+            )
+
+            # For Go, methods are not nested in the type declaration
+            # So, methods list is empty for now
+            methods = []
+
+            self.stats["classes"].append(
+                {
+                    "name": name,
+                    "methods": methods,
+                    "docstring": self.get_docstring(node),
+                    "start_line": node.start_point[0] + 1,
+                    "end_line": node.end_point[0] + 1,
+                }
+            )
+
+    def _extract_function_info(self, node, is_method=False):
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "AnonymousFunction"
+
+        params_node = node.child_by_field_name("parameters")
+        params = params_node.text.decode("utf-8") if params_node else ""
+
+        result_node = node.child_by_field_name("result")
+        return_type = result_node.text.decode("utf-8") if result_node else None
+
+        function_info = {
+            "name": name,
+            "parameters": params,
+            "return_type": return_type,
+            "docstring": self.get_docstring(node),
+            "start_line": node.start_point[0] + 1,
+            "end_line": node.end_point[0] + 1,
+        }
+
+        if not is_method:
+            self.stats["functions"].append(function_info)
+
+        return function_info
+
+
+class CppAnalyzer(LanguageAnalyzer):
+    """
+    Analyzer for C++ code.
+    """
+
+    def _find_function_declarator(self, node):
+        """Recursively find the function_declarator node."""
+        if node and node.type == "function_declarator":
+            return node
+        if node:
+            for child in node.children:
+                result = self._find_function_declarator(child)
+                if result:
+                    return result
+        return None
+
+    def _extract_return_type(self, node):
+        """Extracts the return type from a function_definition node."""
+        declarator = node.child_by_field_name("declarator")
+        if not declarator:
+            return None
+        
+        start = node.start_point
+        decl_start = declarator.start_point
+        
+        lines = self.code.split('\n')
+        return_type_parts = []
+        
+        if start[0] == decl_start[0]:
+            # Same line
+            line = lines[start[0]]
+            return_type = line[start[1]:decl_start[1]].strip()
+        else:
+            # Multi-line
+            for i in range(start[0], decl_start[0]):
+                if i == start[0]:
+                    return_type_parts.append(lines[i][start[1]:])
+                else:
+                    return_type_parts.append(lines[i])
+            return_type_parts.append(lines[decl_start[0]][:decl_start[1]])
+            return_type = '\n'.join(return_type_parts).strip()
+        
+        return return_type if return_type else None
+
+    def _traverse(self, node):
+        if node.type == "class_specifier":
+            self._extract_class_info(node)
+        elif node.type == "function_definition":
+            # Avoid capturing methods inside class traversal
+            if not self._is_in_class(node):
+                self._extract_function_info(node)
+
+        for child in node.children:
+            self._traverse(child)
+
+    def _is_in_class(self, node):
+        parent = node.parent
+        while parent:
+            if parent.type == "class_specifier":
+                return True
+            parent = parent.parent
+        return False
+
+    def get_docstring(self, node):
+        """Extracts the docstring from a given node, if available."""
+        lines = self.code.split("\n")
+        start_line = node.start_point[0]
+        for i in range(start_line - 1, -1, -1):
+            line = lines[i].strip()
+            if line.endswith("*/"):
+                # Find the start /**
+                for k in range(i, -1, -1):
+                    if lines[k].strip().startswith("/**"):
+                        doc_lines = lines[k : i + 1]
+                        docstring = "\n".join(doc_lines)
+                        # Remove /** and */
+                        docstring = (
+                            docstring.replace("/**", "", 1).replace("*/", "", 1).strip()
+                        )
+                        return docstring
+                break
+            elif line and not line.startswith("//"):
+                break  # Stop if non-comment line
+        return None
+
+    def _extract_class_info(self, node):
+        name_node = node.child_by_field_name("name")
+        class_name = (
+            name_node.text.decode("utf-8")
+            if name_node
+            else "AnonymousClass"
+        )
+
+        methods = []
+        body_node = node.child_by_field_name("body")
+        if body_node:
+            for child in body_node.children:
+                if child.type == "function_definition":
+                    method_info = self._extract_function_info(child, is_method=True)
+                    if method_info:
+                        methods.append(method_info)
+
+        self.stats["classes"].append(
+            {
+                "name": class_name,
+                "methods": methods,
+                "docstring": self.get_docstring(node),
+                "start_line": node.start_point[0] + 1,
+                "end_line": node.end_point[0] + 1,
+            }
+        )
+
+    def _extract_function_info(self, node, is_method=False):
+        declarator_node = node.child_by_field_name("declarator")
+        function_declarator = self._find_function_declarator(declarator_node)
+        if function_declarator:
+            name_node = function_declarator.child_by_field_name("declarator")
+            if name_node and name_node.type == "identifier":
+                name = name_node.text.decode("utf-8")
+            else:
+                name = "AnonymousFunction"
+
+            params_node = function_declarator.child_by_field_name("parameters")
+            params = params_node.text.decode("utf-8") if params_node else ""
+        else:
+            name = "AnonymousFunction"
+            params = ""
+
+        return_type = self._extract_return_type(node)
+
+        function_info = {
+            "name": name,
+            "parameters": params,
+            "return_type": return_type,
+            "docstring": self.get_docstring(node),
+            "start_line": node.start_point[0] + 1,
+            "end_line": node.end_point[0] + 1,
+        }
+
+        if not is_method:
+            self.stats["functions"].append(function_info)
+
+        return function_info
+
+
+class JavaAnalyzer(LanguageAnalyzer):
+    """
+    Analyzer for Java code.
+    """
+
+    def _traverse(self, node):
+        if node.type in ("class_declaration", "interface_declaration"):
+            self._extract_class_info(node)
+        elif node.type == "method_declaration":
+            # Avoid capturing methods inside class traversal
+            if not self._is_in_class(node):
+                self._extract_function_info(node)
+
+        for child in node.children:
+            self._traverse(child)
+
+    def _is_in_class(self, node):
+        parent = node.parent
+        while parent:
+            if parent.type in ("class_declaration", "interface_declaration"):
+                return True
+            parent = parent.parent
+        return False
+
+    def get_docstring(self, node):
+        """Extracts the docstring from a given node, if available."""
+        lines = self.code.split("\n")
+        start_line = node.start_point[0]
+        for i in range(start_line - 1, -1, -1):
+            line = lines[i].strip()
+            if line.endswith("*/"):
+                # Find the start /**
+                for k in range(i, -1, -1):
+                    if lines[k].strip().startswith("/**"):
+                        doc_lines = lines[k : i + 1]
+                        docstring = "\n".join(doc_lines)
+                        # Remove /** and */
+                        docstring = (
+                            docstring.replace("/**", "", 1).replace("*/", "", 1).strip()
+                        )
+                        return docstring
+                break
+            elif line and not line.startswith("//"):
+                break  # Stop if non-comment line
+        return None
+
+    def _extract_class_info(self, node):
+        name_node = node.child_by_field_name("name")
+        class_name = (
+            name_node.text.decode("utf-8")
+            if name_node
+            else "AnonymousClass"
+        )
+
+        methods = []
+        body_node = node.child_by_field_name("body")
+        if body_node:
+            for child in body_node.children:
+                if child.type == "method_declaration":
+                    method_info = self._extract_function_info(child, is_method=True)
+                    if method_info:
+                        methods.append(method_info)
+
+        self.stats["classes"].append(
+            {
+                "name": class_name,
+                "methods": methods,
+                "docstring": self.get_docstring(node),
+                "start_line": node.start_point[0] + 1,
+                "end_line": node.end_point[0] + 1,
+            }
+        )
+
+    def _extract_function_info(self, node, is_method=False):
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "AnonymousMethod"
+
+        params_node = node.child_by_field_name("parameters")
+        params = params_node.text.decode("utf-8") if params_node else ""
+
+        type_node = node.child_by_field_name("type")
+        return_type = type_node.text.decode("utf-8") if type_node else None
+
+        function_info = {
+            "name": name,
+            "parameters": params,
+            "return_type": return_type,
+            "docstring": self.get_docstring(node),
+            "start_line": node.start_point[0] + 1,
+            "end_line": node.end_point[0] + 1,
+        }
+
+        if not is_method:
+            self.stats["functions"].append(function_info)
+
+        return function_info
+
+
+class RustAnalyzer(LanguageAnalyzer):
+    """
+    Analyzer for Rust code.
+    """
+
+    def _traverse(self, node):
+        if node.type in ("struct_item", "enum_item"):
+            self._extract_class_info(node)
+        elif node.type == "function_item":
+            # Avoid capturing methods inside impl traversal
+            if not self._is_in_impl(node):
+                self._extract_function_info(node)
+
+        for child in node.children:
+            self._traverse(child)
+
+    def _is_in_impl(self, node):
+        parent = node.parent
+        while parent:
+            if parent.type == "impl_item":
+                return True
+            parent = parent.parent
+        return False
+
+    def get_docstring(self, node):
+        """Extracts the docstring from a given node, if available."""
+        lines = self.code.split("\n")
+        start_line = node.start_point[0]
+        doc_lines = []
+        for i in range(start_line - 1, -1, -1):
+            line = lines[i].strip()
+            if line.startswith("///"):
+                doc_lines.insert(0, line[3:].strip())
+            elif line:
+                break
+        if doc_lines:
+            return "\n".join(doc_lines)
+        return None
+
+    def _extract_class_info(self, node):
+        name_node = node.child_by_field_name("name")
+        class_name = (
+            name_node.text.decode("utf-8")
+            if name_node
+            else "AnonymousStruct"
+        )
+
+        # For Rust, methods are in impl blocks, not nested here
+        methods = []
+
+        self.stats["classes"].append(
+            {
+                "name": class_name,
+                "methods": methods,
+                "docstring": self.get_docstring(node),
+                "start_line": node.start_point[0] + 1,
+                "end_line": node.end_point[0] + 1,
+            }
+        )
+
+    def _extract_function_info(self, node, is_method=False):
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "AnonymousFunction"
+
+        params_node = node.child_by_field_name("parameters")
+        params = params_node.text.decode("utf-8") if params_node else ""
+
+        return_type_node = node.child_by_field_name("return_type")
+        return_type = return_type_node.text.decode("utf-8") if return_type_node else None
+
+        function_info = {
+            "name": name,
+            "parameters": params,
+            "return_type": return_type,
             "docstring": self.get_docstring(node),
             "start_line": node.start_point[0] + 1,
             "end_line": node.end_point[0] + 1,
@@ -260,6 +683,14 @@ def get_analyzer(language: Language) -> type[LanguageAnalyzer]:
         return PythonAnalyzer
     if language == Language(tsjavascript.language()):
         return JavaScriptAnalyzer
+    if language == Language(tsgo.language()):
+        return GoAnalyzer
+    if language == Language(tscpp.language()):
+        return CppAnalyzer
+    if language == Language(tsjava.language()):
+        return JavaAnalyzer
+    if language == Language(tsrust.language()):
+        return RustAnalyzer
     # Return a default analyzer that does nothing if language is not supported
     return LanguageAnalyzer
 
@@ -319,11 +750,12 @@ def format_tree_sitter_analysis_results(stats: Dict[str, Any]) -> Dict[str, Any]
     
     summary = {
         "classes": [{"name": cls["name"], "description": cls.get("docstring", "")} for cls in stats.get("classes", [])],
-        "functions": [{"name": func["name"], "description": func.get("docstring", "")} for func in stats.get("functions", [])]
+        "functions": [{"name": func["name"], "description": func.get("docstring", ""), "return_type": func.get("return_type", "")} for func in stats.get("functions", [])]
     }
     
-    stats["summary"] = summary
-    return stats
+    formatted_stats = {"summary": summary}
+    formatted_stats.update(stats)
+    return formatted_stats
 
 
 if __name__ == "__main__":
