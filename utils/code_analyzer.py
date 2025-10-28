@@ -316,6 +316,13 @@ def format_tree_sitter_analysis_results(stats: Dict[str, Any]) -> Dict[str, Any]
     """
     if not stats:
         return {}
+    
+    summary = {
+        "classes": [{"name": cls["name"], "description": cls.get("docstring", "")} for cls in stats.get("classes", [])],
+        "functions": [{"name": func["name"], "description": func.get("docstring", "")} for func in stats.get("functions", [])]
+    }
+    
+    stats["summary"] = summary
     return stats
 
 
