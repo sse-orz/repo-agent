@@ -119,22 +119,4 @@ def code_file_analysis_tool(file_path: str) -> Dict[str, any]:
     abs_path = resolve_path(file_path)
     analysis_results = analyze_file_with_tree_sitter(abs_path)
     formatted_results = format_tree_sitter_analysis_results(analysis_results)
-    # Persist the formatted analysis to a text log, separated by ===== between calls
-    try:
-        log_filename = resolve_path("analysis_results.txt")
-        log_dir = os.path.dirname(log_filename)
-        if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
-        with open(log_filename, "a", encoding="utf-8") as f:
-            f.write("=====\n")
-            f.write(f"timestamp: {datetime.datetime.now().isoformat()}\n")
-            try:
-                f.write(json.dumps(analysis_results, ensure_ascii=False, indent=2))
-            except (TypeError, ValueError):
-                # Fallback to repr if not JSON serializable
-                f.write(repr(formatted_results))
-            f.write("\n")
-    except Exception:
-        # Don't fail the tool if logging fails; preserve original behavior
-        pass
     return formatted_results
