@@ -63,30 +63,6 @@ When user ask a question about the repo, the agent will first retrieve relevant 
 
 The agent will monitor the given repo for changes. When there are new commits, the agent will automatically update the wiki files based on the new code changes.
 
----
-
-WikiAgent build_app workflow: 
-```python
-def _build_app(self):
-        workflow = StateGraph(AgentState)
-        workflow.add_node("agent", self._agent_node)
-        workflow.add_node("tools", self.tool_executor)
-        workflow.set_entry_point("agent")
-        workflow.add_conditional_edges(
-            "agent",
-            self._should_continue,
-            {
-                "continue": "tools",
-                "end": END,
-            },
-        )
-        workflow.add_edge("tools", "agent")
-        return workflow.compile(checkpointer=self.memory)
-```
-<div align=center>
-<img src="assets/build_app.png" width = "600"  alt="build_app structure" />
-</div>
-
 ## Technologies Used
 
 - LangGraph
@@ -97,15 +73,4 @@ def _build_app(self):
 ...
 
 
-
----
-*开发内容记录*
-
-将wiki_agent拆解为多个部分，目前统一实现在test_agent下，未来可解耦到多个文件。
-- RepoInfoAgent
-- CodeAnalysisAgent
-    - 批量处理：按 batch_size 分批处理文件，避免单次上下文过长，默认每批 5 个文件。
-    - 文件过滤：跳过图片等非代码文件，只分析代码文件。
-    - 限制文件数量：最多分析 20 个文件，避免上下文溢出，可根据需要调整。
-    - 分析结果：每个文件的函数、类、依赖、复杂度。
 
