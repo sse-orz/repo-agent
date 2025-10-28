@@ -67,11 +67,11 @@ def display_book():
     import subprocess
 
     # make sure nvm has been installed
-    # use "nvm --version" to check if nvm is installed
-    result = subprocess.run(
-        ["bash", "-c", "nvm --version"], capture_output=True, text=True
-    )
-    if result.returncode != 0:
+    # Check if NVM directory exists and nvm.sh file is present
+    nvm_dir = os.path.expanduser("~/.nvm")
+    nvm_sh_path = os.path.join(nvm_dir, "nvm.sh")
+    
+    if not os.path.exists(nvm_sh_path):
         print("NVM is not installed. Installing...")
         # install nvm
         subprocess.run(
@@ -81,7 +81,33 @@ def display_book():
                 "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash",
             ]
         )
-        subprocess.run(["bash", "-c", "source ~/.nvm/nvm.sh && nvm install v10.24.1"])
+        # Install Node.js v10.24.1 after NVM installation
+        subprocess.run([
+            "bash", "-c", 
+            "source ~/.nvm/nvm.sh && nvm install v10.24.1 && nvm use v10.24.1"
+        ])
+    else:
+        print("NVM is already installed. Using existing installation...")
+        # Ensure Node.js v10.24.1 is available
+        subprocess.run([
+            "bash", "-c", 
+            "source ~/.nvm/nvm.sh && nvm use v10.24.1"
+        ])
+
+    # Check if gitbook is installed globally
+    gitbook_check = subprocess.run(
+        ["bash", "-c", "source ~/.nvm/nvm.sh && nvm use v10.24.1 && which gitbook"], 
+        capture_output=True, text=True
+    )
+    
+    if gitbook_check.returncode != 0:
+        print("GitBook is not installed. Installing...")
+        subprocess.run([
+            "bash", "-c", 
+            "source ~/.nvm/nvm.sh && nvm use v10.24.1 && npm install -g gitbook-cli"
+        ])
+    else:
+        print("GitBook is already installed.")
 
     subprocess.run(["cp", "-r", wiki_root, display_root])
 
