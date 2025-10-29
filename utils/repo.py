@@ -382,7 +382,7 @@ def get_github_release_note(
     token: Optional[str] = None,
     limit: Optional[int] = 2,
 ) -> List[Dict[str, Any]]:
-    """Get release notes for a specific release  from a GitHub repository.
+    """Get release notes for a specific release from a GitHub repository.
 
     Args:
         owner (str): The owner of the repository.
