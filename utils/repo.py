@@ -381,8 +381,8 @@ def get_github_release_note(
     release_tag: Optional[str] = None,
     token: Optional[str] = None,
     limit: Optional[int] = 2,
-) -> Dict[str, Any]:
-    """Get release notes for a specific release  from a GitHub repository.
+) -> List[Dict[str, Any]]:
+    """Get release notes for a specific release from a GitHub repository.
 
     Args:
         owner (str): The owner of the repository.
@@ -516,7 +516,7 @@ def get_github_pr(
     pr_tag: Optional[str] = None,
     token: Optional[str] = None,
     limit: Optional[int] = 2,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Get pull request details from a GitHub repository.
 
     Args:
@@ -527,26 +527,28 @@ def get_github_pr(
         limit (int, optional): Number of pull requests to retrieve. Defaults to 2.
 
     Returns:
-        Dict[str, Any]: Pull request information.
+        List[Dict[str, Any]]: Pull request information.
     """
     g = Github(auth=Auth.Token(token)) if token else Github()
     repo_obj = g.get_repo(f"{owner}/{repo}")
     if pr_tag:
         pr = repo_obj.get_pull(int(pr_tag))
-        return {
-            "repo": f"{owner}/{repo}",
-            "number": pr.number,
-            "title": pr.title,
-            "body": pr.body,
-            "user": pr.user.login,
-            "labels": [label.name for label in pr.labels],
-            "issue_url": pr.issue_url,
-            "diff_url": pr.diff_url,
-            "patch_url": pr.patch_url,
-            "state": pr.state,
-            "created_at": pr.created_at,
-            "merged_at": pr.merged_at,
-        }
+        return [
+            {
+                "repo": f"{owner}/{repo}",
+                "number": pr.number,
+                "title": pr.title,
+                "body": pr.body,
+                "user": pr.user.login,
+                "labels": [label.name for label in pr.labels],
+                "issue_url": pr.issue_url,
+                "diff_url": pr.diff_url,
+                "patch_url": pr.patch_url,
+                "state": pr.state,
+                "created_at": pr.created_at,
+                "merged_at": pr.merged_at,
+            }
+        ]
     else:
         prs = repo_obj.get_pulls(state="all")[:limit]
         pr_list = []
@@ -596,20 +598,22 @@ def get_gitee_pr(
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
-        return {
-            "repo": f"{owner}/{repo}",
-            "number": data.get("number"),
-            "title": data.get("title"),
-            "body": data.get("body"),
-            "user": data.get("user", {}).get("login"),
-            "labels": [label.get("name") for label in data.get("labels", [])],
-            "issue_url": data.get("issue_url"),
-            "diff_url": data.get("diff_url"),
-            "patch_url": data.get("patch_url"),
-            "state": data.get("state"),
-            "created_at": data.get("created_at"),
-            "merged_at": data.get("merged_at"),
-        }
+        return [
+            {
+                "repo": f"{owner}/{repo}",
+                "number": data.get("number"),
+                "title": data.get("title"),
+                "body": data.get("body"),
+                "user": data.get("user", {}).get("login"),
+                "labels": [label.get("name") for label in data.get("labels", [])],
+                "issue_url": data.get("issue_url"),
+                "diff_url": data.get("diff_url"),
+                "patch_url": data.get("patch_url"),
+                "state": data.get("state"),
+                "created_at": data.get("created_at"),
+                "merged_at": data.get("merged_at"),
+            }
+        ]
     else:
         params = {"per_page": limit}
         response = requests.get(url, headers=headers, params=params)
