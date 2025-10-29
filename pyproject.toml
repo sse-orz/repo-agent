@@ -24,4 +24,5 @@ dependencies = [
     "tree-sitter-rust>=0.24.0",
     "langgraph-supervisor>=0.0.29",
     "langgraph-swarm>=0.0.14",
+    "tree-sitter-c>=0.24.1",
 ]
