@@ -48,6 +48,9 @@ class GlobalConfig:
         print(f"GITHUB_TOKEN: {'Set' if self.TOKEN['github'] else 'Not Set'}")
         print(f"GITEE_TOKEN: {'Set' if self.TOKEN['gitee'] else 'Not Set'}")
 
+    def get_token(self, platform: str) -> str:
+        return self.TOKEN.get(platform.lower(), "")
+
     def get_llm(self):
         match self.LLM_PLATFORM:
             case "ollama":

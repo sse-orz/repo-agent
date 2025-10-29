@@ -138,7 +138,9 @@ class PythonAnalyzer(LanguageAnalyzer):
         params = params_node.text.decode("utf-8") if params_node else ""
 
         return_type_node = node.child_by_field_name("return_type")
-        return_type = return_type_node.text.decode("utf-8") if return_type_node else None
+        return_type = (
+            return_type_node.text.decode("utf-8") if return_type_node else None
+        )
 
         docstring = self.get_docstring(node)
 
@@ -251,6 +253,7 @@ class JavaScriptAnalyzer(LanguageAnalyzer):
 
         return function_info
 
+
 class GoAnalyzer(LanguageAnalyzer):
     """
     Analyzer for Go code.
@@ -297,11 +300,7 @@ class GoAnalyzer(LanguageAnalyzer):
         type_spec = node.child_by_field_name("type")
         if type_spec and type_spec.type in ("struct_type", "interface_type"):
             name_node = node.child_by_field_name("name")
-            name = (
-                name_node.text.decode("utf-8")
-                if name_node
-                else "AnonymousType"
-            )
+            name = name_node.text.decode("utf-8") if name_node else "AnonymousType"
 
             # For Go, methods are not nested in the type declaration
             # So, methods list is empty for now
@@ -363,27 +362,27 @@ class CppAnalyzer(LanguageAnalyzer):
         declarator = node.child_by_field_name("declarator")
         if not declarator:
             return None
-        
+
         start = node.start_point
         decl_start = declarator.start_point
-        
-        lines = self.code.split('\n')
+
+        lines = self.code.split("\n")
         return_type_parts = []
-        
+
         if start[0] == decl_start[0]:
             # Same line
             line = lines[start[0]]
-            return_type = line[start[1]:decl_start[1]].strip()
+            return_type = line[start[1] : decl_start[1]].strip()
         else:
             # Multi-line
             for i in range(start[0], decl_start[0]):
                 if i == start[0]:
-                    return_type_parts.append(lines[i][start[1]:])
+                    return_type_parts.append(lines[i][start[1] :])
                 else:
                     return_type_parts.append(lines[i])
-            return_type_parts.append(lines[decl_start[0]][:decl_start[1]])
-            return_type = '\n'.join(return_type_parts).strip()
-        
+            return_type_parts.append(lines[decl_start[0]][: decl_start[1]])
+            return_type = "\n".join(return_type_parts).strip()
+
         return return_type if return_type else None
 
     def _traverse(self, node):
@@ -429,11 +428,7 @@ class CppAnalyzer(LanguageAnalyzer):
 
     def _extract_class_info(self, node):
         name_node = node.child_by_field_name("name")
-        class_name = (
-            name_node.text.decode("utf-8")
-            if name_node
-            else "AnonymousClass"
-        )
+        class_name = name_node.text.decode("utf-8") if name_node else "AnonymousClass"
 
         methods = []
         body_node = node.child_by_field_name("body")
@@ -535,11 +530,7 @@ class JavaAnalyzer(LanguageAnalyzer):
 
     def _extract_class_info(self, node):
         name_node = node.child_by_field_name("name")
-        class_name = (
-            name_node.text.decode("utf-8")
-            if name_node
-            else "AnonymousClass"
-        )
+        class_name = name_node.text.decode("utf-8") if name_node else "AnonymousClass"
 
         methods = []
         body_node = node.child_by_field_name("body")
@@ -626,11 +617,7 @@ class RustAnalyzer(LanguageAnalyzer):
 
     def _extract_class_info(self, node):
         name_node = node.child_by_field_name("name")
-        class_name = (
-            name_node.text.decode("utf-8")
-            if name_node
-            else "AnonymousStruct"
-        )
+        class_name = name_node.text.decode("utf-8") if name_node else "AnonymousStruct"
 
         # For Rust, methods are in impl blocks, not nested here
         methods = []
@@ -653,7 +640,9 @@ class RustAnalyzer(LanguageAnalyzer):
         params = params_node.text.decode("utf-8") if params_node else ""
 
         return_type_node = node.child_by_field_name("return_type")
-        return_type = return_type_node.text.decode("utf-8") if return_type_node else None
+        return_type = (
+            return_type_node.text.decode("utf-8") if return_type_node else None
+        )
 
         function_info = {
             "name": name,
@@ -747,12 +736,22 @@ def format_tree_sitter_analysis_results(stats: Dict[str, Any]) -> Dict[str, Any]
     """
     if not stats:
         return {}
-    
+
     summary = {
-        "classes": [{"name": cls["name"], "description": cls.get("docstring", "")} for cls in stats.get("classes", [])],
-        "functions": [{"name": func["name"], "description": func.get("docstring", ""), "return_type": func.get("return_type", "")} for func in stats.get("functions", [])]
+        "classes": [
+            {"name": cls["name"], "description": cls.get("docstring", "")}
+            for cls in stats.get("classes", [])
+        ],
+        "functions": [
+            {
+                "name": func["name"],
+                "description": func.get("docstring", ""),
+                "return_type": func.get("return_type", ""),
+            }
+            for func in stats.get("functions", [])
+        ],
     }
-    
+
     formatted_stats = {"summary": summary}
     formatted_stats.update(stats)
     return formatted_stats
