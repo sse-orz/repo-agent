@@ -381,7 +381,7 @@ def get_github_release_note(
     release_tag: Optional[str] = None,
     token: Optional[str] = None,
     limit: Optional[int] = 2,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Get release notes for a specific release  from a GitHub repository.
 
     Args:
