@@ -188,7 +188,7 @@ class MoAgent:
 
 if __name__ == "__main__":
     moagent = MoAgent(
-        repo_path="./repos/TheAlgorithms/Python",
+        repo_path="./.repos/TheAlgorithms/Python",
         wiki_path="./.wikis/TheAlgorithms_Python",
     )
     moagent._draw_graph()
