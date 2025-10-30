@@ -724,19 +724,22 @@ def get_github_pr_files(
                 }
             )
     else:
-        pr = repo_obj.get_pulls(state="all")[0]
-        for file in pr.get_files():
-            files["files"].append(
-                {
-                    "filename": file.filename,
-                    "status": file.status,
-                    "additions": file.additions,
-                    "deletions": file.deletions,
-                    "changes": file.changes,
-                    "patch": file.patch,
-                }
-            )
-        files["pr_tag"] = pr.number
+        pulls = list(repo_obj.get_pulls(state="all"))
+        if pulls:
+            pr = pulls[0]
+            for file in pr.get_files():
+                files["files"].append(
+                    {
+                        "filename": file.filename,
+                        "status": file.status,
+                        "additions": file.additions,
+                        "deletions": file.deletions,
+                        "changes": file.changes,
+                        "patch": file.patch,
+                    }
+                )
+            files["pr_tag"] = pr.number
+        # If no pull requests exist, files["files"] remains empty and pr_tag is unchanged
     return files
 
 
