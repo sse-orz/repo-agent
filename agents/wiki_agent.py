@@ -144,7 +144,6 @@ class WikiAgent:
         )
         with open(graph_file_name, "wb") as f:
             f.write(img)
-            f.close()
 
     def generate(self):
         # Start the wiki generation process
