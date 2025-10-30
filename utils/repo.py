@@ -381,7 +381,7 @@ def get_github_release_note(
     release_tag: Optional[str] = None,
     token: Optional[str] = None,
     limit: Optional[int] = 2,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """Get release notes for a specific release from a GitHub repository.
 
     Args:
@@ -392,29 +392,33 @@ def get_github_release_note(
         limit (int, optional): Number of releases to retrieve. Defaults to 2.
 
     Returns:
-        List[Dict[str, Any]]: List of release information.
+        Dict[str, Any]: Release notes for the specified release or list of latest releases.
     """
     g = Github(auth=Auth.Token(token)) if token else Github()
     repo_obj = g.get_repo(f"{owner}/{repo}")
+    release_list = {
+        "repo": f"{owner}/{repo}",
+        "releases_count": 0,
+        "releases": [],
+    }
     if release_tag:
         release = repo_obj.get_release(release_tag)
-        return [
+        release_list["releases"].append(
             {
-                "repo": f"{owner}/{repo}",
                 "tag_name": release.tag_name,
                 "name": release.name,
                 "body": release.body,
                 "created_at": release.created_at,
                 "published_at": release.published_at,
             }
-        ]
+        )
+        release_list["releases_count"] += 1
     else:
-        releases = repo_obj.get_releases()[:limit]
-        release_list = []
-        for release in releases:
-            release_list.append(
+        for i, release in enumerate(repo_obj.get_releases()):
+            if i >= limit:
+                break
+            release_list["releases"].append(
                 {
-                    "repo": f"{owner}/{repo}",
                     "tag_name": release.tag_name,
                     "name": release.name,
                     "body": release.body,
@@ -422,7 +426,8 @@ def get_github_release_note(
                     "published_at": release.published_at,
                 }
             )
-        return release_list
+            release_list["releases_count"] += 1
+    return release_list
 
 
 def get_gitee_release_note(
@@ -431,7 +436,7 @@ def get_gitee_release_note(
     release_tag: Optional[str] = None,
     token: Optional[str] = None,
     limit: Optional[int] = 2,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """Get the latest releases from a Gitee repository.
 
     Args:
@@ -442,35 +447,38 @@ def get_gitee_release_note(
         limit (int, optional): Number of releases to retrieve. Defaults to 2.
 
     Returns:
-        List[Dict[str, Any]]: List of release information.
+        Dict[str, Any]: Release notes for the specified release or list of latest releases.
     """
     url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/releases"
     headers = {"Authorization": f"token {token}"} if token else {}
+    release_list = {
+        "repo": f"{owner}/{repo}",
+        "releases_count": 0,
+        "releases": [],
+    }
     if release_tag:
         url += f"/tags/{release_tag}"
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
-        return [
+        release_list["releases"].append(
             {
-                "repo": f"{owner}/{repo}",
                 "tag_name": data.get("tag_name"),
                 "name": data.get("name"),
                 "body": data.get("body"),
                 "created_at": data.get("created_at"),
                 "published_at": data.get("published_at"),
             }
-        ]
+        )
+        release_list["releases_count"] += 1
     else:
         params = {"per_page": limit}
         response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         data = response.json()
-        release_list = []
         for release in data:
-            release_list.append(
+            release_list["releases"].append(
                 {
-                    "repo": f"{owner}/{repo}",
                     "tag_name": release.get("tag_name"),
                     "name": release.get("name"),
                     "body": release.get("body"),
@@ -478,7 +486,8 @@ def get_gitee_release_note(
                     "published_at": release.get("published_at"),
                 }
             )
-        return release_list
+            release_list["releases_count"] += 1
+    return release_list
 
 
 def get_release_note(
@@ -487,7 +496,7 @@ def get_release_note(
     release_tag: Optional[str] = None,
     platform: Optional[str] = "github",
     limit: Optional[int] = 2,
-) -> Any:
+) -> Dict[str, Any]:
     """Get release notes for a specific release or the latest releases from GitHub or Gitee repository.
 
     Args:
@@ -498,7 +507,7 @@ def get_release_note(
         limit (int, optional): Number of releases to retrieve. Defaults to 2.
 
     Returns:
-        Dict[str, Any] or List[Dict[str, Any]]: Release notes for the specified release or list of latest releases.
+        Dict[str, Any]: Release notes for the specified release or list of latest releases.
     """
     platform = platform.lower()
     token = CONFIG.get_token(platform)
@@ -516,7 +525,7 @@ def get_github_pr(
     pr_tag: Optional[str] = None,
     token: Optional[str] = None,
     limit: Optional[int] = 2,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """Get pull request details from a GitHub repository.
 
     Args:
@@ -527,15 +536,19 @@ def get_github_pr(
         limit (int, optional): Number of pull requests to retrieve. Defaults to 2.
 
     Returns:
-        List[Dict[str, Any]]: Pull request information.
+        Dict[str, Any]: Pull request information.
     """
     g = Github(auth=Auth.Token(token)) if token else Github()
     repo_obj = g.get_repo(f"{owner}/{repo}")
+    pr_list = {
+        "repo": f"{owner}/{repo}",
+        "prs_count": 0,
+        "prs": [],
+    }
     if pr_tag:
         pr = repo_obj.get_pull(int(pr_tag))
-        return [
+        pr_list["prs"].append(
             {
-                "repo": f"{owner}/{repo}",
                 "number": pr.number,
                 "title": pr.title,
                 "body": pr.body,
@@ -548,14 +561,13 @@ def get_github_pr(
                 "created_at": pr.created_at,
                 "merged_at": pr.merged_at,
             }
-        ]
+        )
+        pr_list["prs_count"] += 1
     else:
-        prs = repo_obj.get_pulls(state="all")[:limit]
-        pr_list = []
+        prs = repo_obj.get_pulls(state="all", per_page=limit).get_page(0)
         for pr in prs:
-            pr_list.append(
+            pr_list["prs"].append(
                 {
-                    "repo": f"{owner}/{repo}",
                     "number": pr.number,
                     "title": pr.title,
                     "body": pr.body,
@@ -569,7 +581,8 @@ def get_github_pr(
                     "merged_at": pr.merged_at,
                 }
             )
-        return pr_list
+            pr_list["prs_count"] += 1
+    return pr_list
 
 
 def get_gitee_pr(
@@ -578,7 +591,7 @@ def get_gitee_pr(
     pr_tag: Optional[str] = None,
     token: Optional[str] = None,
     limit: Optional[int] = 2,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """Get pull request details from a Gitee repository.
 
     Args:
@@ -589,18 +602,22 @@ def get_gitee_pr(
         limit (int, optional): Number of pull requests to retrieve. Defaults to 2.
 
     Returns:
-        List[Dict[str, Any]]: Pull request information.
+        Dict[str, Any]: Pull request information.
     """
     url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/pulls"
     headers = {"Authorization": f"token {token}"} if token else {}
+    pr_list = {
+        "repo": f"{owner}/{repo}",
+        "prs_count": 0,
+        "prs": [],
+    }
     if pr_tag:
         url += f"/{pr_tag}"
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
-        return [
+        pr_list["prs"].append(
             {
-                "repo": f"{owner}/{repo}",
                 "number": data.get("number"),
                 "title": data.get("title"),
                 "body": data.get("body"),
@@ -613,17 +630,16 @@ def get_gitee_pr(
                 "created_at": data.get("created_at"),
                 "merged_at": data.get("merged_at"),
             }
-        ]
+        )
+        pr_list["prs_count"] += 1
     else:
         params = {"per_page": limit}
         response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         data = response.json()
-        pr_list = []
         for pr in data:
-            pr_list.append(
+            pr_list["prs"].append(
                 {
-                    "repo": f"{owner}/{repo}",
                     "number": pr.get("number"),
                     "title": pr.get("title"),
                     "body": pr.get("body"),
@@ -637,7 +653,8 @@ def get_gitee_pr(
                     "merged_at": pr.get("merged_at"),
                 }
             )
-        return pr_list
+            pr_list["prs_count"] += 1
+    return pr_list
 
 
 def get_pr(
@@ -646,7 +663,7 @@ def get_pr(
     pr_tag: Optional[str] = None,
     platform: Optional[str] = "github",
     limit: Optional[int] = 2,
-) -> Any:
+) -> Dict[str, Any]:
     """Get pull request details from GitHub or Gitee repository.
 
     Args:
@@ -657,7 +674,7 @@ def get_pr(
         limit (int, optional): Number of pull requests to retrieve. Defaults to 2.
 
     Returns:
-        Dict[str, Any] or List[Dict[str, Any]]: Pull request information.
+        Dict[str, Any]: Pull request information.
     """
     platform = platform.lower()
     token = CONFIG.get_token(platform)
@@ -672,95 +689,146 @@ def get_pr(
 def get_github_pr_files(
     owner: str,
     repo: str,
-    pr_tag: str,
+    pr_tag: Optional[str] = None,
     token: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """Get modified files in a specific pull request from GitHub.
 
     Args:
         owner (str): The owner of the repository.
         repo (str): The name of the repository.
-        pr_tag (str): The pull request number.
+        pr_tag (str, optional): The pull request number.
         token (str, optional): GitHub personal access token. Defaults to None.
 
     Returns:
-        List[Dict[str, Any]]: List of modified files in the pull request.
+        Dict[str, Any]: List of modified files in the pull request.
     """
     g = Github(auth=Auth.Token(token)) if token else Github()
     repo_obj = g.get_repo(f"{owner}/{repo}")
-    pr = repo_obj.get_pull(int(pr_tag))
-    files = []
-    for file in pr.get_files():
-        files.append(
-            {
-                "repo": f"{owner}/{repo}",
-                "pr_tag": pr.number,
-                "filename": file.filename,
-                "status": file.status,
-                "additions": file.additions,
-                "deletions": file.deletions,
-                "changes": file.changes,
-                "patch": file.patch,
-            }
-        )
+    files = {
+        "repo": f"{owner}/{repo}",
+        "pr_tag": pr_tag,
+        "files": [],
+    }
+    if pr_tag:
+        pr = repo_obj.get_pull(int(pr_tag))
+        for file in pr.get_files():
+            files["files"].append(
+                {
+                    "filename": file.filename,
+                    "status": file.status,
+                    "additions": file.additions,
+                    "deletions": file.deletions,
+                    "changes": file.changes,
+                    "patch": file.patch,
+                }
+            )
+    else:
+        pulls = list(repo_obj.get_pulls(state="all"))
+        if pulls:
+            pr = pulls[0]
+            for file in pr.get_files():
+                files["files"].append(
+                    {
+                        "filename": file.filename,
+                        "status": file.status,
+                        "additions": file.additions,
+                        "deletions": file.deletions,
+                        "changes": file.changes,
+                        "patch": file.patch,
+                    }
+                )
+            files["pr_tag"] = pr.number
+        # If no pull requests exist, files["files"] remains empty and pr_tag is unchanged
     return files
 
 
 def get_gitee_pr_files(
     owner: str,
     repo: str,
-    pr_tag: str,
+    pr_tag: Optional[str] = None,
     token: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """Get modified files in a specific pull request from Gitee.
 
     Args:
         owner (str): The owner of the repository.
         repo (str): The name of the repository.
-        pr_tag (str): The pull request number.
+        pr_tag (str, optional): The pull request number.
         token (str, optional): Gitee personal access token. Defaults to None.
 
     Returns:
-        List[Dict[str, Any]]: List of modified files in the pull request.
+        Dict[str, Any]: List of modified files in the pull request.
     """
-    url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/pulls/{pr_tag}/files"
     headers = {"Authorization": f"token {token}"} if token else {}
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    data = response.json()
-    files = []
-    for file in data:
-        files.append(
-            {
-                "repo": f"{owner}/{repo}",
-                "pr_tag": pr_tag,
-                "filename": file.get("filename"),
-                "status": file.get("status"),
-                "additions": file.get("additions"),
-                "deletions": file.get("deletions"),
-                "changes": file.get("changes"),
-                "patch": file.get("patch"),
-            }
-        )
+    files = {
+        "repo": f"{owner}/{repo}",
+        "pr_tag": pr_tag,
+        "files": [],
+    }
+    if pr_tag:
+        url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/pulls/{pr_tag}/files"
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        for file in data:
+            files["files"].append(
+                {
+                    "filename": file.get("filename"),
+                    "status": file.get("status"),
+                    "additions": file.get("additions"),
+                    "deletions": file.get("deletions"),
+                    "changes": file.get("changes"),
+                    "patch": file.get("patch"),
+                }
+            )
+    else:
+        # If no pr_tag is provided, get the latest pull request
+        prs_url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/pulls"
+        params = {"per_page": 1}
+        response = requests.get(prs_url, headers=headers, params=params)
+        response.raise_for_status()
+        prs_data = response.json()
+        if prs_data:
+            latest_pr = prs_data[0]
+            pr_number = latest_pr.get("number")
+            files["pr_tag"] = pr_number
+            files_url = (
+                f"https://gitee.com/api/v5/repos/{owner}/{repo}/pulls/{pr_number}/files"
+            )
+            response = requests.get(files_url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            for file in data:
+                files["files"].append(
+                    {
+                        "filename": file.get("filename"),
+                        "status": file.get("status"),
+                        "additions": file.get("additions"),
+                        "deletions": file.get("deletions"),
+                        "changes": file.get("changes"),
+                        "patch": file.get("patch"),
+                    }
+                )
     return files
 
 
 def get_pr_files(
     owner: str,
     repo: str,
-    pr_tag: str,
+    pr_tag: Optional[str] = None,
     platform: Optional[str] = "github",
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """Get modified files in a specific pull request from GitHub or Gitee.
 
     Args:
         owner (str): The owner of the repository.
         repo (str): The name of the repository.
-        pr_tag (str): The pull request number.
+        pr_tag (str, optional): The pull request number.
         platform (str, optional): Platform to use ("github" or "gitee"). Defaults to "github".
 
     Returns:
-        List[Dict[str, Any]]: List of modified files in the pull request.
+        Dict[str, Any]: List of modified files in the pull request.
     """
     platform = platform.lower()
     token = CONFIG.get_token(platform)
@@ -794,9 +862,6 @@ if __name__ == "__main__":
     pr_tag = "1"  # Specify the pull request number you want to retrieve
     # pr_info = get_pr(owner, repo, pr_tag, platform=platform)
     # print("Pull Request Info:", pr_info)
-
-    # latest_prs = get_pr(owner, repo, platform=platform, limit=1)
-    # print("Latest Pull Requests:", latest_prs)
 
     pr_files = get_pr_files(owner, repo, pr_tag, platform=platform)
     print("Pull Request Files:", pr_files)
