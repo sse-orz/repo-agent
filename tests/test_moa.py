@@ -183,7 +183,6 @@ class MoAgent:
         )
         with open(graph_file_name, "wb") as f:
             f.write(img)
-            f.close()
 
 
 if __name__ == "__main__":
