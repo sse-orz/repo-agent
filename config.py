@@ -20,8 +20,8 @@ class GlobalConfig:
 
     def __init__(self):
         self.TOKEN = {
-            "github": os.getenv("GITHUB_TOKEN", ""),
-            "gitee": os.getenv("GITEE_TOKEN", ""),
+            "github": os.getenv("GITHUB_TOKEN"),
+            "gitee": os.getenv("GITEE_TOKEN"),
         }
         self.LLM_PLATFORM = os.getenv("LLM_PLATFORM", "ollama").lower()
         match self.LLM_PLATFORM:
@@ -47,6 +47,9 @@ class GlobalConfig:
         print(f"LLM_MODEL: {self.LLM_MODEL}")
         print(f"GITHUB_TOKEN: {'Set' if self.TOKEN['github'] else 'Not Set'}")
         print(f"GITEE_TOKEN: {'Set' if self.TOKEN['gitee'] else 'Not Set'}")
+
+    def get_token(self, platform: str) -> Optional[str]:
+        return self.TOKEN.get(platform.lower(), None)
 
     def get_llm(self):
         match self.LLM_PLATFORM:

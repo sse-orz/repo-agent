@@ -240,7 +240,9 @@ class PythonAnalyzer(LanguageAnalyzer):
         parameters = self._parse_parameters(params_node)
 
         return_type_node = node.child_by_field_name("return_type")
-        return_type = return_type_node.text.decode("utf-8") if return_type_node else ""
+        return_type = (
+            return_type_node.text.decode("utf-8") if return_type_node else None
+        )
 
         docstring = self.get_docstring(node)
 
