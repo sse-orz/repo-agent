@@ -5,6 +5,7 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
 
 # Virtual environments
 .venv
@@ -13,6 +14,7 @@ wheels/
 .repos/
 .wikis/
 .logs/
+.graphs/
 node_modules/
 _book/
 SUMMARY.md

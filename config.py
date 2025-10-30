@@ -17,6 +17,9 @@ class GlobalConfig:
     DEEPSEEK_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     GLM_API_KEY: Optional[str] = None
+    LANGSMITH_TRACING: bool = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+    LANGSMITH_API_KEY: Optional[str] = os.getenv("LANGSMITH_API_KEY", None)
+    LANGSMITH_PROJECT: Optional[str] = os.getenv("LANGSMITH_PROJECT", None)
 
     def __init__(self):
         self.TOKEN = {
@@ -47,6 +50,11 @@ class GlobalConfig:
         print(f"LLM_MODEL: {self.LLM_MODEL}")
         print(f"GITHUB_TOKEN: {'Set' if self.TOKEN['github'] else 'Not Set'}")
         print(f"GITEE_TOKEN: {'Set' if self.TOKEN['gitee'] else 'Not Set'}")
+        print(f"LANGSMITH_TRACING: {self.LANGSMITH_TRACING}")
+        print(f"LANGSMITH_API_KEY: {'Set' if self.LANGSMITH_API_KEY else 'Not Set'}")
+        print(
+            f"LANGSMITH_PROJECT: {self.LANGSMITH_PROJECT if self.LANGSMITH_PROJECT else 'Not Set'}"
+        )
 
     def get_token(self, platform: str) -> Optional[str]:
         return self.TOKEN.get(platform.lower(), None)

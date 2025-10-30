@@ -18,6 +18,7 @@ from langchain_core.messages import (
     HumanMessage,
 )
 from langgraph.graph.message import add_messages
+from langchain_core.runnables.graph import MermaidDrawMethod
 from typing import TypedDict, Annotated, Sequence
 from contextlib import redirect_stdout
 from datetime import datetime
@@ -130,6 +131,21 @@ class WikiAgent:
             else:
                 message.pretty_print()
 
+    def _draw_graph(self):
+        img = self.app.get_graph().draw_mermaid_png(
+            draw_method=MermaidDrawMethod.API,
+        )
+        dir_name = "./.graphs"
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
+        graph_file_name = os.path.join(
+            dir_name,
+            f"wiki_agent_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.png",
+        )
+        with open(graph_file_name, "wb") as f:
+            f.write(img)
+            f.close()
+
     def generate(self):
         # Start the wiki generation process
         init_message = HumanMessage(
@@ -167,19 +183,20 @@ if __name__ == "__main__":
     CONFIG.display()
     from utils.repo import clone_repo, pull_repo
 
-    repo_path = "./.repos/TheAlgorithms_Python"
+    repo_path = "./.repos/facebook_zstd"
     clone_repo(
         platform="github",
-        owner="TheAlgorithms",
-        repo="Python",
+        owner="facebook",
+        repo="zstd",
         dest=repo_path,
     )
     pull_repo(
         platform="github",
-        owner="TheAlgorithms",
-        repo="Python",
+        owner="facebook",
+        repo="zstd",
         dest=repo_path,
     )
-    wiki_path = "./.wikis/TheAlgorithms_Python"
+    wiki_path = "./.wikis/facebook_zstd"
     agent = WikiAgent(repo_path, wiki_path)
     agent.generate()
+    # agent._draw_graph()
