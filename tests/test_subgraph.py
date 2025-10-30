@@ -79,7 +79,6 @@ graph_file_name = os.path.join(
 )
 with open(graph_file_name, "wb") as f:
     f.write(img)
-    f.close()
 
 # 运行并打印结果
 initial_state = {"value": 0}
