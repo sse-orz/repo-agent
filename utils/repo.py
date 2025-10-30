@@ -757,7 +757,6 @@ def get_gitee_pr_files(
     Returns:
         Dict[str, Any]: List of modified files in the pull request.
     """
-    url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/pulls/{pr_tag}/files"
     headers = {"Authorization": f"token {token}"} if token else {}
     files = {
         "repo": f"{owner}/{repo}",
@@ -765,6 +764,7 @@ def get_gitee_pr_files(
         "files": [],
     }
     if pr_tag:
+        url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/pulls/{pr_tag}/files"
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
@@ -807,7 +807,6 @@ def get_gitee_pr_files(
                         "patch": file.get("patch"),
                     }
                 )
-            files["pr_tag"] = pr_number
     return files
 
 

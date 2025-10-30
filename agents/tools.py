@@ -156,7 +156,7 @@ def get_repo_pr_tool(
     platform: Optional[str] = "github",
     limit: Optional[int] = 2,
 ) -> Dict[str, Any]:
-    """Get the modified files in a pull request.
+    """Get pull request information from a repository.
 
     Args:
         owner (str): The owner of the repository.
@@ -166,7 +166,7 @@ def get_repo_pr_tool(
         limit (Optional[int]): The maximum number of pull requests to retrieve (default is 2).
 
     Returns:
-        Dict[str, Any]: List of modified files in the pull request.
+        Dict[str, Any]: pull request information from the repository.
     """
     pr_info = get_pr(
         owner=owner,
