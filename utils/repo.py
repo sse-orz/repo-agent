@@ -564,7 +564,7 @@ def get_github_pr(
         )
         pr_list["prs_count"] += 1
     else:
-        prs = repo_obj.get_pulls(state="all")[:limit]
+        prs = repo_obj.get_pulls(state="all", per_page=limit).get_page(0)
         for pr in prs:
             pr_list["prs"].append(
                 {
