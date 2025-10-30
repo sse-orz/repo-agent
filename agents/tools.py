@@ -11,7 +11,6 @@ from utils.code_analyzer import (
     format_tree_sitter_analysis_results,
 )
 
-import os
 from typing import Optional, Dict, Any
 from langchain.tools import tool
 
