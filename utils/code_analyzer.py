@@ -11,15 +11,15 @@ import tree_sitter_rust as tsrust
 
 # Dictionary to map file extensions to tree-sitter languages
 LANGUAGES = {
-    ".py": Language(tspython.language()),
-    ".js": Language(tsjavascript.language()),
-    ".go": Language(tsgo.language()),
-    ".cpp": Language(tscpp.language()),
-    ".c": Language(tscpp.language()),
-    ".h": Language(tscpp.language()),
-    ".hpp": Language(tscpp.language()),
-    ".java": Language(tsjava.language()),
-    ".rs": Language(tsrust.language()),
+    ".py": tspython.language(),
+    ".js": tsjavascript.language(),
+    ".go": tsgo.language(),
+    ".cpp": tscpp.language(),
+    ".c": tscpp.language(),
+    ".h": tscpp.language(),
+    ".hpp": tscpp.language(),
+    ".java": tsjava.language(),
+    ".rs": tsrust.language(),
 }
 
 
@@ -33,7 +33,8 @@ def get_language(file_path: str) -> Optional[Language]:
         Optional[Language]: Matched tree-sitter language or None if unsupported.
     """
     _, ext = os.path.splitext(file_path)
-    return LANGUAGES.get(ext)
+    lang = LANGUAGES.get(ext)
+    return Language(lang) if lang else None
 
 
 class LanguageAnalyzer:
@@ -53,7 +54,9 @@ class LanguageAnalyzer:
         """
         self.code = code
         self.language = language
-        self.parser = Parser(language)
+        # Correct parser initialization: create parser then set language
+        self.parser = Parser()
+        self.parser.language = language
         self.tree = self.parser.parse(bytes(self.code, "utf8"))
         self.stats: Dict[str, Any] = {"classes": [], "functions": []}
 
@@ -180,8 +183,8 @@ class PythonAnalyzer(LanguageAnalyzer):
                     else:
                         return docstring_raw[1:-1]
         except Exception:
-            return None
-        return None
+            return ""
+        return ""
 
     def _extract_class_info(self, node):
         """Captures metadata for a Python class declaration.
@@ -237,9 +240,7 @@ class PythonAnalyzer(LanguageAnalyzer):
         parameters = self._parse_parameters(params_node)
 
         return_type_node = node.child_by_field_name("return_type")
-        return_type = (
-            return_type_node.text.decode("utf-8") if return_type_node else None
-        )
+        return_type = return_type_node.text.decode("utf-8") if return_type_node else ""
 
         docstring = self.get_docstring(node)
 
@@ -292,7 +293,7 @@ class PythonAnalyzer(LanguageAnalyzer):
             Optional[Dict[str, Optional[str]]]: Parameter metadata or None.
         """
         name = None
-        type_annotation = None
+        type_annotation = ""
         if param_node.type == "identifier":
             name = param_node.text.decode("utf-8")
         elif param_node.type == "typed_parameter":
@@ -309,7 +310,7 @@ class PythonAnalyzer(LanguageAnalyzer):
             if len(param_node.children) >= 3:
                 name = param_node.children[0].text.decode("utf-8")
                 type_annotation = param_node.children[2].text.decode("utf-8")
-        return {"name": name, "type": type_annotation} if name else None
+        return {"name": name, "type": type_annotation or ""} if name else None
 
     def _extract_import_info(self, node):
         """Records modules and symbols imported by the current Python node.
@@ -499,7 +500,7 @@ class JavaScriptAnalyzer(LanguageAnalyzer):
                 break
             elif line and not line.startswith("//"):
                 break  # Stop if non-comment line
-        return None
+        return ""
 
     def _extract_class_info(self, node):
         """Collects metadata for a JavaScript class declaration.
@@ -555,7 +556,7 @@ class JavaScriptAnalyzer(LanguageAnalyzer):
         function_info = {
             "name": name,
             "parameters": parameters,
-            "return_type": None,
+            "return_type": "",
             "docstring": self.get_docstring(node),
             "start_line": node.start_point[0] + 1,
             "end_line": node.end_point[0] + 1,
@@ -595,16 +596,16 @@ class JavaScriptAnalyzer(LanguageAnalyzer):
             Optional[Dict[str, Optional[str]]]: Parameter metadata when resolved.
         """
         if node.type == "identifier":
-            return {"name": node.text.decode("utf-8"), "type": None}
+            return {"name": node.text.decode("utf-8"), "type": ""}
         if node.type == "assignment_pattern":
             target = node.child_by_field_name("left")
             if not target and node.children:
                 target = node.children[0]
             if target:
-                return {"name": target.text.decode("utf-8"), "type": None}
+                return {"name": target.text.decode("utf-8"), "type": ""}
             text = node.text.decode("utf-8")
             name = text.split("=")[0].strip()
-            return {"name": name, "type": None} if name else None
+            return {"name": name, "type": ""} if name else None
         if node.type == "rest_pattern":
             identifier = node.child_by_field_name("identifier")
             if not identifier:
@@ -612,8 +613,8 @@ class JavaScriptAnalyzer(LanguageAnalyzer):
                     (c for c in node.children if c.type == "identifier"), None
                 )
             if identifier:
-                return {"name": identifier.text.decode("utf-8"), "type": None}
-            return {"name": node.text.decode("utf-8"), "type": None}
+                return {"name": identifier.text.decode("utf-8"), "type": ""}
+            return {"name": node.text.decode("utf-8"), "type": ""}
         if node.type in {
             "array_pattern",
             "object_pattern",
@@ -621,7 +622,7 @@ class JavaScriptAnalyzer(LanguageAnalyzer):
             "object_assignment_pattern",
         }:
             # Return the raw text so callers know the destructuring signature
-            return {"name": node.text.decode("utf-8"), "type": None}
+            return {"name": node.text.decode("utf-8"), "type": ""}
         return None
 
 
@@ -663,8 +664,6 @@ class GoAnalyzer(LanguageAnalyzer):
             self.stats["outer_dependencies"].append({"module": path, "name": ""})
 
         # grouped imports: import ( "a" b "c" ) or with aliases: import ( name "path" )
-        for m in re.search(r"import\s*\((.*?)\)", self.code, re.S) or []:
-            pass
         # simpler grouped parsing
         grouped = re.findall(r"import\s*\((.*?)\)", self.code, re.S)
         for block in grouped:
@@ -751,7 +750,7 @@ class GoAnalyzer(LanguageAnalyzer):
                 break
         if doc_lines:
             return "\n".join(doc_lines)
-        return None
+        return ""
 
     def _extract_class_info(self, node):
         """Captures struct or interface metadata from a type declaration.
@@ -798,7 +797,7 @@ class GoAnalyzer(LanguageAnalyzer):
         parameters = self._parse_parameters(params_node)
 
         result_node = node.child_by_field_name("result")
-        return_type = result_node.text.decode("utf-8") if result_node else None
+        return_type = result_node.text.decode("utf-8") if result_node else ""
 
         function_info = {
             "name": name,
@@ -857,9 +856,9 @@ class GoAnalyzer(LanguageAnalyzer):
                 ),
                 None,
             )
-            type_text = type_node.text.decode("utf-8") if type_node else None
+            type_text = type_node.text.decode("utf-8") if type_node else ""
             return [
-                {"name": ident.text.decode("utf-8"), "type": type_text}
+                {"name": ident.text.decode("utf-8"), "type": type_text or ""}
                 for ident in id_nodes
             ]
 
@@ -885,7 +884,10 @@ class GoAnalyzer(LanguageAnalyzer):
             type_text = type_node.text.decode("utf-8") if type_node else ""
             type_text = f"...{type_text}".strip()
             return [
-                {"name": name_node.text.decode("utf-8"), "type": type_text or "..."}
+                {
+                    "name": name_node.text.decode("utf-8"),
+                    "type": type_text or "...",
+                }
             ]
 
         return []
@@ -978,7 +980,7 @@ class CppAnalyzer(LanguageAnalyzer):
         """
         declarator = node.child_by_field_name("declarator")
         if not declarator:
-            return None
+            return ""
 
         start = node.start_point
         decl_start = declarator.start_point
@@ -1000,7 +1002,7 @@ class CppAnalyzer(LanguageAnalyzer):
             return_type_parts.append(lines[decl_start[0]][: decl_start[1]])
             return_type = "\n".join(return_type_parts).strip()
 
-        return return_type if return_type else None
+        return return_type if return_type else ""
 
     def _traverse(self, node):
         """Walks the C++ AST to record classes and free functions.
@@ -1180,8 +1182,8 @@ class CppAnalyzer(LanguageAnalyzer):
         name = name_node.text.decode("utf-8")
         param_text = param_node.text.decode("utf-8")
         idx = param_text.rfind(name)
-        type_annotation = param_text[:idx].strip() if idx != -1 else None
-        return {"name": name, "type": type_annotation or None}
+        type_annotation = param_text[:idx].strip() if idx != -1 else ""
+        return {"name": name, "type": type_annotation or ""}
 
     def _find_identifier_in_node(self, node):
         """Searches depth-first for an identifier node within the subtree.
@@ -1363,7 +1365,7 @@ class JavaAnalyzer(LanguageAnalyzer):
         parameters = self._parse_parameters(params_node)
 
         type_node = node.child_by_field_name("type")
-        return_type = type_node.text.decode("utf-8") if type_node else None
+        return_type = type_node.text.decode("utf-8") if type_node else ""
 
         function_info = {
             "name": name,
@@ -1418,8 +1420,8 @@ class JavaAnalyzer(LanguageAnalyzer):
         name = name_node.text.decode("utf-8")
         param_text = param_node.text.decode("utf-8")
         idx = param_text.rfind(name)
-        type_annotation = param_text[:idx].strip() if idx != -1 else None
-        return {"name": name, "type": type_annotation or None}
+        type_annotation = param_text[:idx].strip() if idx != -1 else ""
+        return {"name": name, "type": type_annotation or ""}
 
     def _find_identifier(self, node):
         """Recursively searches for an identifier child within the node.
@@ -1548,7 +1550,7 @@ class RustAnalyzer(LanguageAnalyzer):
                 break
         if doc_lines:
             return "\n".join(doc_lines)
-        return None
+        return ""
 
     def _extract_class_info(self, node):
         """Collects metadata for Rust struct or enum declarations.
@@ -1592,9 +1594,7 @@ class RustAnalyzer(LanguageAnalyzer):
         parameters = self._parse_parameters(params_node)
 
         return_type_node = node.child_by_field_name("return_type")
-        return_type = (
-            return_type_node.text.decode("utf-8") if return_type_node else None
-        )
+        return_type = return_type_node.text.decode("utf-8") if return_type_node else ""
 
         function_info = {
             "name": name,
@@ -1640,7 +1640,7 @@ class RustAnalyzer(LanguageAnalyzer):
             Optional[Dict[str, Optional[str]]]: Parameter descriptor or None.
         """
         if param_node.type == "self_parameter":
-            return {"name": "self", "type": None}
+            return {"name": "self", "type": ""}
 
         if param_node.type != "parameter":
             return None
@@ -1649,10 +1649,10 @@ class RustAnalyzer(LanguageAnalyzer):
         name_node = self._find_identifier(param_node)
         name = name_node.text.decode("utf-8") if name_node else None
 
-        type_annotation = None
+        type_annotation = ""
         if ":" in param_text:
             _, type_part = param_text.split(":", 1)
-            type_annotation = type_part.strip() or None
+            type_annotation = type_part.strip() or ""
 
         if not name:
             pattern_part = (
@@ -1660,7 +1660,7 @@ class RustAnalyzer(LanguageAnalyzer):
             )
             name = pattern_part if pattern_part else None
 
-        return {"name": name, "type": type_annotation} if name else None
+        return {"name": name, "type": type_annotation or ""} if name else None
 
     def _find_identifier(self, node):
         """Searches the subtree for the first identifier node.
@@ -1722,7 +1722,7 @@ def analyze_code_from_string(
         AnalyzerClass = get_analyzer(language)
         analyzer = AnalyzerClass(code_string, language)
         return analyzer.analyze()
-    except Exception:
+    except Exception as e:
         return None
 
 
@@ -1774,7 +1774,6 @@ def format_tree_sitter_analysis_results(stats: Dict[str, Any]) -> Dict[str, Any]
         ],
     }
 
-    # Include Python-specific outer dependencies if present
     if "outer_dependencies" in stats:
         # ensure consistent simple representation
         summary["outer_dependencies"] = [
