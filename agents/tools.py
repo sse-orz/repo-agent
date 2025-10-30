@@ -11,10 +11,7 @@ from utils.code_analyzer import (
     format_tree_sitter_analysis_results,
 )
 
-import os
-import datetime
-import json
-from typing import List, Optional, Dict, Any
+from typing import Optional, Dict, Any
 from langchain.tools import tool
 
 
