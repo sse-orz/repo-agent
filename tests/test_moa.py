@@ -86,7 +86,7 @@ class MoAgent:
                 "end": END,
             },
         )
-        workflow.add_edge("supervisor_agent", "super_router")
+        # workflow.add_edge("supervisor_agent", "super_router")  # Removed redundant edge per CodeQL warning
         workflow.add_edge("super_router", "repo_router")
         workflow.add_edge("super_router", "code_router")
         # parallel edge
