@@ -689,7 +689,7 @@ class DocGenerationAgent:
 
     def _tool_executor_node(self, state: AgentState) -> AgentState:
         """Execute tools and return results."""
-        return self.tool_executor(state)
+        return self.tool_executor.invoke(state)
 
     def _agent_node(self, state: AgentState) -> AgentState:
         """Call LLM with current state."""
