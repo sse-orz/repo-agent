@@ -330,21 +330,24 @@ class RepoInfoAgent:
 
 # ========== RepoInfoAgentTest ==========
 
-# 本地仓库
-# llm = CONFIG.get_llm()
-# tools = [get_repo_structure_tool, get_repo_basic_info_tool, get_repo_commit_info_tool]
-# agent = RepoInfoAgent(llm, tools)
+def RepoInfoAgentTest():
+    # 本地仓库
+    llm = CONFIG.get_llm()
+    tools = [get_repo_structure_tool, get_repo_basic_info_tool, get_repo_commit_info_tool]
+    agent = RepoInfoAgent(llm, tools)
 
-# repo_info = agent.run(
-#     repo_path="/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd",
-#     owner="facebook",
-#     repo_name="zstd"
-# )
+    repo_info = agent.run(
+        repo_path="/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd",
+        owner="facebook",
+        repo_name="zstd"
+    )
 
-# # repo_info = agent.run(repo_path="/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd")
+    # repo_info = agent.run(repo_path="/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd")
 
 
-# print(json.dumps(repo_info, indent=2))
+    print(json.dumps(repo_info, indent=2))
+    
+# RepoInfoAgentTest()
 
 # ========== RepoInfoAgentTest ==========
 
@@ -623,127 +626,305 @@ class CodeAnalysisAgent:
 
 
 # ========== CodeAnalysisAgentTest ==========
-llm = CONFIG.get_llm()
-tools = [code_file_analysis_tool, read_file_tool]
-code_agent = CodeAnalysisAgent(llm, tools)
+def CodeAnalaysisAgentTest():
+    llm = CONFIG.get_llm()
+    tools = [code_file_analysis_tool, read_file_tool]
+    code_agent = CodeAnalysisAgent(llm, tools)
 
-repo_path = "/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd"
-import os
+    repo_path = "/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd"
+    import os
 
-file_list = []
-for root, dirs, files in os.walk(repo_path):
-    dirs[:] = [d for d in dirs if d not in [".git", "node_modules", "__pycache__"]]
-    for file in files:
-        if file.endswith((".c", ".h")) and len(file_list) < 4:
-            file_list.append(os.path.join(root, file))
+    file_list = []
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if d not in [".git", "node_modules", "__pycache__"]]
+        for file in files:
+            if file.endswith((".c", ".h")) and len(file_list) < 4:
+                file_list.append(os.path.join(root, file))
 
-print(f"Found files: {file_list}")
+    print(f"Found files: {file_list}")
 
-code_analysis = code_agent.run(repo_path=repo_path, file_list=file_list, batch_size=4)
+    code_analysis = code_agent.run(repo_path=repo_path, file_list=file_list, batch_size=4)
 
-print(json.dumps(code_analysis, indent=2))
+    print(json.dumps(code_analysis, indent=2))
+    
+# CodeAnalaysisAgentTest()
 
 # ========== CodeAnalysisAgentTest ==========
 
 
-# # ========== 3. DocGenerationAgent ==========
-# class DocGenerationAgent:
-#     def __init__(self, llm):
-#         self.llm = llm
+# ========== 3. DocGenerationAgent ==========
+class DocGenerationAgent:
+    def __init__(self, llm, tools):
+        self.llm = llm.bind_tools(tools, parallel_tool_calls=False)
+        self.tools = tools
+        self.tool_executor = ToolNode(tools)
+        self.memory = InMemorySaver()
+        self.app = self._build_app()
 
-#     def run(self, repo_info: dict, code_analysis: dict, wiki_path: str) -> list:
-#         """生成 Markdown 文档"""
-#         prompt = f"""
-#         Generate Wiki documentation based on the following information:
-#         Repository info: {json.dumps(repo_info)}
-#         Code analysis: {json.dumps(code_analysis)}
+    def _build_app(self):
+        """Build the agent workflow graph."""
+        workflow = StateGraph(AgentState)
+        workflow.add_node("agent", self._agent_node)
+        workflow.add_node("tools", self._tool_executor_node)
+        workflow.set_entry_point("agent")
+        workflow.add_conditional_edges(
+            "agent",
+            self._should_continue,
+            {
+                "continue": "tools",
+                "end": END,
+            },
+        )
+        workflow.add_edge("tools", "agent")
+        return workflow.compile(checkpointer=self.memory)
 
-#         Generate the following documents:
-#         1. README.md (Overview)
-#         2. STRUCTURE.md (Directory structure)
-#         3. API.md (API documentation)
+    def _should_continue(self, state: AgentState) -> str:
+        """Determine whether to continue or end."""
+        messages = state["messages"]
+        last_message = messages[-1]
+        if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
+            return "end"
+        else:
+            return "continue"
 
-#         Return a JSON array of filenames and content.
-#         """
-#         response = self.llm.invoke([HumanMessage(content=prompt)])
-#         # 解析并写入文件
-#         docs = [
-#             {"file": "README.md", "content": "..."},
-#             {"file": "STRUCTURE.md", "content": "..."}
-#         ]
-#         for doc in docs:
-#             with open(f"{wiki_path}/{doc['file']}", "w") as f:
-#                 f.write(doc["content"])
-#         return docs
+    def _tool_executor_node(self, state: AgentState) -> AgentState:
+        """Execute tools and return results."""
+        return self.tool_executor(state)
+
+    def _agent_node(self, state: AgentState) -> AgentState:
+        """Call LLM with current state."""
+        system_prompt = SystemMessage(
+            content="""You are a technical documentation writer. Your task is to generate comprehensive Wiki documentation.
+
+                        IMPORTANT RULES:
+                        1. Generate well-structured Markdown documents
+                        2. Use appropriate headers, lists, code blocks, and formatting
+                        3. Include examples and explanations where necessary
+                        4. Use write_file_tool to save each document
+                        5. After writing all files, return a summary in JSON format
+
+                        Generate the following documents:
+                        1. **README.md**: Overview of the repository
+                        - Project name and description
+                        - Main features
+                        - Technology stack
+                        - Quick start guide
+                        
+                        2. **ARCHITECTURE.md**: System architecture
+                        - Directory structure explanation
+                        - Main components and their responsibilities
+                        - Data flow and interactions
+                        
+                        3. **API.md**: API documentation (if applicable)
+                        - Main functions/classes
+                        - Parameters and return values
+                        - Usage examples
+                        
+                        4. **DEVELOPMENT.md**: Development guide
+                        - Setup instructions
+                        - Build and test commands
+                        - Contribution guidelines
+
+                        Return final summary in this JSON format:
+                        {
+                            "generated_files": ["list", "of", "file", "paths"],
+                            "total_files": 4,
+                            "status": "success"
+                        }
+
+                        Do NOT include text outside the JSON structure in your final response.
+                    """
+        )
+        response = self.llm.invoke([system_prompt] + state["messages"])
+        return {"messages": [response]}
+
+    def run(self, repo_info: dict, code_analysis: dict, wiki_path: str) -> dict:
+        """Generate Markdown documentation.
+
+        Args:
+            repo_info (dict): Repository information from RepoInfoAgent
+            code_analysis (dict): Code analysis results from CodeAnalysisAgent
+            wiki_path (str): Path to save wiki files
+
+        Returns:
+            dict: Summary of generated documents
+        """
+        # Ensure wiki directory exists
+        if not os.path.exists(wiki_path):
+            os.makedirs(wiki_path)
+            print(f"Created wiki directory: {wiki_path}")
+
+        # Prepare structured information for the agent
+        repo_summary = {
+            "name": repo_info.get("repo_name", "Unknown"),
+            "description": repo_info.get("description", "No description"),
+            "language": repo_info.get("main_language", "Unknown"),
+            "structure": repo_info.get("structure", []),
+            "total_commits": len(repo_info.get("commits", [])),
+        }
+
+        code_summary = {
+            "total_files_analyzed": code_analysis.get("analyzed_files", 0),
+            "total_functions": code_analysis["summary"].get("total_functions", 0),
+            "total_classes": code_analysis["summary"].get("total_classes", 0),
+            "average_complexity": code_analysis["summary"].get("average_complexity", 0),
+            "languages": code_analysis["summary"].get("languages", []),
+        }
+
+        # Get top 5 most important files for detailed documentation
+        analyzed_files = code_analysis.get("files", {})
+        important_files = []
+        for file_path, analysis in list(analyzed_files.items())[:5]:
+            if "error" not in analysis:
+                important_files.append({
+                    "path": file_path,
+                    "functions": [f["name"] for f in analysis.get("functions", [])[:3]],
+                    "classes": [c["name"] for c in analysis.get("classes", [])[:3]],
+                    "summary": analysis.get("summary", "No summary"),
+                })
+
+        prompt = f"""
+                    Generate comprehensive Wiki documentation for the repository.
+
+                    **Repository Information:**
+                    {json.dumps(repo_summary, indent=2)}
+
+                    **Code Analysis Summary:**
+                    {json.dumps(code_summary, indent=2)}
+
+                    **Important Files (for API documentation):**
+                    {json.dumps(important_files, indent=2)}
+
+                    **Target Wiki Directory:** {wiki_path}
+
+                    **Tasks:**
+                    1. Generate README.md with project overview, features, and quick start
+                    2. Generate ARCHITECTURE.md with directory structure and component explanations
+                    3. Generate API.md with documentation for the important files listed above
+                    4. Generate DEVELOPMENT.md with setup and development instructions
+
+                    Use write_file_tool to save each document to the wiki directory.
+                    After completing all documents, provide a summary in the JSON format specified.
+
+                    **Important Guidelines:**
+                    - Use clear headings and subheadings
+                    - Include code examples in appropriate language-specific code blocks
+                    - Add tables for structured information where applicable
+                    - Keep language professional and concise
+                    - Ensure all file paths are correct (use absolute paths)
+                """
+
+        initial_state = AgentState(
+            messages=[HumanMessage(content=prompt)],
+            repo_path="",
+            wiki_path=wiki_path,
+        )
+
+        # Run the agent workflow
+        print("=== Generating Wiki Documentation ===")
+        final_state = None
+        generated_files = []
+        
+        for state in self.app.stream(
+            initial_state,
+            stream_mode="values",
+            config={
+                "configurable": {
+                    "thread_id": f"doc-gen-{datetime.now().timestamp()}"
+                },
+                "recursion_limit": 50,
+            },
+        ):
+            final_state = state
+            last_msg = state["messages"][-1]
+            
+            # Track file generation
+            if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+                for tool_call in last_msg.tool_calls:
+                    if tool_call["name"] == "write_file_tool":
+                        file_path = tool_call["args"].get("file_path", "")
+                        if file_path and file_path not in generated_files:
+                            generated_files.append(file_path)
+                            print(f"  ✓ Generated: {os.path.basename(file_path)}")
+
+        # Extract final result
+        result = {
+            "generated_files": generated_files,
+            "total_files": len(generated_files),
+            "status": "success" if generated_files else "partial",
+            "wiki_path": wiki_path,
+        }
+
+        if final_state:
+            last_message = final_state["messages"][-1]
+            if hasattr(last_message, "content"):
+                try:
+                    content = last_message.content
+                    import re
+                    json_match = re.search(r"\{[\s\S]*\}", content)
+                    if json_match:
+                        parsed_result = json.loads(json_match.group())
+                        # Merge with tracked results
+                        result.update(parsed_result)
+                except json.JSONDecodeError as e:
+                    print(f"Warning: Failed to parse final JSON: {e}")
+                    result["warning"] = "Could not parse final summary"
+
+        # Verify generated files
+        verified_files = [f for f in generated_files if os.path.exists(f)]
+        result["verified_files"] = verified_files
+        result["verification_status"] = "complete" if len(verified_files) == len(generated_files) else "incomplete"
+
+        print(f"\n=== Documentation Generation Complete ===")
+        print(f"Total files: {result['total_files']}")
+        print(f"Verified files: {len(verified_files)}")
+        
+        return result
 
 
-# # ========== 4. SummaryAgent ==========
-# class SummaryAgent:
-#     def __init__(self, llm):
-#         self.llm = llm
+# ========== DocGenerationAgentTest ==========
+def DocGenerationAgentTest():
+    llm = CONFIG.get_llm()
+    tools = [write_file_tool, read_file_tool]
+    doc_agent = DocGenerationAgent(llm, tools)
 
-#     def run(self, docs: list, wiki_path: str):
-#         """生成索引和目录"""
-#         prompt = f"""
-#         Generate an index table of contents (INDEX.md) for the following documents:
-#         {[doc['file'] for doc in docs]}
-#         """
-#         response = self.llm.invoke([HumanMessage(content=prompt)])
-#         with open(f"{wiki_path}/INDEX.md", "w") as f:
-#             f.write(response.content)
+    # Mock data for testing
+    repo_info = {
+        "repo_name": "facebook_zstd",
+        "description": "Zstandard - Fast real-time compression algorithm",
+        "main_language": "C",
+        "structure": [".github", "contrib", "doc", "examples", "lib", "programs", "tests"],
+        "commits": [{"sha": "abc123", "message": "Update API"}],
+    }
 
+    code_analysis = {
+        "total_files": 4,
+        "analyzed_files": 4,
+        "files": {
+            "/path/to/file1.c": {
+                "language": "C",
+                "functions": [
+                    {"name": "compress_data", "signature": "int compress_data(void* src, size_t size)"}
+                ],
+                "classes": [],
+                "complexity_score": 6,
+                "lines_of_code": 350,
+                "summary": "Main compression function implementation"
+            },
+        },
+        "summary": {
+            "total_functions": 25,
+            "total_classes": 0,
+            "average_complexity": 5.5,
+            "total_lines": 1500,
+            "languages": ["C"],
+        },
+    }
 
-# # ========== 5. WikiSupervisor ==========
-# class WikiSupervisor:
-#     def __init__(self, repo_path: str, wiki_path: str):
-#         self.repo_path = repo_path
-#         self.wiki_path = wiki_path
-#         self.llm = CONFIG.get_llm()
+    wiki_path = "/mnt/zhongjf25/workspace/repo-agent/.wikis/test_output"
 
-#         # 初始化各阶段 Agent
-#         self.repo_agent = RepoInfoAgent(self.llm, [get_repo_structure_tool, ...])
-#         self.code_agent = CodeAnalysisAgent(self.llm, [code_file_analysis_tool])
-#         self.doc_agent = DocGenerationAgent(self.llm)
-#         self.summary_agent = SummaryAgent(self.llm)
+    result = doc_agent.run(repo_info, code_analysis, wiki_path)
+    print(json.dumps(result, indent=2))
 
-#     def generate(self):
-#         """分阶段执行"""
-#         print("=== 阶段 1: 收集仓库信息 ===")
-#         repo_info = self.repo_agent.run(self.repo_path)
+DocGenerationAgentTest()
 
-#         print("=== 阶段 2: 分析代码 ===")
-#         file_list = repo_info.get("key_files", [])
-#         code_analysis = self.code_agent.run(self.repo_path, file_list)
-
-#         print("=== 阶段 3: 生成文档 ===")
-#         docs = self.doc_agent.run(repo_info, code_analysis, self.wiki_path)
-
-#         print("=== 阶段 4: 生成索引 ===")
-#         self.summary_agent.run(docs, self.wiki_path)
-
-#         print("Wiki 生成完成！")
-
-
-# class SupervisorState(TypedDict):
-#     repo_path: str
-#     wiki_path: str
-#     repo_info: dict
-#     code_analysis: dict
-#     docs: list
-
-
-# def build_supervisor_graph():
-#     workflow = StateGraph(SupervisorState)
-
-#     workflow.add_node("repo_info", lambda s: {"repo_info": repo_agent.run(s["repo_path"])})
-#     workflow.add_node("code_analysis", lambda s: {"code_analysis": code_agent.run(s["repo_path"], s["repo_info"]["files"])})
-#     workflow.add_node("doc_gen", lambda s: {"docs": doc_agent.run(s["repo_info"], s["code_analysis"], s["wiki_path"])})
-#     workflow.add_node("summary", lambda s: summary_agent.run(s["docs"], s["wiki_path"]))
-
-#     workflow.set_entry_point("repo_info")
-#     workflow.add_edge("repo_info", "code_analysis")
-#     workflow.add_edge("code_analysis", "doc_gen")
-#     workflow.add_edge("doc_gen", "summary")
-#     workflow.add_edge("summary", END)
-
-#     return workflow.compile()
