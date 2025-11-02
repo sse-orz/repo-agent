@@ -1,4 +1,4 @@
-# wiki-agent
+# repo-agent
 
 ## Overview
 
@@ -23,7 +23,7 @@ The agent has two main functionalities:
     - monitor the given repo for changes
     - when there are new commits, update the wiki files accordingly
 
-![Agent Structure](assets/agent_structure.png)
+![Agent Structure](assets/repo-agent.png)
 
 ## Structure
 

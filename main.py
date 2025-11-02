@@ -1,16 +1,16 @@
 from utils.repo import clone_repo, pull_repo
 from agents.wiki_agent import WikiAgent
+from agents.rag_agent import RAGAgent
 from config import CONFIG
 
 
-def get_input() -> tuple[str, str]:
-    """Get user input for the mode and repository name.
+def get_mode() -> str:
+    """Get user input for the mode.
 
     Returns:
-        tuple[str, str]: A tuple containing the mode and repository name.
+        str: The selected mode.
     """
     mode = ""
-    repo_name = ""
     while (mode is None) or (mode not in ["generate", "ask"]):
         user_input = input(
             'Choose mode: \nPrint "1" if you want to Generate Wiki Files\nPrint "2" if you want to Ask questions about Wiki Repo\n'
@@ -22,12 +22,22 @@ def get_input() -> tuple[str, str]:
                 mode = "ask"
             case _:
                 print("Invalid input. Please enter '1' or '2'.")
+    return mode
+
+
+def get_repo_name() -> str:
+    """Get user input for the repository name.
+
+    Returns:
+        str: The repository name.
+    """
+    repo_name = ""
     while repo_name == "":
         user_input = input(
             'Enter the repository name (such as "github:facebook/zstd"): '
         )
         repo_name = user_input.strip()
-    return mode, repo_name
+    return repo_name
 
 
 def preprocess_repo(repo_name: str) -> tuple[str, str, str, str]:
@@ -152,34 +162,34 @@ def display_book():
 
 def main():
     # 1.1 check mode for user input (generate wiki files or ask for repo)
-    # 1.2 user input (get repo name or url)
-    print("Welcome to the Wiki Agent!")
+    print("Welcome to the Repo Agent!")
     CONFIG.display()
-    mode, repo_name = get_input()
-    print(f"Mode: {mode}, Repository: {repo_name}")
-
-    # 2.1 check if repo exists locally, if not, clone it
-    platform, owner, repo, repo_path = preprocess_repo(repo_name)
-
-    # 3.1 check if wiki files have been generated, if not, generate them
-    # TODO: implement generate wiki logic
-    # 3.2 if exist, check if they are up to date, if not, update them
-    # TODO: implement update wiki logic
-    # TODO: implement saving wiki files to vector database
-    wiki_path = f"./.wikis/{owner}_{repo}"
-    # wiki_agent initialization
-    wiki_agent = WikiAgent(repo_path=repo_path, wiki_path=wiki_path)
-    wiki_agent.generate()
+    mode = get_mode()
 
     match mode:
         case "generate":
+            # 1.2 user input (get repo name or url)
+            repo_name = get_repo_name()
+            print(f"Mode: {mode}, Repository: {repo_name}")
+            # 2.1 check if repo exists locally, if not, clone it
+            platform, owner, repo, repo_path = preprocess_repo(repo_name)
+            # 3.1 check if wiki files have been generated, if not, generate them
+            # TODO: implement generate wiki logic
+            wiki_path = f"./.wikis/{owner}_{repo}"
+            # wiki_agent initialization
+            wiki_agent = WikiAgent(repo_path=repo_path, wiki_path=wiki_path)
+            wiki_agent.generate()
+            # 3.2 if exist, check if they are up to date, if not, update them
+            # TODO: implement update wiki logic
+            # TODO: implement saving wiki files to vector database
             print("Wiki generation completed. Exiting.")
             display_book()
             return
         case "ask":
-            print("Entering Q&A mode. Type 'exit' to quit.")
             # TODO: implement question answering logic here
-            wiki_agent.ask("What is this repo about?")
+            print(f"Mode: {mode}")
+            rag_agent = RAGAgent()
+            rag_agent.run()
 
 
 if __name__ == "__main__":
