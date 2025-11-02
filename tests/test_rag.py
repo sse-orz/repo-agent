@@ -17,15 +17,11 @@ class RAGState(TypedDict):
     answer: str
 
 
-# Initialize Chroma vector stores for each repo
-vectorstores = {}
-
-
 def init_vectorstores(
     wikis_dir: str = ".wikis",
     embeddings_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
 ):
-    global vectorstores
+    vectorstores = {}
     if os.path.exists(wikis_dir):
         for repo_dir in os.listdir(wikis_dir):
             repo_path = os.path.join(wikis_dir, repo_dir)
@@ -44,12 +40,18 @@ def init_vectorstores(
                     ),
                     persist_directory=f"./.chroma_dbs/{collection_name}",  # Separate directory for each collection
                 )
-                vectorstore.add_documents(repo_docs)
+                # only add documents if the vectorstore is empty
+                if not vectorstore.get()["ids"]:  # If no documents present
+                    print(f"Adding documents to vectorstore for repo: {repo_dir}")
+                    vectorstore.add_documents(repo_docs)
+                else:
+                    print(f"Vectorstore for repo {repo_dir} already has documents.")
                 vectorstores[repo_dir] = vectorstore
+    return vectorstores
 
 
 # Define retrieval function
-def retrieve(state: RAGState) -> RAGState:
+def retrieve(vectorstores, state: RAGState) -> RAGState:
     query = state["query"]
 
     def fallback_search(query: str) -> List[Document]:
@@ -97,10 +99,10 @@ def generate(state: RAGState) -> RAGState:
     return {"query": query, "question": question, "documents": docs, "answer": answer}
 
 
-def build_rag_agent() -> StateGraph:
+def build_rag_agent(vectorstores):
     # Build the graph
     graph = StateGraph(RAGState)
-    graph.add_node("retrieve", retrieve)
+    graph.add_node("retrieve", lambda state: retrieve(vectorstores, state))
     graph.add_node("generate", generate)
     graph.add_edge(START, "retrieve")
     graph.add_edge("retrieve", "generate")
@@ -111,7 +113,7 @@ def build_rag_agent() -> StateGraph:
 
 
 # Function to run the agent
-def run_rag_agent(rag_agent: StateGraph, query: str) -> str:
+def run_rag_agent(rag_agent, query: str) -> str:
     initial_state = {"query": query, "question": "", "documents": [], "answer": ""}
     result = rag_agent.invoke(initial_state)
     return result["answer"]
@@ -119,9 +121,11 @@ def run_rag_agent(rag_agent: StateGraph, query: str) -> str:
 
 if __name__ == "__main__":
     # Example usage
-    init_vectorstores()
-    query = "squatting-at-home123_back-puppet: What is this repo about?"
-    rag_agent = build_rag_agent()
+    vectorstores = init_vectorstores()
+    repo_dir = "squatting-at-home123_back-puppet"
+    question = "What is this repo about?"
+    query = f"{repo_dir}: {question}"
+    rag_agent = build_rag_agent(vectorstores)
     answer = run_rag_agent(rag_agent, query)
     print(f"Query: {query}")
     print(f"Answer: {answer}")
