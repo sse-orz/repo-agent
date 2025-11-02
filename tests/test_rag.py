@@ -4,7 +4,6 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
 from langchain_community.document_loaders import DirectoryLoader
 from langgraph.graph import StateGraph, START, END
 
