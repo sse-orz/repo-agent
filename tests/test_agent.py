@@ -332,20 +332,24 @@ class RepoInfoAgent:
 def RepoInfoAgentTest():
     # 本地仓库
     llm = CONFIG.get_llm()
-    tools = [get_repo_structure_tool, get_repo_basic_info_tool, get_repo_commit_info_tool]
+    tools = [
+        get_repo_structure_tool,
+        get_repo_basic_info_tool,
+        get_repo_commit_info_tool,
+    ]
     agent = RepoInfoAgent(llm, tools)
 
     repo_info = agent.run(
         repo_path="/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd",
         owner="facebook",
-        repo_name="zstd"
+        repo_name="zstd",
     )
 
     # repo_info = agent.run(repo_path="/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd")
 
-
     print(json.dumps(repo_info, indent=2))
-    
+
+
 # RepoInfoAgentTest()
 # ========== RepoInfoAgentTest ==========
 
@@ -641,9 +645,12 @@ def CodeAnalysisAgentTest():
 
     print(f"Found files: {file_list}")
 
-    code_analysis = code_agent.run(repo_path=repo_path, file_list=file_list, batch_size=4)
+    code_analysis = code_agent.run(
+        repo_path=repo_path, file_list=file_list, batch_size=4
+    )
 
     print(json.dumps(code_analysis, indent=2))
+
 
 # CodeAnalysisAgentTest()
 # ========== CodeAnalysisAgentTest ==========
@@ -773,12 +780,16 @@ class DocGenerationAgent:
         important_files = []
         for file_path, analysis in list(analyzed_files.items())[:5]:
             if "error" not in analysis:
-                important_files.append({
-                    "path": file_path,
-                    "functions": [f["name"] for f in analysis.get("functions", [])[:3]],
-                    "classes": [c["name"] for c in analysis.get("classes", [])[:3]],
-                    "summary": analysis.get("summary", "No summary"),
-                })
+                important_files.append(
+                    {
+                        "path": file_path,
+                        "functions": [
+                            f["name"] for f in analysis.get("functions", [])[:3]
+                        ],
+                        "classes": [c["name"] for c in analysis.get("classes", [])[:3]],
+                        "summary": analysis.get("summary", "No summary"),
+                    }
+                )
 
         prompt = f"""
                     Generate comprehensive Wiki documentation for the repository.
@@ -821,20 +832,18 @@ class DocGenerationAgent:
         print("=== Generating Wiki Documentation ===")
         final_state = None
         generated_files = []
-        
+
         for state in self.app.stream(
             initial_state,
             stream_mode="values",
             config={
-                "configurable": {
-                    "thread_id": f"doc-gen-{datetime.now().timestamp()}"
-                },
+                "configurable": {"thread_id": f"doc-gen-{datetime.now().timestamp()}"},
                 "recursion_limit": 50,
             },
         ):
             final_state = state
             last_msg = state["messages"][-1]
-            
+
             # Track file generation
             if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
                 for tool_call in last_msg.tool_calls:
@@ -858,6 +867,7 @@ class DocGenerationAgent:
                 try:
                     content = last_message.content
                     import re
+
                     json_match = re.search(r"\{[\s\S]*\}", content)
                     if json_match:
                         parsed_result = json.loads(json_match.group())
@@ -870,12 +880,14 @@ class DocGenerationAgent:
         # Verify generated files
         verified_files = [f for f in generated_files if os.path.exists(f)]
         result["verified_files"] = verified_files
-        result["verification_status"] = "complete" if len(verified_files) == len(generated_files) else "incomplete"
+        result["verification_status"] = (
+            "complete" if len(verified_files) == len(generated_files) else "incomplete"
+        )
 
         print(f"\n=== Documentation Generation Complete ===")
         print(f"Total files: {result['total_files']}")
         print(f"Verified files: {len(verified_files)}")
-        
+
         return result
 
 
@@ -890,7 +902,15 @@ def DocGenerationAgentTest():
         "repo_name": "facebook_zstd",
         "description": "Zstandard - Fast real-time compression algorithm",
         "main_language": "C",
-        "structure": [".github", "contrib", "doc", "examples", "lib", "programs", "tests"],
+        "structure": [
+            ".github",
+            "contrib",
+            "doc",
+            "examples",
+            "lib",
+            "programs",
+            "tests",
+        ],
         "commits": [{"sha": "abc123", "message": "Update API"}],
     }
 
@@ -901,12 +921,15 @@ def DocGenerationAgentTest():
             "/path/to/file1.c": {
                 "language": "C",
                 "functions": [
-                    {"name": "compress_data", "signature": "int compress_data(void* src, size_t size)"}
+                    {
+                        "name": "compress_data",
+                        "signature": "int compress_data(void* src, size_t size)",
+                    }
                 ],
                 "classes": [],
                 "complexity_score": 6,
                 "lines_of_code": 350,
-                "summary": "Main compression function implementation"
+                "summary": "Main compression function implementation",
             },
         },
         "summary": {
@@ -922,6 +945,7 @@ def DocGenerationAgentTest():
 
     result = doc_agent.run(repo_info, code_analysis, wiki_path)
     print(json.dumps(result, indent=2))
+
 
 # DocGenerationAgentTest()
 # ========== DocGenerationAgentTest ==========
@@ -994,7 +1018,13 @@ class SummaryAgent:
         response = self.llm.invoke([system_prompt] + state["messages"])
         return {"messages": [response]}
 
-    def run(self, docs: list, wiki_path: str, repo_info: dict = None, code_analysis: dict = None) -> dict:
+    def run(
+        self,
+        docs: list,
+        wiki_path: str,
+        repo_info: dict = None,
+        code_analysis: dict = None,
+    ) -> dict:
         """Generate index and table of contents.
 
         Args:
@@ -1017,11 +1047,13 @@ class SummaryAgent:
         doc_list = []
         for doc_path in docs:
             filename = os.path.basename(doc_path)
-            doc_list.append({
-                "filename": filename,
-                "path": doc_path,
-                "description": doc_descriptions.get(filename, "Documentation file"),
-            })
+            doc_list.append(
+                {
+                    "filename": filename,
+                    "path": doc_path,
+                    "description": doc_descriptions.get(filename, "Documentation file"),
+                }
+            )
 
         # Prepare statistics
         statistics = {}
@@ -1032,13 +1064,19 @@ class SummaryAgent:
                 "directories": len(repo_info.get("structure", [])),
                 "commits": len(repo_info.get("commits", [])),
             }
-        
+
         if code_analysis:
             statistics["code_analysis"] = {
                 "files_analyzed": code_analysis.get("analyzed_files", 0),
-                "total_functions": code_analysis.get("summary", {}).get("total_functions", 0),
-                "total_classes": code_analysis.get("summary", {}).get("total_classes", 0),
-                "average_complexity": code_analysis.get("summary", {}).get("average_complexity", 0),
+                "total_functions": code_analysis.get("summary", {}).get(
+                    "total_functions", 0
+                ),
+                "total_classes": code_analysis.get("summary", {}).get(
+                    "total_classes", 0
+                ),
+                "average_complexity": code_analysis.get("summary", {}).get(
+                    "average_complexity", 0
+                ),
             }
 
         prompt = f"""
@@ -1107,9 +1145,7 @@ class SummaryAgent:
             initial_state,
             stream_mode="values",
             config={
-                "configurable": {
-                    "thread_id": f"summary-{datetime.now().timestamp()}"
-                },
+                "configurable": {"thread_id": f"summary-{datetime.now().timestamp()}"},
                 "recursion_limit": 30,
             },
         ):
@@ -1139,6 +1175,7 @@ class SummaryAgent:
                 try:
                     content = last_message.content
                     import re
+
                     json_match = re.search(r"\{[\s\S]*\}", content)
                     if json_match:
                         parsed_result = json.loads(json_match.group())
@@ -1177,7 +1214,15 @@ def SummaryAgentTest():
         "repo_name": "facebook_zstd",
         "description": "Zstandard - Fast real-time compression algorithm",
         "main_language": "C",
-        "structure": [".github", "contrib", "doc", "examples", "lib", "programs", "tests"],
+        "structure": [
+            ".github",
+            "contrib",
+            "doc",
+            "examples",
+            "lib",
+            "programs",
+            "tests",
+        ],
         "commits": [{"sha": "abc123", "message": "Update API"}],
     }
 
@@ -1195,6 +1240,7 @@ def SummaryAgentTest():
 
     result = summary_agent.run(docs, wiki_path, repo_info, code_analysis)
     print(json.dumps(result, indent=2))
+
 
 # SummaryAgentTest()
 # ========== SummaryAgentTest ==========

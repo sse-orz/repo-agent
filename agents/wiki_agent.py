@@ -121,8 +121,7 @@ class WikiAgent:
         with open(log_file_name, "a") as log_file:
             log_file.write(pretty_output + "\n\n")
 
-    def _print_stream(self, stream):
-        file_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    def _print_stream(self, file_name: str, stream):
         for s in stream:
             message = s["messages"][-1]
             self._write_log(file_name, message)
@@ -157,15 +156,17 @@ Generate wiki files for the repository located at {self.repo_path} and save them
             repo_path=self.repo_path,
             wiki_path=self.wiki_path,
         )
+        time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self._print_stream(
-            self.app.stream(
+            file_name=time,
+            stream=self.app.stream(
                 initial_state,
                 stream_mode="values",
                 config={
                     "configurable": {"thread_id": "wiki-generation-thread"},
                     "recursion_limit": 100,
                 },
-            )
+            ),
         )
 
     def save(self):
