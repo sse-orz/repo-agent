@@ -25,6 +25,7 @@ import json
 import os
 import io
 
+from prompt import WikiPrompts
 
 class AgentState(TypedDict):
     """The state of the agent."""
@@ -94,9 +95,7 @@ class WikiAgent:
         Returns:
             AgentState: The updated state of the agent after calling the model.
         """
-        system_prompt = SystemMessage(
-            content="You are a helpful assistant that generates wiki files for a code repository using available tools."
-        )
+        system_prompt = WikiPrompts.get_system_prompt()
         response = self.llm_with_tools.invoke([system_prompt] + state["messages"])
         return {"messages": [response]}
 
@@ -132,11 +131,7 @@ class WikiAgent:
 
     def generate(self):
         # Start the wiki generation process
-        init_message = HumanMessage(
-            content=f"""
-Generate wiki files for the repository located at {self.repo_path} and save them to {self.wiki_path}. Use the tools available to gather information about the repository, analyze code files, and write the necessary wiki documentation. Make sure to structure the wiki files appropriately and cover all relevant aspects of the repository.
-            """
-        )
+        init_message = WikiPrompts.get_init_message(self.repo_path,self.wiki_path)
         initial_state = AgentState(
             messages=[init_message],
             repo_path=self.repo_path,
