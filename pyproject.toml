@@ -28,5 +28,6 @@ dependencies = [
     "langchain-community>=0.3.31",
     "langchain-huggingface>=0.3.1",
     "sentence-transformers>=5.1.2",
-    "faiss-cpu>=1.12.0",
+    "langchain-chroma>=0.2.0",
+    "unstructured[md]>=0.18.15",
 ]

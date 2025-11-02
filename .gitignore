@@ -15,6 +15,7 @@ wheels/
 .wikis/
 .logs/
 .graphs/
+.chroma_dbs/
 node_modules/
 _book/
 SUMMARY.md
