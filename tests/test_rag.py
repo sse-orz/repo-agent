@@ -58,7 +58,7 @@ def retrieve(state: RAGState) -> RAGState:
             docs.extend(vs.similarity_search(query, k=1))
         return docs
 
-    def process_query(query: str) -> (str, List[Document]):
+    def process_query(query: str) -> tuple[str, List[Document]]:
 
         if ":" in query:
             repo, question = query.split(":", 1)
