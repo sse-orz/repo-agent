@@ -1,8 +1,6 @@
 from config import CONFIG
 
 import os
-import json
-import os
 import io
 from datetime import datetime
 from contextlib import redirect_stdout
@@ -219,4 +217,4 @@ if __name__ == "__main__":
     # Example usage
     # Use "uv run python -m agents.rag_agent" to run this file
     rag_agent = RAGAgent()
-    answer = rag_agent.run()
+    rag_agent.run()
