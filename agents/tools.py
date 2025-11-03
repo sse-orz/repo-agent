@@ -56,7 +56,7 @@ def write_file_tool(
 
 
 @tool(description="Retrieve the directory and file structure of the repository.")
-def get_repo_structure_tool(repo_path: str) -> List[str]:
+def get_repo_structure_tool(repo_path: str) -> Dict[str, Any]:
     """Get the structure of a repository.
 
     Args:
