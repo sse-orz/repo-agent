@@ -145,7 +145,7 @@ class WikiAgent:
 
     def generate(self):
         # Start the wiki generation process
-        init_message = WikiPrompts.get_init_message(self.repo_path,self.wiki_path)
+        init_message = WikiPrompts.get_init_message(self.repo_path, self.wiki_path)
         initial_state = AgentState(
             messages=[init_message],
             repo_path=self.repo_path,
