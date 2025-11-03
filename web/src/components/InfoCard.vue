@@ -4,7 +4,7 @@
       <div class="card-content">
         <h2 class="section-title">Why choose Repo Agent?</h2>
         <p class="card-text">
-          Paste a link, and we'll generate<br />detailed wiki for you. Analyse<br />a repository in
+          Paste a link, and we'll generate<br />detailed wiki for you. Analyze<br />a repository in
           minutes.
         </p>
       </div>
