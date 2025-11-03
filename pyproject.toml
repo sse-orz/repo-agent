@@ -24,4 +24,10 @@ dependencies = [
     "tree-sitter-rust>=0.24.0",
     "langgraph-supervisor>=0.0.29",
     "langgraph-swarm>=0.0.14",
+    "tree-sitter-c>=0.24.1",
+    "langchain-community>=0.3.31",
+    "langchain-huggingface>=0.3.1",
+    "sentence-transformers>=5.1.2",
+    "langchain-chroma>=0.2.0",
+    "unstructured[md]>=0.18.15",
 ]
