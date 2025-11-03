@@ -1,0 +1,7 @@
+node_modules
+dist
+.git
+.cache
+*.min.js
+package-lock.json
+pnpm-lock.yaml

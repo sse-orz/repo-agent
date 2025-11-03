@@ -19,3 +19,5 @@ wheels/
 node_modules/
 _book/
 SUMMARY.md
+
+node_modules/
