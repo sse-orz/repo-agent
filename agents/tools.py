@@ -16,7 +16,7 @@ from langchain.tools import tool
 
 
 @tool(description="Read the content of a file in the repository. ")
-def read_file_tool(file_path: str) -> str:
+def read_file_tool(file_path: str) -> Dict[str, str]:
     """Read the content of a file.
 
     Args:
