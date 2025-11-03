@@ -332,20 +332,24 @@ class RepoInfoAgent:
 def RepoInfoAgentTest():
     # 本地仓库
     llm = CONFIG.get_llm()
-    tools = [get_repo_structure_tool, get_repo_basic_info_tool, get_repo_commit_info_tool]
+    tools = [
+        get_repo_structure_tool,
+        get_repo_basic_info_tool,
+        get_repo_commit_info_tool,
+    ]
     agent = RepoInfoAgent(llm, tools)
 
     repo_info = agent.run(
         repo_path="/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd",
         owner="facebook",
-        repo_name="zstd"
+        repo_name="zstd",
     )
 
     # repo_info = agent.run(repo_path="/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd")
 
-
     print(json.dumps(repo_info, indent=2))
-    
+
+
 # RepoInfoAgentTest()
 # ========== RepoInfoAgentTest ==========
 
@@ -641,9 +645,12 @@ def CodeAnalysisAgentTest():
 
     print(f"Found files: {file_list}")
 
-    code_analysis = code_agent.run(repo_path=repo_path, file_list=file_list, batch_size=4)
+    code_analysis = code_agent.run(
+        repo_path=repo_path, file_list=file_list, batch_size=4
+    )
 
     print(json.dumps(code_analysis, indent=2))
+
 
 # CodeAnalysisAgentTest()
 # ========== CodeAnalysisAgentTest ==========
@@ -773,12 +780,16 @@ class DocGenerationAgent:
         important_files = []
         for file_path, analysis in list(analyzed_files.items())[:5]:
             if "error" not in analysis:
-                important_files.append({
-                    "path": file_path,
-                    "functions": [f["name"] for f in analysis.get("functions", [])[:3]],
-                    "classes": [c["name"] for c in analysis.get("classes", [])[:3]],
-                    "summary": analysis.get("summary", "No summary"),
-                })
+                important_files.append(
+                    {
+                        "path": file_path,
+                        "functions": [
+                            f["name"] for f in analysis.get("functions", [])[:3]
+                        ],
+                        "classes": [c["name"] for c in analysis.get("classes", [])[:3]],
+                        "summary": analysis.get("summary", "No summary"),
+                    }
+                )
 
         prompt = f"""
                     Generate comprehensive Wiki documentation for the repository.
@@ -821,20 +832,18 @@ class DocGenerationAgent:
         print("=== Generating Wiki Documentation ===")
         final_state = None
         generated_files = []
-        
+
         for state in self.app.stream(
             initial_state,
             stream_mode="values",
             config={
-                "configurable": {
-                    "thread_id": f"doc-gen-{datetime.now().timestamp()}"
-                },
+                "configurable": {"thread_id": f"doc-gen-{datetime.now().timestamp()}"},
                 "recursion_limit": 50,
             },
         ):
             final_state = state
             last_msg = state["messages"][-1]
-            
+
             # Track file generation
             if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
                 for tool_call in last_msg.tool_calls:
@@ -858,6 +867,7 @@ class DocGenerationAgent:
                 try:
                     content = last_message.content
                     import re
+
                     json_match = re.search(r"\{[\s\S]*\}", content)
                     if json_match:
                         parsed_result = json.loads(json_match.group())
@@ -870,12 +880,14 @@ class DocGenerationAgent:
         # Verify generated files
         verified_files = [f for f in generated_files if os.path.exists(f)]
         result["verified_files"] = verified_files
-        result["verification_status"] = "complete" if len(verified_files) == len(generated_files) else "incomplete"
+        result["verification_status"] = (
+            "complete" if len(verified_files) == len(generated_files) else "incomplete"
+        )
 
         print(f"\n=== Documentation Generation Complete ===")
         print(f"Total files: {result['total_files']}")
         print(f"Verified files: {len(verified_files)}")
-        
+
         return result
 
 
@@ -890,7 +902,15 @@ def DocGenerationAgentTest():
         "repo_name": "facebook_zstd",
         "description": "Zstandard - Fast real-time compression algorithm",
         "main_language": "C",
-        "structure": [".github", "contrib", "doc", "examples", "lib", "programs", "tests"],
+        "structure": [
+            ".github",
+            "contrib",
+            "doc",
+            "examples",
+            "lib",
+            "programs",
+            "tests",
+        ],
         "commits": [{"sha": "abc123", "message": "Update API"}],
     }
 
@@ -901,12 +921,15 @@ def DocGenerationAgentTest():
             "/path/to/file1.c": {
                 "language": "C",
                 "functions": [
-                    {"name": "compress_data", "signature": "int compress_data(void* src, size_t size)"}
+                    {
+                        "name": "compress_data",
+                        "signature": "int compress_data(void* src, size_t size)",
+                    }
                 ],
                 "classes": [],
                 "complexity_score": 6,
                 "lines_of_code": 350,
-                "summary": "Main compression function implementation"
+                "summary": "Main compression function implementation",
             },
         },
         "summary": {
@@ -922,6 +945,7 @@ def DocGenerationAgentTest():
 
     result = doc_agent.run(repo_info, code_analysis, wiki_path)
     print(json.dumps(result, indent=2))
+
 
 # DocGenerationAgentTest()
 # ========== DocGenerationAgentTest ==========
@@ -994,7 +1018,13 @@ class SummaryAgent:
         response = self.llm.invoke([system_prompt] + state["messages"])
         return {"messages": [response]}
 
-    def run(self, docs: list, wiki_path: str, repo_info: dict = None, code_analysis: dict = None) -> dict:
+    def run(
+        self,
+        docs: list,
+        wiki_path: str,
+        repo_info: dict = None,
+        code_analysis: dict = None,
+    ) -> dict:
         """Generate index and table of contents.
 
         Args:
@@ -1017,11 +1047,13 @@ class SummaryAgent:
         doc_list = []
         for doc_path in docs:
             filename = os.path.basename(doc_path)
-            doc_list.append({
-                "filename": filename,
-                "path": doc_path,
-                "description": doc_descriptions.get(filename, "Documentation file"),
-            })
+            doc_list.append(
+                {
+                    "filename": filename,
+                    "path": doc_path,
+                    "description": doc_descriptions.get(filename, "Documentation file"),
+                }
+            )
 
         # Prepare statistics
         statistics = {}
@@ -1032,13 +1064,19 @@ class SummaryAgent:
                 "directories": len(repo_info.get("structure", [])),
                 "commits": len(repo_info.get("commits", [])),
             }
-        
+
         if code_analysis:
             statistics["code_analysis"] = {
                 "files_analyzed": code_analysis.get("analyzed_files", 0),
-                "total_functions": code_analysis.get("summary", {}).get("total_functions", 0),
-                "total_classes": code_analysis.get("summary", {}).get("total_classes", 0),
-                "average_complexity": code_analysis.get("summary", {}).get("average_complexity", 0),
+                "total_functions": code_analysis.get("summary", {}).get(
+                    "total_functions", 0
+                ),
+                "total_classes": code_analysis.get("summary", {}).get(
+                    "total_classes", 0
+                ),
+                "average_complexity": code_analysis.get("summary", {}).get(
+                    "average_complexity", 0
+                ),
             }
 
         prompt = f"""
@@ -1107,9 +1145,7 @@ class SummaryAgent:
             initial_state,
             stream_mode="values",
             config={
-                "configurable": {
-                    "thread_id": f"summary-{datetime.now().timestamp()}"
-                },
+                "configurable": {"thread_id": f"summary-{datetime.now().timestamp()}"},
                 "recursion_limit": 30,
             },
         ):
@@ -1139,6 +1175,7 @@ class SummaryAgent:
                 try:
                     content = last_message.content
                     import re
+
                     json_match = re.search(r"\{[\s\S]*\}", content)
                     if json_match:
                         parsed_result = json.loads(json_match.group())
@@ -1177,7 +1214,15 @@ def SummaryAgentTest():
         "repo_name": "facebook_zstd",
         "description": "Zstandard - Fast real-time compression algorithm",
         "main_language": "C",
-        "structure": [".github", "contrib", "doc", "examples", "lib", "programs", "tests"],
+        "structure": [
+            ".github",
+            "contrib",
+            "doc",
+            "examples",
+            "lib",
+            "programs",
+            "tests",
+        ],
         "commits": [{"sha": "abc123", "message": "Update API"}],
     }
 
@@ -1201,13 +1246,13 @@ def SummaryAgentTest():
 # ========== SummaryAgentTest ==========
 
 
-
-
 # ========== 5. WikiSupervisor ==========
 class WikiSupervisor:
-    def __init__(self, repo_path: str, wiki_path: str, owner: str = None, repo_name: str = None):
+    def __init__(
+        self, repo_path: str, wiki_path: str, owner: str = None, repo_name: str = None
+    ):
         """Initialize the Wiki Supervisor.
-        
+
         Args:
             repo_path (str): Local path to the repository
             wiki_path (str): Path to save wiki files
@@ -1223,20 +1268,17 @@ class WikiSupervisor:
         # Initialize agents for each stage
         self.repo_agent = RepoInfoAgent(
             self.llm,
-            [get_repo_structure_tool, get_repo_basic_info_tool, get_repo_commit_info_tool]
+            [
+                get_repo_structure_tool,
+                get_repo_basic_info_tool,
+                get_repo_commit_info_tool,
+            ],
         )
         self.code_agent = CodeAnalysisAgent(
-            self.llm,
-            [code_file_analysis_tool, read_file_tool]
+            self.llm, [code_file_analysis_tool, read_file_tool]
         )
-        self.doc_agent = DocGenerationAgent(
-            self.llm,
-            [write_file_tool, read_file_tool]
-        )
-        self.summary_agent = SummaryAgent(
-            self.llm,
-            [write_file_tool, read_file_tool]
-        )
+        self.doc_agent = DocGenerationAgent(self.llm, [write_file_tool, read_file_tool])
+        self.summary_agent = SummaryAgent(self.llm, [write_file_tool, read_file_tool])
 
         # Store results from each stage
         self.repo_info = None
@@ -1246,39 +1288,37 @@ class WikiSupervisor:
 
     def generate(self, max_files: int = 10) -> Dict[str, Any]:
         """Execute the complete wiki generation pipeline.
-        
+
         Args:
             max_files (int): Maximum number of files to analyze (default 10)
-            
+
         Returns:
             Dict[str, Any]: Summary of the entire pipeline execution
         """
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("WIKI GENERATION PIPELINE STARTED")
-        print("="*60)
-        
+        print("=" * 60)
+
         try:
             # Stage 1: Collect repository information
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("Stage 1: Collecting Repository Information")
-            print("="*60)
+            print("=" * 60)
             self.repo_info = self.repo_agent.run(
-                repo_path=self.repo_path,
-                owner=self.owner,
-                repo_name=self.repo_name
+                repo_path=self.repo_path, owner=self.owner, repo_name=self.repo_name
             )
             print(f"✓ Repository: {self.repo_info.get('repo_name', 'Unknown')}")
             print(f"✓ Language: {self.repo_info.get('main_language', 'Unknown')}")
             print(f"✓ Directories: {len(self.repo_info.get('structure', []))}")
-            
+
             # Stage 2: Analyze code files
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("Stage 2: Analyzing Code Files")
-            print("="*60)
-            
+            print("=" * 60)
+
             # Intelligently select files to analyze
             file_list = self._select_important_files(self.repo_info, max_files)
-            
+
             if not file_list:
                 print("⚠ No code files found to analyze")
                 self.code_analysis = {
@@ -1290,8 +1330,8 @@ class WikiSupervisor:
                         "total_classes": 0,
                         "average_complexity": 0,
                         "total_lines": 0,
-                        "languages": []
-                    }
+                        "languages": [],
+                    },
                 }
             else:
                 print(f"Selected {len(file_list)} files for analysis:")
@@ -1299,80 +1339,98 @@ class WikiSupervisor:
                     print(f"  - {os.path.basename(f)}")
                 if len(file_list) > 5:
                     print(f"  ... and {len(file_list) - 5} more")
-                
+
                 self.code_analysis = self.code_agent.run(
                     repo_path=self.repo_path,
                     file_list=file_list,
-                    batch_size=min(5, len(file_list))
+                    batch_size=min(5, len(file_list)),
                 )
                 print(f"✓ Analyzed {self.code_analysis.get('analyzed_files', 0)} files")
-                print(f"✓ Total functions: {self.code_analysis['summary'].get('total_functions', 0)}")
-                print(f"✓ Total classes: {self.code_analysis['summary'].get('total_classes', 0)}")
-            
+                print(
+                    f"✓ Total functions: {self.code_analysis['summary'].get('total_functions', 0)}"
+                )
+                print(
+                    f"✓ Total classes: {self.code_analysis['summary'].get('total_classes', 0)}"
+                )
+
             # Stage 3: Generate documentation
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("Stage 3: Generating Documentation")
-            print("="*60)
-            
+            print("=" * 60)
+
             self.doc_result = self.doc_agent.run(
                 repo_info=self.repo_info,
                 code_analysis=self.code_analysis,
-                wiki_path=self.wiki_path
+                wiki_path=self.wiki_path,
             )
             generated_docs = self.doc_result.get("generated_files", [])
             print(f"✓ Generated {len(generated_docs)} documents")
-            
+
             # Stage 4: Generate index
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("Stage 4: Generating Index")
-            print("="*60)
-            
+            print("=" * 60)
+
             self.summary_result = self.summary_agent.run(
                 docs=generated_docs,
                 wiki_path=self.wiki_path,
                 repo_info=self.repo_info,
-                code_analysis=self.code_analysis
+                code_analysis=self.code_analysis,
             )
             print(f"✓ Index file: {self.summary_result.get('index_file', 'N/A')}")
-            
+
             # Final summary
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("WIKI GENERATION PIPELINE COMPLETED")
-            print("="*60)
-            
+            print("=" * 60)
+
             pipeline_summary = self._generate_pipeline_summary()
             self._print_summary(pipeline_summary)
-            
+
             return pipeline_summary
-            
+
         except Exception as e:
             print(f"\n Error during wiki generation: {e}")
             import traceback
+
             traceback.print_exc()
             return {
                 "status": "failed",
                 "error": str(e),
-                "stage": self._get_current_stage()
+                "stage": self._get_current_stage(),
             }
 
     def _select_important_files(self, repo_info: dict, max_files: int) -> list:
         """Intelligently select important files for analysis.
-        
+
         Args:
             repo_info (dict): Repository information
             max_files (int): Maximum number of files to select
-            
+
         Returns:
             list: List of file paths to analyze
         """
-        code_extensions = {'.py', '.js', '.java', '.cpp', '.c', '.go', '.rs', '.ts', '.jsx', '.tsx', '.h', '.hpp'}
-        
+        code_extensions = {
+            ".py",
+            ".js",
+            ".java",
+            ".cpp",
+            ".c",
+            ".go",
+            ".rs",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".h",
+            ".hpp",
+        }
+
         file_list = []
-        structure = repo_info.get('structure', [])
-        
+        structure = repo_info.get("structure", [])
+
         # Priority directories (analyze these first)
-        priority_dirs = ['src', 'lib', 'core', 'app', 'main', 'api']
-        
+        priority_dirs = ["src", "lib", "core", "app", "main", "api"]
+
         # Search in priority directories first
         for priority_dir in priority_dirs:
             if len(file_list) >= max_files:
@@ -1383,24 +1441,50 @@ class WikiSupervisor:
                     if os.path.isdir(dir_path):
                         for root, dirs, files in os.walk(dir_path):
                             # Skip common build/cache directories
-                            dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', 'build', 'dist', 'target']]
+                            dirs[:] = [
+                                d
+                                for d in dirs
+                                if d
+                                not in [
+                                    ".git",
+                                    "node_modules",
+                                    "__pycache__",
+                                    "build",
+                                    "dist",
+                                    "target",
+                                ]
+                            ]
                             for file in files:
                                 if len(file_list) >= max_files:
                                     break
                                 if any(file.endswith(ext) for ext in code_extensions):
                                     file_list.append(os.path.join(root, file))
-        
+
         # If still need more files, search all directories
         if len(file_list) < max_files:
             for root, dirs, files in os.walk(self.repo_path):
-                dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', 'build', 'dist', 'target']]
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if d
+                    not in [
+                        ".git",
+                        "node_modules",
+                        "__pycache__",
+                        "build",
+                        "dist",
+                        "target",
+                    ]
+                ]
                 for file in files:
                     if len(file_list) >= max_files:
                         break
                     file_path = os.path.join(root, file)
-                    if file_path not in file_list and any(file.endswith(ext) for ext in code_extensions):
+                    if file_path not in file_list and any(
+                        file.endswith(ext) for ext in code_extensions
+                    ):
                         file_list.append(file_path)
-        
+
         return file_list[:max_files]
 
     def _get_current_stage(self) -> str:
@@ -1424,31 +1508,79 @@ class WikiSupervisor:
             "stages": {
                 "repo_info": {
                     "completed": self.repo_info is not None,
-                    "repo_name": self.repo_info.get("repo_name", "N/A") if self.repo_info else "N/A",
-                    "language": self.repo_info.get("main_language", "N/A") if self.repo_info else "N/A",
+                    "repo_name": (
+                        self.repo_info.get("repo_name", "N/A")
+                        if self.repo_info
+                        else "N/A"
+                    ),
+                    "language": (
+                        self.repo_info.get("main_language", "N/A")
+                        if self.repo_info
+                        else "N/A"
+                    ),
                 },
                 "code_analysis": {
                     "completed": self.code_analysis is not None,
-                    "files_analyzed": self.code_analysis.get("analyzed_files", 0) if self.code_analysis else 0,
-                    "total_functions": self.code_analysis["summary"].get("total_functions", 0) if self.code_analysis else 0,
+                    "files_analyzed": (
+                        self.code_analysis.get("analyzed_files", 0)
+                        if self.code_analysis
+                        else 0
+                    ),
+                    "total_functions": (
+                        self.code_analysis["summary"].get("total_functions", 0)
+                        if self.code_analysis
+                        else 0
+                    ),
                 },
                 "documentation": {
                     "completed": self.doc_result is not None,
-                    "files_generated": len(self.doc_result.get("generated_files", [])) if self.doc_result else 0,
-                    "verification_status": self.doc_result.get("verification_status", "N/A") if self.doc_result else "N/A",
+                    "files_generated": (
+                        len(self.doc_result.get("generated_files", []))
+                        if self.doc_result
+                        else 0
+                    ),
+                    "verification_status": (
+                        self.doc_result.get("verification_status", "N/A")
+                        if self.doc_result
+                        else "N/A"
+                    ),
                 },
                 "index": {
                     "completed": self.summary_result is not None,
-                    "index_file": self.summary_result.get("index_file", "N/A") if self.summary_result else "N/A",
-                    "verification_status": self.summary_result.get("verification_status", "N/A") if self.summary_result else "N/A",
-                }
+                    "index_file": (
+                        self.summary_result.get("index_file", "N/A")
+                        if self.summary_result
+                        else "N/A"
+                    ),
+                    "verification_status": (
+                        self.summary_result.get("verification_status", "N/A")
+                        if self.summary_result
+                        else "N/A"
+                    ),
+                },
             },
             "statistics": {
-                "total_documents": self.summary_result.get("total_documents", 0) if self.summary_result else 0,
-                "total_functions": self.code_analysis["summary"].get("total_functions", 0) if self.code_analysis else 0,
-                "total_classes": self.code_analysis["summary"].get("total_classes", 0) if self.code_analysis else 0,
-                "average_complexity": self.code_analysis["summary"].get("average_complexity", 0) if self.code_analysis else 0,
-            }
+                "total_documents": (
+                    self.summary_result.get("total_documents", 0)
+                    if self.summary_result
+                    else 0
+                ),
+                "total_functions": (
+                    self.code_analysis["summary"].get("total_functions", 0)
+                    if self.code_analysis
+                    else 0
+                ),
+                "total_classes": (
+                    self.code_analysis["summary"].get("total_classes", 0)
+                    if self.code_analysis
+                    else 0
+                ),
+                "average_complexity": (
+                    self.code_analysis["summary"].get("average_complexity", 0)
+                    if self.code_analysis
+                    else 0
+                ),
+            },
         }
 
     def _print_summary(self, summary: Dict[str, Any]):
@@ -1460,9 +1592,9 @@ class WikiSupervisor:
         print(f"  Functions Analyzed: {summary['statistics']['total_functions']}")
         print(f"  Classes Analyzed: {summary['statistics']['total_classes']}")
         print(f"  Average Complexity: {summary['statistics']['average_complexity']}")
-        
+
         print(f"\n Stage Completion:")
-        for stage_name, stage_info in summary['stages'].items():
+        for stage_name, stage_info in summary["stages"].items():
             status = "✓" if stage_info.get("completed") else "✗"
             print(f"  {status} {stage_name.replace('_', ' ').title()}")
 
@@ -1474,13 +1606,14 @@ def WikiSupervisorTest():
         repo_path="/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd",
         wiki_path="/mnt/zhongjf25/workspace/repo-agent/.wikis/supervisor_test",
         owner="facebook",
-        repo_name="zstd"
+        repo_name="zstd",
     )
-    
+
     result = supervisor.generate(max_files=5)
-    
-    print("\n" + "="*60)
+
+    print("\n" + "=" * 60)
     print("Final Result:")
     print(json.dumps(result, indent=2))
+
 
 # WikiSupervisorTest()

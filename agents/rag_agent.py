@@ -41,9 +41,7 @@ class RAGAgent:
         vectorstores = {}
         repo_path = os.path.join(self.wikis_dir, repo_dir)
         if os.path.exists(repo_path) and os.path.isdir(repo_path):
-            loader = DirectoryLoader(
-                repo_path, glob="**/*", show_progress=False
-            )
+            loader = DirectoryLoader(repo_path, glob="**/*", show_progress=False)
             repo_docs = loader.load()
             for doc in repo_docs:
                 doc.metadata["source"] = repo_dir

@@ -178,7 +178,7 @@ def main():
             wiki_path = f"./.wikis/{owner}_{repo}"
             # wiki_agent initialization
             wiki_agent = WikiAgent(repo_path=repo_path, wiki_path=wiki_path)
-            wiki_agent.generate()
+            wiki_agent.run()
             # 3.2 if exist, check if they are up to date, if not, update them
             # TODO: implement update wiki logic
             # TODO: implement saving wiki files to vector database
