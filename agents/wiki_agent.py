@@ -12,6 +12,8 @@ from .base_agent import BaseAgent, AgentState
 from langchain_core.messages import HumanMessage
 from datetime import datetime
 
+from prompt import WikiPrompts
+
 
 class WikiAgent(BaseAgent):
     def __init__(self, repo_path: str, wiki_path: str):
@@ -23,18 +25,12 @@ class WikiAgent(BaseAgent):
             get_repo_commit_info_tool,
             code_file_analysis_tool,
         ]
-        system_prompt = """
-You are a Wiki Generation Agent. Your task is to generate comprehensive wiki documentation for a given code repository. You have access to various tools that allow you to read and write files, analyze code files, and gather information about the repository structure and commit history.
-"""
+        system_prompt = WikiPrompts.get_system_prompt()
         super().__init__(tools, system_prompt, repo_path, wiki_path)
 
     def run(self):
         # Start the wiki generation process
-        init_message = HumanMessage(
-            content=f"""
-Generate wiki files for the repository located at {self.repo_path} and save them to {self.wiki_path}. Use the tools available to gather information about the repository, analyze code files, and write the necessary wiki documentation. Make sure to structure the wiki files appropriately and cover all relevant aspects of the repository.
-            """
-        )
+        init_message = WikiPrompts.get_init_message(self.repo_path, self.wiki_path)
         initial_state = AgentState(
             messages=[init_message],
             repo_path=self.repo_path,

@@ -15,7 +15,7 @@ from typing import Optional, Dict, Any
 from langchain.tools import tool
 
 
-@tool
+@tool(description="Read the content of a file in the repository. ")
 def read_file_tool(file_path: str) -> Dict[str, str]:
     """Read the content of a file.
 
@@ -33,7 +33,7 @@ def read_file_tool(file_path: str) -> Dict[str, str]:
     }
 
 
-@tool
+@tool(description="Write content to a file in the repository or wiki.")
 def write_file_tool(
     file_path: str,
     content: str,
@@ -55,7 +55,7 @@ def write_file_tool(
     }
 
 
-@tool
+@tool(description="Retrieve the directory and file structure of the repository.")
 def get_repo_structure_tool(repo_path: str) -> Dict[str, Any]:
     """Get the structure of a repository.
 
@@ -73,7 +73,7 @@ def get_repo_structure_tool(repo_path: str) -> Dict[str, Any]:
     }
 
 
-@tool
+@tool(description="Get basic repository information (name, description, topics, etc.).")
 def get_repo_basic_info_tool(
     owner: str, repo: str, platform: Optional[str] = "github"
 ) -> Dict[str, Optional[str]]:
@@ -91,7 +91,7 @@ def get_repo_basic_info_tool(
     return repo_info
 
 
-@tool
+@tool(description="Get the latest commits and commit metadata.")
 def get_repo_commit_info_tool(
     owner: str,
     repo: str,

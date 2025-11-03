@@ -28,7 +28,9 @@ class AgentState(TypedDict):
 
 
 class BaseAgent:
-    def __init__(self, tools, system_prompt: str, repo_path: str, wiki_path: str):
+    def __init__(
+        self, tools, system_prompt: SystemMessage, repo_path: str, wiki_path: str
+    ):
         self.llm = CONFIG.get_llm()
         self.repo_path = repo_path
         self.wiki_path = wiki_path
@@ -38,9 +40,9 @@ class BaseAgent:
         self.tool_executor = ToolNode(self.tools)
         self.app = self._build_app(system_prompt)
 
-    def _build_app(self, prompt: str):
+    def _build_app(self, system_prompt: SystemMessage):
         workflow = StateGraph(AgentState)
-        workflow.add_node("agent", lambda state: self._agent_node(prompt, state))
+        workflow.add_node("agent", lambda state: self._agent_node(system_prompt, state))
         workflow.add_node("tools", self.tool_executor)
         workflow.set_entry_point("agent")
         workflow.add_conditional_edges(
@@ -69,18 +71,18 @@ class BaseAgent:
         else:
             return "continue"
 
-    def _agent_node(self, prompt: str, state: AgentState) -> AgentState:
+    def _agent_node(
+        self, system_prompt: SystemMessage, state: AgentState
+    ) -> AgentState:
         """Call the language model with the current state.
 
         Args:
+            system_prompt (SystemMessage): The system prompt to use.
             state (AgentState): The current state of the agent.
 
         Returns:
             AgentState: The updated state of the agent after calling the model.
         """
-        system_prompt = SystemMessage(
-            content=prompt,
-        )
         response = self.llm_with_tools.invoke([system_prompt] + state["messages"])
         return {"messages": [response]}
 
