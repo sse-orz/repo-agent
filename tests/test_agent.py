@@ -356,6 +356,9 @@ def RepoInfoAgentTest():
 
 # ========== 2. CodeAnalysisAgent ==========
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Tuple
+import copy
 
 class CodeAnalysisAgent:
     def __init__(self, llm, tools):
@@ -428,13 +431,262 @@ class CodeAnalysisAgent:
         response = self.llm.invoke([system_prompt] + state["messages"])
         return {"messages": [response]}
 
-    def run(self, repo_path: str, file_list: list, batch_size: int = 5) -> dict:
-        """Analyze core code files.
+    def _create_batch_agent(self):
+        """Create a new agent instance for parallel batch processing.
+        
+        This is necessary because each batch needs its own memory/state.
+        """
+        batch_memory = InMemorySaver()
+        workflow = StateGraph(AgentState)
+        workflow.add_node("agent", self._agent_node)
+        workflow.add_node("tools", self.tool_executor)
+        workflow.set_entry_point("agent")
+        workflow.add_conditional_edges(
+            "agent",
+            self._should_continue,
+            {
+                "continue": "tools",
+                "end": END,
+            },
+        )
+        workflow.add_edge("tools", "agent")
+        return workflow.compile(checkpointer=batch_memory)
+
+    def _analyze_single_file_with_agent(
+        self, file_path: str, batch_num: int, file_num: int
+    ) -> Tuple[str, dict]:
+        """Analyze a single file using a fresh LLM agent instance.
+        
+        Args:
+            file_path (str): Path to the file to analyze
+            batch_num (int): Batch number for logging
+            file_num (int): File number within batch for logging
+            
+        Returns:
+            Tuple[str, dict]: (file_path, analysis_result)
+        """
+        # Create a fresh agent for each file to avoid context accumulation
+        file_agent = self._create_batch_agent()
+        
+        # Prepare the prompt for this single file
+        prompt = f"""
+                    Analyze the following code file:
+
+                    File to analyze: {file_path}
+
+                    Tasks:
+                    1. Use code_file_analysis_tool with the file path AS IS
+                    2. Extract the analysis information as specified in the system prompt
+                    3. Calculate a complexity score based on the analysis results
+
+                    Return the result in this exact JSON format:
+                    {{
+                        "language": "...",
+                        "functions": [...],
+                        "classes": [...],
+                        "imports": [...],
+                        "complexity_score": 5,
+                        "lines_of_code": 100,
+                        "summary": "Brief description"
+                    }}
+
+                    Important: 
+                    - Call code_file_analysis_tool for this file
+                    - Return results in the exact JSON format above
+                    - Do NOT add extra text outside the JSON structure
+                """
+
+        initial_state = AgentState(
+            messages=[HumanMessage(content=prompt)],
+            repo_path="",
+            wiki_path="",
+        )
+
+        # Run the file agent workflow
+        final_state = None
+        try:
+            for state in file_agent.stream(
+                initial_state,
+                stream_mode="values",
+                config={
+                    "configurable": {
+                        "thread_id": f"file-analysis-{batch_num}-{file_num}-{datetime.now().timestamp()}"
+                    },
+                    "recursion_limit": 50,  # Reduced for single file
+                },
+            ):
+                final_state = state
+
+            # Extract results from final state
+            if final_state:
+                last_message = final_state["messages"][-1]
+                if hasattr(last_message, "content"):
+                    try:
+                        content = last_message.content
+                        import re
+                        
+                        # Try to extract JSON
+                        json_code_block = re.search(r'```json\s*([\s\S]*?)\s*```', content)
+                        if json_code_block:
+                            json_str = json_code_block.group(1)
+                        else:
+                            json_match = re.search(r'\{[\s\S]*\}', content)
+                            if json_match:
+                                json_str = json_match.group()
+                            else:
+                                json_str = None
+                        
+                        if json_str:
+                            # Clean and parse
+                            json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)  # Remove trailing commas
+                            result = json.loads(json_str)
+                            print(f"    [Batch {batch_num}] ✓ {os.path.basename(file_path)}")
+                            return file_path, result
+                    except json.JSONDecodeError as e:
+                        print(f"    [Batch {batch_num}] ✗ {os.path.basename(file_path)}: JSON parse error")
+                        return file_path, {
+                            "error": f"JSON parse error: {e}",
+                            "raw_output": last_message.content[:500],
+                        }
+            
+            # If no valid result
+            print(f"    [Batch {batch_num}] ✗ {os.path.basename(file_path)}: No valid result")
+            return file_path, {
+                "error": "No valid result from agent",
+            }
+            
+        except Exception as e:
+            print(f"    [Batch {batch_num}] ✗ {os.path.basename(file_path)}: {e}")
+            return file_path, {
+                "error": str(e),
+            }
+
+    def _analyze_single_file_with_agent(
+        self, file_path: str, batch_num: int, file_num: int, repo_path: str
+    ) -> Tuple[str, dict]:
+        """Analyze a single file with a fresh agent to avoid context accumulation.
+        
+        Args:
+            file_path (str): File path to analyze
+            batch_num (int): Batch number for logging
+            file_num (int): File number within the batch
+            repo_path (str): Repository path
+            
+        Returns:
+            Tuple[str, dict]: (file_path, file_analysis_result)
+        """
+        # Create a fresh agent for each file
+        file_agent = self._create_batch_agent()
+        
+        # Create a single-file prompt
+        prompt = f"""
+                    Analyze this code file:
+
+                    File path: {file_path}
+
+                    Use code_file_analysis_tool to analyze the file, then provide the analysis in this exact JSON format:
+                    {{
+                        "language": "...",
+                        "functions": [...],
+                        "classes": [...],
+                        "complexity_score": 5,
+                        "lines_of_code": 100,
+                        "summary": "..."
+                    }}
+
+                    Important:
+                    - Call code_file_analysis_tool with the file path AS IS
+                    - Return ONLY the JSON structure above
+                    - Do NOT add extra text outside the JSON
+                """
+        
+        initial_state = AgentState(
+            messages=[HumanMessage(content=prompt)],
+            repo_path=repo_path,
+            wiki_path="",
+        )
+        
+        # Run the agent workflow with fresh context
+        final_state = None
+        try:
+            for state in file_agent.stream(
+                initial_state,
+                stream_mode="values",
+                config={
+                    "configurable": {
+                        "thread_id": f"batch-{batch_num}-file-{file_num}-{datetime.now().timestamp()}"
+                    },
+                    "recursion_limit": 50,
+                },
+            ):
+                final_state = state
+            
+            # Extract result
+            if final_state:
+                last_message = final_state["messages"][-1]
+                if hasattr(last_message, "content"):
+                    try:
+                        content = last_message.content
+                        import re
+                        json_match = re.search(r"\{[\s\S]*\}", content)
+                        if json_match:
+                            parsed_result = json.loads(json_match.group())
+                            return file_path, parsed_result
+                    except json.JSONDecodeError as e:
+                        return file_path, {
+                            "error": "JSON parse error",
+                            "raw_output": last_message.content[:300],
+                        }
+            
+            return file_path, {"error": "No result from agent"}
+            
+        except Exception as e:
+            return file_path, {"error": str(e)}
+
+    def _analyze_batch_with_agent(
+        self, batch: List[str], batch_num: int, repo_path: str
+    ) -> Tuple[int, dict]:
+        """Analyze a batch of files using dedicated LLM agent instances (one per file).
+        
+        Args:
+            batch (List[str]): List of file paths to analyze
+            batch_num (int): Batch number for logging
+            repo_path (str): Repository path
+            
+        Returns:
+            Tuple[int, dict]: (batch_num, batch_results)
+        """
+        print(f"  [Batch {batch_num}] Starting analysis of {len(batch)} files...")
+        
+        batch_results = {}
+        
+        # Analyze each file with a fresh agent to avoid context accumulation
+        for i, file_path in enumerate(batch, 1):
+            print(f"    [Batch {batch_num}] Analyzing file {i}/{len(batch)}: {os.path.basename(file_path)}")
+            file_path_result, file_result = self._analyze_single_file_with_agent(
+                file_path, batch_num, i, repo_path
+            )
+            batch_results[file_path_result] = file_result
+        
+        print(f"  [Batch {batch_num}] ✓ Completed ({len(batch_results)} files analyzed)")
+        return batch_num, batch_results
+
+    def run(
+        self, 
+        repo_path: str, 
+        file_list: list, 
+        batch_size: int = 1,
+        parallel_batches: bool = True,
+        max_workers: int = 100
+    ) -> dict:
+        """Analyze core code files with parallel batch processing.
 
         Args:
             repo_path (str): Local path to the repository
-            file_list (list): List of file paths to analyze (relative to repo_path)
-            batch_size (int): Number of files to analyze in one batch (default 5)
+            file_list (list): List of file paths to analyze
+            batch_size (int): Number of files to analyze in one batch (default 1)
+            parallel_batches (bool): Whether to process batches in parallel (default True)
+            max_workers (int): Maximum number of parallel batch workers (default 100)
 
         Returns:
             dict: Analysis results for all files
@@ -452,24 +704,13 @@ class CodeAnalysisAgent:
                 },
             }
 
-        # Filter valid code files (skip non-code files)
+        # Filter and validate files
         code_extensions = {
-            ".py",
-            ".js",
-            ".java",
-            ".cpp",
-            ".c",
-            ".go",
-            ".rs",
-            ".ts",
-            ".jsx",
-            ".tsx",
-            ".h",
-            ".hpp",
+            ".py", ".js", ".java", ".cpp", ".c", ".go", ".rs", ".ts",
+            ".jsx", ".tsx", ".h", ".hpp",
         }
         valid_files = []
         for f in file_list:
-            # 如果是相对路径，拼接 repo_path
             if not os.path.isabs(f):
                 full_path = os.path.join(repo_path, f)
             else:
@@ -495,100 +736,93 @@ class CodeAnalysisAgent:
                 "warning": "No valid code files found to analyze",
             }
 
-        # Limit to first N files to avoid context overflow
-        max_files = 20
+        # Limit files
+        max_files = 1000
         if len(valid_files) > max_files:
             valid_files = valid_files[:max_files]
-            print(
-                f"Warning: Analyzing only first {max_files} files to avoid context overflow"
-            )
+            print(f"Warning: Analyzing only first {max_files} files to avoid overflow")
 
-        # Process files in batches
+        # Sort files by size (largest first) for better load balancing
+        print("\nSorting files by size...")
+        file_sizes = []
+        for f in valid_files:
+            try:
+                size = os.path.getsize(f)
+                file_sizes.append((f, size))
+            except OSError:
+                file_sizes.append((f, 0))
+        
+        # Sort by size in descending order
+        file_sizes.sort(key=lambda x: x[1], reverse=True)
+        sorted_files = [f for f, _ in file_sizes]
+        
+        total_size = sum(size for _, size in file_sizes)
+        print(f"Total size: {total_size / 1024:.2f} KB")
+        print(f"Average file size: {total_size / len(file_sizes) / 1024:.2f} KB")
+        print(f"Largest file: {file_sizes[0][1] / 1024:.2f} KB")
+        print(f"Smallest file: {file_sizes[-1][1] / 1024:.2f} KB")
+
+        # Split into batches using greedy algorithm for balanced batch sizes
+        num_batches = (len(sorted_files) + batch_size - 1) // batch_size
+        batches = [[] for _ in range(num_batches)]
+        batch_sizes = [0] * num_batches
+        
+        # Greedy assignment: assign each file to the batch with smallest current size
+        for file_path, file_size in file_sizes:
+            # Find batch with minimum total size
+            min_batch_idx = batch_sizes.index(min(batch_sizes))
+            batches[min_batch_idx].append(file_path)
+            batch_sizes[min_batch_idx] += file_size
+        
+        # Remove empty batches
+        batches = [b for b in batches if b]
+        
+        print(f"\nCreated {len(batches)} balanced batches:")
+        for i, (batch, size) in enumerate(zip(batches, batch_sizes[:len(batches)]), 1):
+            print(f"  Batch {i}: {len(batch)} files, {size / 1024:.2f} KB")
+
         all_results = {}
 
-        for i in range(0, len(valid_files), batch_size):
-            batch = valid_files[i : i + batch_size]
-
-            prompt = f"""
-                        Analyze the following code files:
-
-                        Files to analyze (absolute paths):
-                        {json.dumps(batch, indent=2)}
-
-                        For each file:
-                        1. Use code_file_analysis_tool with the file path AS IS (already absolute)
-                        2. Extract the analysis information as specified in the system prompt
-                        3. Calculate a complexity score based on the analysis results
-
-                        After analyzing all files, provide results in this exact JSON format:
-                        {{
-                            "files": {{
-                                "file_path_1": {{
-                                    "language": "...",
-                                    "functions": [...],
-                                    "classes": [...],
-                                    "complexity_score": 5,
-                                    "lines_of_code": 100,
-                                    "summary": "..."
-                                }},
-                                "file_path_2": {{...}}
-                            }}
-                        }}
-
-                        Important: 
-                        - Call code_file_analysis_tool for EACH file separately
-                        - Return results in the exact JSON format above
-                        - Do NOT add extra text outside the JSON structure
-                    """
-
-            initial_state = AgentState(
-                messages=[HumanMessage(content=prompt)],
-                repo_path=repo_path,
-                wiki_path="",
-            )
-
-            # Run the agent workflow
-            final_state = None
-            for state in self.app.stream(
-                initial_state,
-                stream_mode="values",
-                config={
-                    "configurable": {
-                        "thread_id": f"code-analysis-{datetime.now().timestamp()}"
-                    },
-                    "recursion_limit": 100,  # Allow more recursion for multiple file analysis
-                },
-            ):
-                final_state = state
-                # Optional: print progress
-                last_msg = state["messages"][-1]
-                if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-                    print(f"  Analyzing files in batch {i//batch_size + 1}...")
-
-            # Extract results from final state
-            if final_state:
-                last_message = final_state["messages"][-1]
-                if hasattr(last_message, "content"):
+        if parallel_batches and len(batches) > 1:
+            # ========== 批次间并行处理 ==========
+            print(f"\n Processing {len(batches)} batches in PARALLEL (max {max_workers} concurrent batches)...")
+            
+            # start_time = datetime.now()
+            
+            with ThreadPoolExecutor(max_workers=min(len(batches), max_workers)) as executor:
+                # 为每个批次提交一个独立的 agent 任务
+                future_to_batch = {
+                    executor.submit(
+                        self._analyze_batch_with_agent, 
+                        batch, 
+                        i + 1,
+                        repo_path
+                    ): i
+                    for i, batch in enumerate(batches)
+                }
+                
+                # 收集结果（按完成顺序）
+                for future in as_completed(future_to_batch):
+                    batch_idx = future_to_batch[future]
                     try:
-                        content = last_message.content
-                        import re
-
-                        json_match = re.search(r"\{[\s\S]*\}", content)
-                        if json_match:
-                            batch_results = json.loads(json_match.group())
-                            if "files" in batch_results:
-                                all_results.update(batch_results["files"])
-                            else:
-                                # If direct file results
-                                all_results.update(batch_results)
-                    except json.JSONDecodeError as e:
-                        print(f"Failed to parse JSON from batch analysis: {e}")
-                        # Store raw output for debugging
-                        for file_path in batch:
+                        batch_num, batch_results = future.result()
+                        all_results.update(batch_results)
+                        print(f"✓ Batch {batch_num} results merged into final results")
+                    except Exception as e:
+                        print(f"✗ Batch {batch_idx + 1} failed with exception: {e}")
+                        # Add error results for failed batch
+                        for file_path in batches[batch_idx]:
                             all_results[file_path] = {
-                                "error": "JSON parse error",
-                                "raw_output": last_message.content[:500],
+                                "error": f"Batch execution failed: {e}"
                             }
+        else:
+            # ========== 批次间串行处理 ==========
+            print(f"\n Processing {len(batches)} batches SEQUENTIALLY...")
+            for i, batch in enumerate(batches):
+                batch_num, batch_results = self._analyze_batch_with_agent(
+                    batch, i + 1, repo_path
+                )
+                all_results.update(batch_results)
 
         # Calculate summary statistics
         total_functions = 0
@@ -606,6 +840,10 @@ class CodeAnalysisAgent:
                 total_lines += analysis.get("lines_of_code", 0)
 
         avg_complexity = total_complexity / analyzed_count if analyzed_count > 0 else 0
+        
+        # end_time = datetime.now()
+        
+        # print(f"\n Total analysis time: {end_time - start_time}\n")
 
         return {
             "total_files": len(file_list),
@@ -624,6 +862,7 @@ class CodeAnalysisAgent:
                     )
                 ),
             },
+            "parallel_mode": "batches_parallel" if parallel_batches and len(batches) > 1 else "sequential"
         }
 
 
@@ -634,22 +873,34 @@ def CodeAnalysisAgentTest():
     code_agent = CodeAnalysisAgent(llm, tools)
 
     repo_path = "/mnt/zhongjf25/workspace/repo-agent/.repos/facebook_zstd"
-    import os
-
+    
+    # 收集文件
     file_list = []
     for root, dirs, files in os.walk(repo_path):
         dirs[:] = [d for d in dirs if d not in [".git", "node_modules", "__pycache__"]]
         for file in files:
-            if file.endswith((".c", ".h")) and len(file_list) < 4:
+            if file.endswith((".c", ".h")) and len(file_list) < 1000: 
                 file_list.append(os.path.join(root, file))
 
-    print(f"Found files: {file_list}")
+    print(f"Found {len(file_list)} files for analysis")
 
     code_analysis = code_agent.run(
-        repo_path=repo_path, file_list=file_list, batch_size=4
+        repo_path=repo_path,
+        file_list=file_list,
+        batch_size=1,          
+        parallel_batches=True,  
+        max_workers=100          # 最大并行批次数
     )
 
-    print(json.dumps(code_analysis, indent=2))
+    print("\n" + "="*60)
+    print(f"Analysis Mode: {code_analysis.get('parallel_mode', 'unknown')}")
+    print(f"Total Files: {code_analysis['total_files']}")
+    print(f"Analyzed Files: {code_analysis['analyzed_files']}")
+    print(f"Total Functions: {code_analysis['summary']['total_functions']}")
+    print(f"Total Classes: {code_analysis['summary']['total_classes']}")
+    print(f"Average Complexity: {code_analysis['summary']['average_complexity']}")
+    print("="*60)
+
 
 
 # CodeAnalysisAgentTest()
@@ -1286,7 +1537,7 @@ class WikiSupervisor:
         self.doc_result = None
         self.summary_result = None
 
-    def generate(self, max_files: int = 10) -> Dict[str, Any]:
+    def generate(self, max_files: int = 50) -> Dict[str, Any]:
         """Execute the complete wiki generation pipeline.
 
         Args:
@@ -1297,25 +1548,30 @@ class WikiSupervisor:
         """
         print("\n" + "=" * 60)
         print("WIKI GENERATION PIPELINE STARTED")
-        print("=" * 60)
-
+        print("="*60)
+        all_start_time = datetime.now()
+        
         try:
             # Stage 1: Collect repository information
             print("\n" + "=" * 60)
             print("Stage 1: Collecting Repository Information")
-            print("=" * 60)
+            print("="*60)
+            start_time = datetime.now()
             self.repo_info = self.repo_agent.run(
                 repo_path=self.repo_path, owner=self.owner, repo_name=self.repo_name
             )
             print(f"✓ Repository: {self.repo_info.get('repo_name', 'Unknown')}")
             print(f"✓ Language: {self.repo_info.get('main_language', 'Unknown')}")
             print(f"✓ Directories: {len(self.repo_info.get('structure', []))}")
-
+            print(f"✓ Commits: {len(self.repo_info.get('commits', []))}")
+            print(f"✓ Stage 1 Time taken: {datetime.now() - start_time}")
+            
             # Stage 2: Analyze code files
             print("\n" + "=" * 60)
             print("Stage 2: Analyzing Code Files")
-            print("=" * 60)
-
+            print("="*60)
+            start_time = datetime.now()
+            
             # Intelligently select files to analyze
             file_list = self._select_important_files(self.repo_info, max_files)
 
@@ -1344,20 +1600,21 @@ class WikiSupervisor:
                     repo_path=self.repo_path,
                     file_list=file_list,
                     batch_size=min(5, len(file_list)),
+                    parallel_batches=True,
+                    max_workers=10
                 )
                 print(f"✓ Analyzed {self.code_analysis.get('analyzed_files', 0)} files")
-                print(
-                    f"✓ Total functions: {self.code_analysis['summary'].get('total_functions', 0)}"
-                )
-                print(
-                    f"✓ Total classes: {self.code_analysis['summary'].get('total_classes', 0)}"
-                )
-
+                print(f"✓ Total functions: {self.code_analysis['summary'].get('total_functions', 0)}")
+                print(f"✓ Total classes: {self.code_analysis['summary'].get('total_classes', 0)}")
+                print(f"✓ Average complexity: {self.code_analysis['summary'].get('average_complexity', 0)}")
+                print(f"✓ Stage 2 Time taken: {datetime.now() - start_time}")
+            
             # Stage 3: Generate documentation
             print("\n" + "=" * 60)
             print("Stage 3: Generating Documentation")
-            print("=" * 60)
-
+            print("="*60)
+            start_time = datetime.now()
+            
             self.doc_result = self.doc_agent.run(
                 repo_info=self.repo_info,
                 code_analysis=self.code_analysis,
@@ -1365,12 +1622,14 @@ class WikiSupervisor:
             )
             generated_docs = self.doc_result.get("generated_files", [])
             print(f"✓ Generated {len(generated_docs)} documents")
-
+            print(f"✓ Stage 3 Time taken: {datetime.now() - start_time}")
+            
             # Stage 4: Generate index
             print("\n" + "=" * 60)
             print("Stage 4: Generating Index")
-            print("=" * 60)
-
+            print("="*60)
+            start_time = datetime.now()
+            
             self.summary_result = self.summary_agent.run(
                 docs=generated_docs,
                 wiki_path=self.wiki_path,
@@ -1378,12 +1637,14 @@ class WikiSupervisor:
                 code_analysis=self.code_analysis,
             )
             print(f"✓ Index file: {self.summary_result.get('index_file', 'N/A')}")
-
+            print(f"✓ Stage 4 Time taken: {datetime.now() - start_time}")
+            
             # Final summary
             print("\n" + "=" * 60)
             print("WIKI GENERATION PIPELINE COMPLETED")
-            print("=" * 60)
-
+            print(f"Total Time taken: {datetime.now() - all_start_time}")
+            print("="*60)
+            
             pipeline_summary = self._generate_pipeline_summary()
             self._print_summary(pipeline_summary)
 
@@ -1410,82 +1671,126 @@ class WikiSupervisor:
         Returns:
             list: List of file paths to analyze
         """
-        code_extensions = {
-            ".py",
-            ".js",
-            ".java",
-            ".cpp",
-            ".c",
-            ".go",
-            ".rs",
-            ".ts",
-            ".jsx",
-            ".tsx",
-            ".h",
-            ".hpp",
-        }
-
+        code_extensions = {'.py', '.js', '.java', '.cpp', '.c', '.go', '.rs', '.ts', '.jsx', '.tsx', '.h', '.hpp', '.cs', '.rb', '.php'}
+        
         file_list = []
         structure = repo_info.get("structure", [])
 
         # Priority directories (analyze these first)
-        priority_dirs = ["src", "lib", "core", "app", "main", "api"]
-
-        # Search in priority directories first
+        priority_dirs = ['src', 'lib', 'core', 'app', 'main', 'api', 'pkg', 'internal']
+        
+        print(f"\nSearching for code files (max: {max_files})...")
+        print(f"Repository structure: {structure}")
+        
+        # Phase 1: Search in priority directories
+        print("\nPhase 1: Searching priority directories...")
         for priority_dir in priority_dirs:
             if len(file_list) >= max_files:
                 break
+                
             for root_dir in structure:
-                if priority_dir in root_dir.lower():
+                if len(file_list) >= max_files:
+                    break
+                    
+                # Match priority directory in structure
+                # Use case-insensitive matching and check if priority_dir is in the path
+                if priority_dir.lower() in root_dir.lower():
                     dir_path = os.path.join(self.repo_path, root_dir)
                     if os.path.isdir(dir_path):
-                        for root, dirs, files in os.walk(dir_path):
-                            # Skip common build/cache directories
-                            dirs[:] = [
-                                d
-                                for d in dirs
-                                if d
-                                not in [
-                                    ".git",
-                                    "node_modules",
-                                    "__pycache__",
-                                    "build",
-                                    "dist",
-                                    "target",
-                                ]
-                            ]
-                            for file in files:
-                                if len(file_list) >= max_files:
-                                    break
-                                if any(file.endswith(ext) for ext in code_extensions):
-                                    file_list.append(os.path.join(root, file))
-
-        # If still need more files, search all directories
+                        print(f"  Scanning priority directory: {root_dir}")
+                        collected = self._collect_code_files_from_dir(
+                            dir_path, 
+                            code_extensions, 
+                            max_files - len(file_list)
+                        )
+                        file_list.extend(collected)
+                        print(f"    Found {len(collected)} files, total: {len(file_list)}")
+        
+        # Phase 2: Search remaining directories if needed
         if len(file_list) < max_files:
-            for root, dirs, files in os.walk(self.repo_path):
-                dirs[:] = [
-                    d
-                    for d in dirs
-                    if d
-                    not in [
-                        ".git",
-                        "node_modules",
-                        "__pycache__",
-                        "build",
-                        "dist",
-                        "target",
-                    ]
-                ]
-                for file in files:
-                    if len(file_list) >= max_files:
-                        break
-                    file_path = os.path.join(root, file)
-                    if file_path not in file_list and any(
-                        file.endswith(ext) for ext in code_extensions
-                    ):
-                        file_list.append(file_path)
-
+            print(f"\nPhase 2: Searching remaining directories (need {max_files - len(file_list)} more files)...")
+            for root_dir in structure:
+                if len(file_list) >= max_files:
+                    break
+                    
+                # Skip if already searched
+                if any(priority_dir.lower() in root_dir.lower() for priority_dir in priority_dirs):
+                    continue
+                    
+                dir_path = os.path.join(self.repo_path, root_dir)
+                if os.path.isdir(dir_path):
+                    print(f"  Scanning directory: {root_dir}")
+                    collected = self._collect_code_files_from_dir(
+                        dir_path, 
+                        code_extensions, 
+                        max_files - len(file_list)
+                    )
+                    if collected:
+                        file_list.extend(collected)
+                        print(f"    Found {len(collected)} files, total: {len(file_list)}")
+        
+        # Phase 3: If still insufficient, do a full repository scan
+        if len(file_list) < max_files:
+            print(f"\nPhase 3: Full repository scan (need {max_files - len(file_list)} more files)...")
+            remaining = self._collect_code_files_from_dir(
+                self.repo_path,
+                code_extensions,
+                max_files - len(file_list),
+                exclude_existing=file_list
+            )
+            file_list.extend(remaining)
+            print(f"  Found {len(remaining)} additional files, total: {len(file_list)}")
+        
+        print(f"\n✓ Selected {len(file_list)} files for analysis")
         return file_list[:max_files]
+
+    def _collect_code_files_from_dir(
+        self, 
+        dir_path: str, 
+        extensions: set, 
+        max_count: int,
+        exclude_existing: list = None
+    ) -> list:
+        """Collect code files from a directory.
+        
+        Args:
+            dir_path (str): Directory path to search
+            extensions (set): Set of file extensions to include
+            max_count (int): Maximum number of files to collect
+            exclude_existing (list): List of files to exclude
+            
+        Returns:
+            list: List of file paths
+        """
+        if exclude_existing is None:
+            exclude_existing = []
+        
+        collected = []
+        exclude_dirs = {'.git', 'node_modules', '__pycache__', 'build', 'dist', 'target', 
+                        'venv', 'env', '.venv', '.env', 'vendor', 'third_party',
+                        '.pytest_cache', '.mypy_cache', '.tox', 'htmlcov'}
+        
+        try:
+            for root, dirs, files in os.walk(dir_path):
+                # Filter out excluded directories
+                dirs[:] = [d for d in dirs if d not in exclude_dirs]
+                
+                for file in files:
+                    if len(collected) >= max_count:
+                        return collected
+                    
+                    # Check file extension
+                    if any(file.endswith(ext) for ext in extensions):
+                        file_path = os.path.join(root, file)
+                        
+                        # Skip if already in exclude list
+                        if file_path not in exclude_existing and file_path not in collected:
+                            collected.append(file_path)
+        
+        except Exception as e:
+            print(f"  Warning: Error scanning {dir_path}: {e}")
+        
+        return collected
 
     def _get_current_stage(self) -> str:
         """Get the current stage of pipeline execution."""
@@ -1608,12 +1913,11 @@ def WikiSupervisorTest():
         owner="facebook",
         repo_name="zstd",
     )
-
-    result = supervisor.generate(max_files=5)
-
-    print("\n" + "=" * 60)
+    
+    result = supervisor.generate(max_files=20)
+    
+    print("\n" + "="*60)
     print("Final Result:")
     print(json.dumps(result, indent=2))
 
-
-# WikiSupervisorTest()
+WikiSupervisorTest()
