@@ -1,7 +1,9 @@
 from utils.repo import clone_repo, pull_repo
 from agents.wiki_agent import WikiAgent
 from agents.rag_agent import RAGAgent
+from agents.supervisor_agent import SupervisorAgent
 from config import CONFIG
+import json
 
 
 def get_mode() -> str:
@@ -176,9 +178,31 @@ def main():
             # 3.1 check if wiki files have been generated, if not, generate them
             # TODO: implement generate wiki logic
             wiki_path = f"./.wikis/{owner}_{repo}"
+            
+            # method 1: wiki agent directly generate wiki files
             # wiki_agent initialization
-            wiki_agent = WikiAgent(repo_path=repo_path, wiki_path=wiki_path)
-            wiki_agent.run()
+            # wiki_agent = WikiAgent(repo_path=repo_path, wiki_path=wiki_path)
+            # wiki_agent.run()
+            
+            # method 2: use supervisor agent to manage the process (including repo info collect, code analysis, doc generation, wiki generation, etc.)
+            supervisor = SupervisorAgent(
+                repo_path=repo_path,
+                wiki_path=wiki_path,
+                owner=owner,
+                repo_name=repo,
+            )
+
+            # Run with intelligent file selection
+            result = supervisor.generate(
+                max_files=30,  # Select up to 30 important files
+                batch_size=10,  # Process 10 files per batch
+                max_workers=3,  # Use 3 parallel workers
+            )
+
+            # print("\n" + "=" * 80)
+            # print("Final Result:")
+            # print("=" * 80)
+            # print(json.dumps(result, indent=2))
             # 3.2 if exist, check if they are up to date, if not, update them
             # TODO: implement update wiki logic
             # TODO: implement saving wiki files to vector database
