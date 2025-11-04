@@ -29,7 +29,7 @@ import copy
 
 class CodeAnalysisAgent:
     def __init__(self, llm, tools):
-        self.llm = llm.bind_tools(tools)
+        self.llm = llm.bind_tools(tools, parallel_tool_calls=False)
         self.tools = tools
         self.tool_executor = ToolNode(tools)
         self.memory = InMemorySaver()
