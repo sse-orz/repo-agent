@@ -17,6 +17,7 @@ class GlobalConfig:
     DEEPSEEK_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     GLM_API_KEY: Optional[str] = None
+    MINIMAX_API_KEY: Optional[str] = None
     LANGSMITH_TRACING: bool = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
     LANGSMITH_API_KEY: Optional[str] = os.getenv("LANGSMITH_API_KEY", None)
     LANGSMITH_PROJECT: Optional[str] = os.getenv("LANGSMITH_PROJECT", None)
@@ -42,6 +43,9 @@ class GlobalConfig:
             case "glm":
                 self.LLM_MODEL = os.getenv("GLM_MODEL", "GLM-4.5")
                 self.GLM_API_KEY = os.getenv("GLM_API_KEY", "")
+            case "minimax":
+                self.LLM_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-M2")
+                self.MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
             case _:
                 raise ValueError(f"Unsupported LLM_PLATFORM: {self.LLM_PLATFORM}")
 
@@ -78,6 +82,12 @@ class GlobalConfig:
                     model=self.LLM_MODEL,
                     openai_api_key=self.GLM_API_KEY,
                     openai_api_base="https://open.bigmodel.cn/api/paas/v4/",
+                )
+            case "minimax":
+                return ChatOpenAI(
+                    model=self.LLM_MODEL,
+                    openai_api_key=self.MINIMAX_API_KEY,
+                    openai_api_base="https://api.minimaxi.com/v1",
                 )
             case _:
                 raise ValueError(f"Unsupported LLM_PLATFORM: {self.LLM_PLATFORM}")

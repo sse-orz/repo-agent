@@ -178,12 +178,12 @@ def main():
             # 3.1 check if wiki files have been generated, if not, generate them
             # TODO: implement generate wiki logic
             wiki_path = f"./.wikis/{owner}_{repo}"
-            
+
             # method 1: wiki agent directly generate wiki files
             # wiki_agent initialization
             # wiki_agent = WikiAgent(repo_path=repo_path, wiki_path=wiki_path)
             # wiki_agent.run()
-            
+
             # method 2: use supervisor agent to manage the process (including repo info collect, code analysis, doc generation, wiki generation, etc.)
             supervisor = SupervisorAgent(
                 repo_path=repo_path,
