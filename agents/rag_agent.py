@@ -178,13 +178,6 @@ Please answer with just "yes" or "no":"""
         else:
             return "direct"
 
-    def _decide_retrieve_or_generate(self, state: RAGState) -> str:
-        """Decide whether to retrieve more documents or generate answer."""
-        if state.get("is_sufficient", False):
-            return "generate"
-        else:
-            return "retrieve"
-
     def _init_vectorstores(self, repo_dir: str):
         vectorstores = {}
         repo_path = os.path.join(self.wikis_dir, repo_dir)
