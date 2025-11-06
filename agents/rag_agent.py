@@ -1,4 +1,5 @@
 from config import CONFIG
+from prompt import RAGPrompts
 
 import os
 import io
@@ -45,6 +46,7 @@ class RAGAgent:
         # Build the graph
         graph = StateGraph(RAGState)
         graph.add_node("check_intent", self._check_intent)
+        graph.add_node("rewrite", self._rewrite)
         graph.add_node("retrieve", self._retrieve)
         graph.add_node("llm_judge", self._llm_judge)
         graph.add_node("generate_with_rag", self._generate)
@@ -55,10 +57,11 @@ class RAGAgent:
             "check_intent",
             self._decide_rag_or_direct,
             {
-                "rag": "retrieve",
+                "rag": "rewrite",
                 "direct": "generate_direct",
             },
         )
+        graph.add_edge("rewrite", "retrieve")
         graph.add_edge("retrieve", "llm_judge")
         graph.add_conditional_edges(
             "llm_judge",
@@ -74,11 +77,29 @@ class RAGAgent:
         # Compile the graph
         return graph.compile(checkpointer=self.memory)
 
+    def _invoke_llm(self, prompt) -> str:
+        """Invoke LLM with the given prompt and return the content."""
+        llm = CONFIG.get_llm()
+        return llm.invoke([prompt]).content.lower().strip()
+
     def _llm_judge(self, state: RAGState) -> RAGState:
         """Use LLM to judge if retrieved documents are sufficient for answering the question."""
         question = state["question"]
         docs = state["documents"]
         retrieval_count = state.get("retrieval_count", 0)
+
+        # Limit retrieval attempts to avoid infinite loops (max 2 attempts)
+        if retrieval_count >= 2:
+            return {
+                "is_sufficient": True,
+                "retrieval_count": retrieval_count + 1,
+                "messages": state["messages"]
+                + [
+                    SystemMessage(
+                        content=f"[llm_judge]: Max retrieval attempts ({retrieval_count + 1}) reached. Proceeding with generation."
+                    )
+                ],
+            }
 
         if not docs:
             # No documents retrieved, not sufficient
@@ -96,28 +117,14 @@ class RAGAgent:
         context = "\n".join([doc.page_content for doc in docs])
 
         # Create a prompt to judge sufficiency
-        judge_prompt = SystemMessage(
-            content=f"""Based on the following documents and question, determine if the documents are sufficient to answer the question.
+        judge_prompt = RAGPrompts.get_judge_prompt(question, context)
 
-Question: {question}
-
-Documents:
-{context}
-
-Please answer with just "yes" or "no":"""
-        )
-
-        llm = CONFIG.get_llm()
-        judgment = llm.invoke([judge_prompt]).content.lower().strip()
+        judgment = self._invoke_llm(judge_prompt)
 
         # If judge says "yes" or contains "sufficient/enough", consider it sufficient
         is_sufficient = (
             "yes" in judgment or "sufficient" in judgment or "enough" in judgment
         )
-
-        # Limit retrieval attempts to avoid infinite loops (e.g., max 3 attempts)
-        if retrieval_count >= 3:
-            is_sufficient = True
 
         judge_message = f"[llm_judge]: Document sufficiency check: {judgment}. Retrieval count: {retrieval_count + 1}"
 
@@ -140,28 +147,9 @@ Please answer with just "yes" or "no":"""
         repo_name = state["repo_name"]
 
         # Create a prompt to judge if question is repo-related
-        intent_prompt = SystemMessage(
-            content=f"""Determine if the following question is related to the repository "{repo_name}".
+        intent_prompt = RAGPrompts.get_intent_check_prompt(question, repo_name)
 
-Question: {question}
-
-Consider the question is repo-related if:
-1. It asks about code, structure, or content of the repository
-2. It asks about algorithms, implementations, or functions in the repository
-3. It asks about the repository's purpose, features, or documentation
-4. It asks "what is", "how to", "explain" about the repository content
-
-Consider the question is NOT repo-related if:
-1. It asks about our previous conversation or interaction
-2. It asks meta questions about the assistant itself
-3. It asks for general knowledge unrelated to the repo
-4. It asks to critique or self-reflect on previous responses
-
-Please answer with just "yes" or "no":"""
-        )
-
-        llm = CONFIG.get_llm()
-        judgment = llm.invoke([intent_prompt]).content.lower().strip()
+        judgment = self._invoke_llm(intent_prompt)
 
         is_repo_related = "yes" in judgment
         intent_message = f"[check_intent]: {'Repository-related' if is_repo_related else 'General question'}. Question: {question}"
@@ -169,6 +157,24 @@ Please answer with just "yes" or "no":"""
         return {
             "is_repo_related": is_repo_related,
             "messages": state["messages"] + [SystemMessage(content=intent_message)],
+        }
+
+    def _rewrite(self, state: RAGState) -> RAGState:
+        """Rewrite and improve the user's question for better retrieval."""
+        original_question = state["question"]
+        repo_name = state["repo_name"]
+
+        # Create a prompt to rewrite the question
+        rewrite_prompt = RAGPrompts.get_rewrite_prompt(original_question, repo_name)
+
+        llm = CONFIG.get_llm()
+        rewritten_question = llm.invoke([rewrite_prompt]).content.strip()
+
+        rewrite_message = f"[rewrite]: Original: '{original_question}' -> Refined: '{rewritten_question}'"
+
+        return {
+            "question": rewritten_question,
+            "messages": state["messages"] + [SystemMessage(content=rewrite_message)],
         }
 
     def _decide_rag_or_direct(self, state: RAGState) -> str:
@@ -208,30 +214,20 @@ Please answer with just "yes" or "no":"""
     # Define retrieval function
     def _retrieve(self, state: RAGState) -> RAGState:
         query = state["query"]
+        question = state["question"]  # Use the refined question from rewrite step
+        repo_name = state["repo_name"]
 
-        def fallback_search(query: str) -> List[Document]:
+        def fallback_search(question: str) -> List[Document]:
             docs = []
             for vs in self.vectorstores.values():
-                docs.extend(vs.similarity_search(query, k=1))
+                docs.extend(vs.similarity_search(question, k=3))
             return docs
 
-        def process_query(query: str) -> tuple[str, List[Document]]:
-
-            if ":" in query:
-                repo, question = query.split(":", 1)
-                repo = repo.strip()
-                question = question.strip()
-                if repo in self.vectorstores:
-                    docs = self.vectorstores[repo].similarity_search(question, k=3)
-                else:
-                    docs = fallback_search(question)
-            else:
-                question = query
-                docs = fallback_search(question)
-            return question, docs
-
-        # Parse repo from query, assume format "repo: question"
-        question, docs = process_query(query)
+        # Use repo_name and refined question for retrieval
+        if repo_name and repo_name in self.vectorstores:
+            docs = self.vectorstores[repo_name].similarity_search(question, k=5)
+        else:
+            docs = fallback_search(question)
 
         return {
             "query": query,
@@ -239,7 +235,7 @@ Please answer with just "yes" or "no":"""
             "documents": docs,
             "answer": "",
             "messages": state["messages"]
-            + [SystemMessage(content="[retrieve]: Retrieved documents.")],
+            + [SystemMessage(content=f"[retrieve]: Retrieved {len(docs)} documents.")],
         }
 
     # Define generation function with RAG context
@@ -250,9 +246,7 @@ Please answer with just "yes" or "no":"""
         context = "\n".join([doc.page_content for doc in docs])
         history = self._get_history_messages(state)
 
-        prompt = SystemMessage(
-            content=f"You are a Repo Analysis Assistant.\nHistory of the conversation:\n===HISTORY===\n{history}\n===END HISTORY===\n\nBased on the following documents:\n===DOCUMENTS===\n{context}\n===END DOCUMENTS===\n\nQuestion: {question}\n\nPlease provide a detailed answer."
-        )
+        prompt = RAGPrompts.get_rag_generation_prompt(history, context, question)
         llm = CONFIG.get_llm()
         answer = llm.invoke([prompt]).content
 
@@ -269,9 +263,7 @@ Please answer with just "yes" or "no":"""
         question = state["question"]
         history = self._get_history_messages(state)
 
-        prompt = SystemMessage(
-            content=f"You are a helpful assistant. History of the conversation:\n===HISTORY===\n{history}\n===END HISTORY===\n\nQuestion: {question}\n\nPlease provide a detailed answer."
-        )
+        prompt = RAGPrompts.get_direct_generation_prompt(history, question)
 
         llm = CONFIG.get_llm()
         answer = llm.invoke([prompt]).content
@@ -366,6 +358,20 @@ Please answer with just "yes" or "no":"""
         )
         return formatted_history
 
+    def _reset_query_state(
+        self, state: RAGState, query: str, user_input: str
+    ) -> RAGState:
+        """Reset query-specific state for a new question."""
+        state["messages"] = state.get("messages", []) + [
+            HumanMessage(content=user_input)
+        ]
+        state["query"] = query
+        state["question"] = user_input
+        state["is_sufficient"] = False
+        state["retrieval_count"] = 0
+        state["is_repo_related"] = False
+        return state
+
     # Function to run the agent
     def run(self) -> str:
         repo_input = input(
@@ -381,16 +387,7 @@ Please answer with just "yes" or "no":"""
             if user_input.lower() == "exit":
                 break
             query = f"{repo_dir}: {user_input}"
-
-            app_state["messages"] = app_state.get("messages", []) + [
-                HumanMessage(content=user_input)
-            ]
-            app_state["query"] = query
-            app_state["question"] = user_input
-            app_state["is_sufficient"] = False
-            app_state["retrieval_count"] = 0
-            app_state["is_repo_related"] = False
-
+            app_state = self._reset_query_state(app_state, query, user_input)
             app_state = self._print_stream(
                 file_name=time,
                 stream=self.app.stream(
@@ -408,5 +405,5 @@ if __name__ == "__main__":
     # Example usage
     # Use "uv run python -m agents.rag_agent" to run this file
     rag_agent = RAGAgent()
-    # rag_agent.run()
-    rag_agent._draw_graph()
+    rag_agent.run()
+    # rag_agent._draw_graph()
