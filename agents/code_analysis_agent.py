@@ -305,11 +305,11 @@ class CodeAnalysisAgent(BaseAgent):
         all_results = {}
         
         if parallel_batches and len(batches) > 1:
-            print(f"\n Processing {len(batches)} batches in PARALLEL (max {max_workers} workers)...")
+            print(f"\n   Processing {len(batches)} batches in PARALLEL (max {max_workers} workers)...")
             print(f"   Each batch processes {batch_size} files in ONE LLM call")
             all_results = self._process_batches_parallel(batches, max_workers)
         else:
-            print(f"\n Processing {len(batches)} batches SEQUENTIALLY...")
+            print(f"\n   Processing {len(batches)} batches SEQUENTIALLY...")
             print(f"   Each batch processes {batch_size} files in ONE LLM call")
             all_results = self._process_batches_sequential(batches)
 
