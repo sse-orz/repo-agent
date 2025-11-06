@@ -115,7 +115,7 @@ def get_repo_commit_info_tool(
     return commit_info
 
 
-@tool
+@tool(description="Get release notes from a repository.")
 def get_repo_release_note_tool(
     owner: str,
     repo: str,
@@ -145,7 +145,7 @@ def get_repo_release_note_tool(
     return release_notes
 
 
-@tool
+@tool(description="Get pull request information from a repository.")
 def get_repo_pr_tool(
     owner: str,
     repo: str,
@@ -175,7 +175,7 @@ def get_repo_pr_tool(
     return pr_info
 
 
-@tool
+@tool(description="Get modified files in a specific pull request.")
 def get_repo_pr_files_tool(
     owner: str,
     repo: str,
@@ -202,7 +202,7 @@ def get_repo_pr_files_tool(
     return pr_files
 
 
-@tool
+@tool(description="Analyze a code file using Tree-sitter.")
 def code_file_analysis_tool(file_path: str) -> Dict[str, any]:
     """Analyze a code file using Tree-sitter.
 
@@ -234,5 +234,6 @@ if __name__ == "__main__":
     #     owner="facebook", repo="zstd", platform="github", limit=2
     # )
     # print(pr_info)
-    pr_files = get_repo_pr_files_tool(owner="facebook", repo="zstd", platform="github")
-    print(pr_files)
+    # pr_files = get_repo_pr_files_tool(owner="facebook", repo="zstd", platform="github")
+    # print(pr_files)
+
