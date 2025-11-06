@@ -495,7 +495,7 @@ class CodeAnalysisAgent(BaseAgent):
             "processing": {
                 "mode": "parallel" if parallel and num_batches > 1 else "sequential",
                 "num_batches": num_batches,
-                "files_per_batch": len(original_files) // num_batches if num_batches > 0 else 0,
+                "files_per_batch": len(analyzed_results) // num_batches if num_batches > 0 else 0,
                 "llm_calls": num_batches,
             }
         }
