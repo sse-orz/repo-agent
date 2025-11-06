@@ -98,7 +98,7 @@ class SupervisorAgent:
             print("\n" + "=" * 80)
             print("Stage 1: Collecting Repository Information")
             print("=" * 80)
-            self.repo_info = self.repo_agent.run(repo_path=self.repo_path)
+            self.repo_info = self.repo_agent.run(self.repo_path)
             print(f"✓ Repository: {self.repo_info.get('repo_name', 'Unknown')}")
             print(f"✓ Language: {self.repo_info.get('main_language', 'Unknown')}")
             print(f"✓ Directories: {len(self.repo_info.get('structure', []))}")
