@@ -376,9 +376,9 @@ async def repo_info_agent_tool(
     # Find and analyze Markdown files within the repository
     md_files = []
     file_exts = {".md"}
-    ingore_dirs = [".git", "node_modules", "__pycache__", ".vscode", ".idea"]
+    ignore_dirs = [".git", "node_modules", "__pycache__", ".vscode", ".idea"]
     for root, dirs, files in os.walk(repo_path):
-        dirs[:] = [d for d in dirs if d not in ingore_dirs]
+        dirs[:] = [d for d in dirs if d not in ignore_dirs]
         for f in files:
             if os.path.splitext(f)[1] in file_exts:
                 md_files.append(os.path.join(root, f))
