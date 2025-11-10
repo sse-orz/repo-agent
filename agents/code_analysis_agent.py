@@ -17,10 +17,8 @@ from typing import List, Tuple
 
 
 class CodeAnalysisAgent(BaseAgent):
-    """Agent for analyzing code files.
-    
-    Inherits from BaseAgent to leverage common workflow patterns.
-    Supports batch processing and parallel execution for efficiency.
+    """
+        Agent for analyzing code files.
     """
     
     def __init__(self, repo_path: str, wiki_path: str = ""):
