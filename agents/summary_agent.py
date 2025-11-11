@@ -2,67 +2,29 @@ from config import CONFIG
 from agents.tools import (
     read_file_tool,
     write_file_tool,
-    get_repo_structure_tool,
-    get_repo_basic_info_tool,
-    get_repo_commit_info_tool,
-    code_file_analysis_tool,
 )
-from .base_agent import AgentState
+from .base_agent import BaseAgent, AgentState
 
-from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph import StateGraph, END
-from langchain_core.messages import (
-    BaseMessage,
-    SystemMessage,
-    ToolMessage,
-    HumanMessage,
-)
-from langgraph.graph.message import add_messages
-from typing import TypedDict, Annotated, Sequence, Literal, Dict, Any
-from contextlib import redirect_stdout
+from langchain_core.messages import SystemMessage, HumanMessage
 from datetime import datetime
 import json
 import os
-import io
+import re
 
 
-class SummaryAgent:
-    def __init__(self, llm, tools):
-        self.llm = llm.bind_tools(tools, parallel_tool_calls=False)
-        self.tools = tools
-        self.tool_executor = ToolNode(tools)
-        self.memory = InMemorySaver()
-        self.app = self._build_app()
-
-    def _build_app(self):
-        """Build the agent workflow graph."""
-        workflow = StateGraph(AgentState)
-        workflow.add_node("agent", self._agent_node)
-        workflow.add_node("tools", self.tool_executor)
-        workflow.set_entry_point("agent")
-        workflow.add_conditional_edges(
-            "agent",
-            self._should_continue,
-            {
-                "continue": "tools",
-                "end": END,
-            },
-        )
-        workflow.add_edge("tools", "agent")
-        return workflow.compile(checkpointer=self.memory)
-
-    def _should_continue(self, state: AgentState) -> str:
-        """Determine whether to continue or end."""
-        messages = state["messages"]
-        last_message = messages[-1]
-        if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
-            return "end"
-        else:
-            return "continue"
-
-    def _agent_node(self, state: AgentState) -> AgentState:
-        """Call LLM with current state."""
+class SummaryAgent(BaseAgent):
+    """Agent for generating Wiki index and summary.
+    
+    Inherits from BaseAgent to leverage common workflow patterns.
+    """
+    
+    def __init__(self, repo_path: str = "", wiki_path: str = ""):
+        """Initialize the SummaryAgent.
+        
+        Args:
+            repo_path (str): Local path to the repository (optional)
+            wiki_path (str): Path to wiki directory
+        """
         system_prompt = SystemMessage(
             content="""You are a documentation organizer. Your task is to create a comprehensive index and summary for Wiki documentation.
 
@@ -90,8 +52,18 @@ class SummaryAgent:
                         Do NOT include text outside the JSON structure in your final response.
                     """
         )
-        response = self.llm.invoke([system_prompt] + state["messages"])
-        return {"messages": [response]}
+        
+        tools = [
+            write_file_tool,
+            read_file_tool,
+        ]
+        
+        super().__init__(
+            tools=tools,
+            system_prompt=system_prompt,
+            repo_path=repo_path,
+            wiki_path=wiki_path
+        )
 
     def run(
         self,
@@ -112,6 +84,64 @@ class SummaryAgent:
             dict: Summary of index generation
         """
         # Prepare document information
+        doc_list = self._prepare_document_list(docs)
+        
+        # Prepare statistics
+        statistics = self._prepare_statistics(repo_info, code_analysis)
+
+        # Build prompt
+        prompt = self._build_prompt(doc_list, statistics, wiki_path)
+
+        # Create initial state
+        initial_state = AgentState(
+            messages=[HumanMessage(content=prompt)],
+            repo_path=self.repo_path,
+            wiki_path=wiki_path,
+        )
+
+        # Run the agent workflow
+        print("\n=== Generating Wiki Index ===")
+        final_state = None
+        index_file = None
+
+        for state in self.app.stream(
+            initial_state,
+            stream_mode="values",
+            config={
+                "configurable": {"thread_id": f"summary-{datetime.now().timestamp()}"},
+                "recursion_limit": 30,
+            },
+        ):
+            final_state = state
+            last_msg = state["messages"][-1]
+
+            # Track index file creation
+            if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+                for tool_call in last_msg.tool_calls:
+                    if tool_call["name"] == "write_file_tool":
+                        file_path = tool_call["args"].get("file_path", "")
+                        if "INDEX.md" in file_path:
+                            index_file = file_path
+                            print(f"  ✓ Generated: INDEX.md")
+
+        # Build and return result
+        result = self._build_result(final_state, index_file, docs, wiki_path)
+        
+        print(f"\n=== Index Generation Complete ===")
+        print(f"Index file: {result['index_file']}")
+        print(f"Status: {result['verification_status']}")
+
+        return result
+
+    def _prepare_document_list(self, docs: list) -> list:
+        """Prepare document list with descriptions.
+        
+        Args:
+            docs (list): List of document paths
+            
+        Returns:
+            list: List of documents with metadata
+        """
         doc_descriptions = {
             "README.md": "Project overview, features, and quick start guide",
             "ARCHITECTURE.md": "System architecture and component explanations",
@@ -122,16 +152,27 @@ class SummaryAgent:
         doc_list = []
         for doc_path in docs:
             filename = os.path.basename(doc_path)
-            doc_list.append(
-                {
-                    "filename": filename,
-                    "path": doc_path,
-                    "description": doc_descriptions.get(filename, "Documentation file"),
-                }
-            )
+            doc_list.append({
+                "filename": filename,
+                "path": doc_path,
+                "description": doc_descriptions.get(filename, "Documentation file"),
+            })
+        
+        return doc_list
 
-        # Prepare statistics
+    def _prepare_statistics(self, repo_info: dict = None, 
+                           code_analysis: dict = None) -> dict:
+        """Prepare repository and code statistics.
+        
+        Args:
+            repo_info (dict, optional): Repository information
+            code_analysis (dict, optional): Code analysis results
+            
+        Returns:
+            dict: Structured statistics
+        """
         statistics = {}
+        
         if repo_info:
             statistics["repository"] = {
                 "name": repo_info.get("repo_name", "Unknown"),
@@ -153,8 +194,22 @@ class SummaryAgent:
                     "average_complexity", 0
                 ),
             }
+        
+        return statistics
 
-        prompt = f"""
+    def _build_prompt(self, doc_list: list, statistics: dict, 
+                      wiki_path: str) -> str:
+        """Build the prompt for index generation.
+        
+        Args:
+            doc_list (list): List of documents
+            statistics (dict): Repository statistics
+            wiki_path (str): Wiki path
+            
+        Returns:
+            str: Complete prompt
+        """
+        return f"""
                     Generate a comprehensive INDEX.md file for the Wiki documentation.
 
                     **Generated Documents:**
@@ -205,38 +260,19 @@ class SummaryAgent:
                     After saving the file, return the summary in JSON format.
                 """
 
-        initial_state = AgentState(
-            messages=[HumanMessage(content=prompt)],
-            repo_path="",
-            wiki_path=wiki_path,
-        )
-
-        # Run the agent workflow
-        print("=== Generating Wiki Index ===")
-        final_state = None
-        index_file = None
-
-        for state in self.app.stream(
-            initial_state,
-            stream_mode="values",
-            config={
-                "configurable": {"thread_id": f"summary-{datetime.now().timestamp()}"},
-                "recursion_limit": 30,
-            },
-        ):
-            final_state = state
-            last_msg = state["messages"][-1]
-
-            # Track index file creation
-            if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-                for tool_call in last_msg.tool_calls:
-                    if tool_call["name"] == "write_file_tool":
-                        file_path = tool_call["args"].get("file_path", "")
-                        if "INDEX.md" in file_path:
-                            index_file = file_path
-                            print(f"  ✓ Generated: INDEX.md")
-
-        # Extract final result
+    def _build_result(self, final_state: AgentState, index_file: str,
+                      docs: list, wiki_path: str) -> dict:
+        """Build the final result dictionary.
+        
+        Args:
+            final_state (AgentState): Final agent state
+            index_file (str): Path to index file
+            docs (list): List of generated documents
+            wiki_path (str): Wiki path
+            
+        Returns:
+            dict: Complete result with verification
+        """
         result = {
             "index_file": index_file or f"{wiki_path}/INDEX.md",
             "total_documents": len(docs) + 1,  # +1 for INDEX.md
@@ -244,32 +280,28 @@ class SummaryAgent:
             "wiki_path": wiki_path,
         }
 
+        # Try to extract JSON summary from LLM response
         if final_state:
             last_message = final_state["messages"][-1]
             if hasattr(last_message, "content"):
                 try:
                     content = last_message.content
-                    import re
-
                     json_match = re.search(r"\{[\s\S]*\}", content)
                     if json_match:
                         parsed_result = json.loads(json_match.group())
                         result.update(parsed_result)
                 except json.JSONDecodeError as e:
-                    print(f"Warning: Failed to parse final JSON: {e}")
+                    print(f"   Warning: Failed to parse final JSON: {e}")
                     result["warning"] = "Could not parse final summary"
 
         # Verify index file exists
         if index_file and os.path.exists(index_file):
             result["verification_status"] = "success"
-            print(f"\n=== Index Generation Complete ===")
-            print(f"Index file: {index_file}")
         else:
             result["verification_status"] = "failed"
-            print(f"\nWarning: Index file may not have been created")
+            print(f"   Warning: Index file may not have been created")
 
         return result
-
 
 # ========== SummaryAgentTest ==========
 def SummaryAgentTest():

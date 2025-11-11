@@ -10,12 +10,12 @@ from datetime import datetime
 import json
 import os
 import re
+import time
 
 
 class DocGenerationAgent(BaseAgent):
-    """Agent for generating Wiki documentation.
-    
-    Inherits from BaseAgent to leverage common workflow patterns.
+    """
+        Agent for generating Wiki documentation.
     """
     
     def __init__(self, repo_path: str = "", wiki_path: str = ""):
@@ -79,7 +79,191 @@ class DocGenerationAgent(BaseAgent):
             repo_path=repo_path,
             wiki_path=wiki_path
         )
+        
+    def run_parallel(self, repo_info: dict, code_analysis: dict, wiki_path: str) -> dict:
+        """Generate documents in parallel (one LLM call per file)."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        # Ensure wiki directory exists
+        if not os.path.exists(wiki_path):
+            os.makedirs(wiki_path)
+            print(f"Created wiki directory: {wiki_path}")
+        
+        # Prepare data
+        repo_summary = self._prepare_repo_summary(repo_info)
+        code_summary = self._prepare_code_summary(code_analysis)
+        important_files = self._extract_important_files(code_analysis)
+        
+        documents = [
+            {
+                "name": "README.md",
+                "description": "Project overview, features, and quick start",
+                "sections": ["Introduction", "Features", "Quick Start", "Installation"]
+            },
+            {
+                "name": "ARCHITECTURE.md",
+                "description": "System architecture and components",
+                "sections": ["Overview", "Directory Structure", "Components", "Data Flow"]
+            },
+            {
+                "name": "API.md",
+                "description": "API documentation",
+                "sections": ["Functions", "Classes", "Parameters", "Examples"]
+            },
+            {
+                "name": "DEVELOPMENT.md",
+                "description": "Development guide",
+                "sections": ["Setup", "Build", "Test", "Contribution"]
+            }
+        ]
+        
+        print(f"\n=== Generating {len(documents)} documents in PARALLEL ===")
+        print(f"Max workers: 4")
+        print(f"Target directory: {wiki_path}\n")
+        
+        # Generate documents in parallel
+        generated_files = []
+        failed_docs = []
+        start_time = time.time()
+        
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_doc = {
+                executor.submit(
+                    self._generate_single_document, 
+                    doc, 
+                    repo_summary, 
+                    code_summary, 
+                    important_files, 
+                    wiki_path
+                ): doc
+                for doc in documents
+            }
+            
+            for future in as_completed(future_to_doc):
+                doc = future_to_doc[future]
+                try:
+                    result = future.result()
+                    elapsed = time.time() - start_time
+                    
+                    if result["success"]:
+                        generated_files.append(result["file_path"])
+                        size_info = f", {result['size_kb']:.1f}KB" if "size_kb" in result else ""
+                        print(f"  ✓ [{len(generated_files)}/{len(documents)}] {doc['name']:<20} ({result['time']:.1f}s{size_info})")
+                    else:
+                        failed_docs.append(doc['name'])
+                        error_msg = result.get('error', 'Unknown error')
+                        print(f"  ✗ {doc['name']:<20} Failed: {error_msg}")
+                        
+                except Exception as e:
+                    failed_docs.append(doc['name'])
+                    print(f"  ✗ {doc['name']:<20} Exception: {e}")
+        
+        end_time = time.time()
+        total_time = end_time - start_time
+        
+        print(f"\n=== Generation Complete ===")
+        print(f"Total time: {total_time:.1f}s (parallel)")
+        print(f"Files generated: {len(generated_files)}/{len(documents)}")
+        if failed_docs:
+            print(f"Failed: {', '.join(failed_docs)}")
+        
+        # Verify all files
+        verified_files = [f for f in generated_files if os.path.exists(f)]
+        
+        return {
+            "generated_files": generated_files,
+            "verified_files": verified_files,
+            "total_files": len(generated_files),
+            "status": "success" if len(generated_files) == len(documents) else "partial",
+            "wiki_path": wiki_path,
+            "total_time": total_time,
+            "average_time_per_file": total_time / len(documents) if documents else 0,
+            "mode": "parallel",
+            "failed_documents": failed_docs,
+            "verification_status": "complete" if len(verified_files) == len(generated_files) else "incomplete"
+        }
 
+    def _generate_single_document(self, doc_spec: dict, repo_summary: dict, 
+                                code_summary: dict, important_files: list, 
+                                wiki_path: str) -> dict:
+        """Generate a single document using a fresh agent instance."""
+        start_time = time.time()
+        
+        # Create a focused prompt for this document
+        prompt = f"""
+                    Generate {doc_spec['name']} for the repository.
+
+                    **Document Purpose:** {doc_spec['description']}
+
+                    **Required Sections:** {', '.join(doc_spec['sections'])}
+
+                    **Repository Info:**
+                    {json.dumps(repo_summary, indent=2)}
+
+                    **Code Summary:**
+                    {json.dumps(code_summary, indent=2)}
+
+                    **Important Files:**
+                    {json.dumps(important_files, indent=2)}
+
+                    Generate a well-structured Markdown document and save it using write_file_tool.
+                    File path: {os.path.abspath(wiki_path)}/{doc_spec['name']}
+
+                    IMPORTANT: Only generate THIS file, not the others. Focus on quality over quantity.
+                """
+        
+        initial_state = AgentState(
+            messages=[HumanMessage(content=prompt)],
+            repo_path=self.repo_path,
+            wiki_path=wiki_path,
+        )
+        
+        # Run agent for this single document
+        file_path = None
+        try:
+            for state in self.app.stream(
+                initial_state,
+                stream_mode="values",
+                config={
+                    "configurable": {
+                        "thread_id": f"doc-{doc_spec['name']}-{datetime.now().timestamp()}"
+                    },
+                    "recursion_limit": 30,
+                },
+            ):
+                last_msg = state["messages"][-1]
+                if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+                    for tool_call in last_msg.tool_calls:
+                        if tool_call["name"] == "write_file_tool":
+                            file_path = tool_call["args"].get("file_path")
+        except Exception as e:
+            print(f"    ⚠ Error generating {doc_spec['name']}: {e}")
+            return {
+                "success": False,
+                "file_path": None,
+                "time": time.time() - start_time,
+                "error": str(e)
+            }
+        
+        end_time = time.time()
+        
+        # Verify file was created
+        if file_path and os.path.exists(file_path):
+            file_size = os.path.getsize(file_path)
+            return {
+                "success": True,
+                "file_path": file_path,
+                "time": end_time - start_time,
+                "size_kb": file_size / 1024
+            }
+        else:
+            return {
+                "success": False,
+                "file_path": file_path,
+                "time": end_time - start_time,
+                "error": "File was not created"
+            }
+        
     def run(self, repo_info: dict, code_analysis: dict, wiki_path: str) -> dict:
         """Generate Markdown documentation.
 
@@ -293,7 +477,7 @@ class DocGenerationAgent(BaseAgent):
 
 # ========== DocGenerationAgentTest ==========
 def DocGenerationAgentTest():
-    doc_agent = DocGenerationAgent(repo_path="", wiki_path="test_output")
+    doc_agent = DocGenerationAgent(repo_path="", wiki_path=".wikis/test_output")
 
     # Mock data for testing
     repo_info = {
@@ -339,11 +523,13 @@ def DocGenerationAgentTest():
         },
     }
 
-    wiki_path = "test_output"
+    wiki_path = ".wikis/test_output"
 
-    result = doc_agent.run(repo_info, code_analysis, wiki_path)
+    start_time = datetime.now()
+    # result = doc_agent.run(repo_info, code_analysis, wiki_path)
+    result = doc_agent.run_parallel(repo_info, code_analysis, wiki_path)
     print(json.dumps(result, indent=2))
-
+    print(f"Time taken: {datetime.now() - start_time}")
 
 if __name__ == "__main__":
     DocGenerationAgentTest()
