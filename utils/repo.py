@@ -842,13 +842,14 @@ def get_pr_files(
 
 if __name__ == "__main__":
     # Example usage
-    # owner = "facebook"
-    # repo = "zstd"
-    # platform = "github"
+    # use "uv run python -m utils.repo" to run this file
+    owner = "facebook"
+    repo = "zstd"
+    platform = "github"
 
-    owner = "openharmony"
-    repo = "arkui_ace_engine"
-    platform = "gitee"
+    # owner = "openharmony"
+    # repo = "arkui_ace_engine"
+    # platform = "gitee"
 
     # To get a specific release note
     # release_tag = "v1.0.0"  # Specify the release number you want to retrieve
@@ -859,9 +860,24 @@ if __name__ == "__main__":
     # latest_releases = get_release_note(owner, repo, platform=platform)
     # print("Latest Releases:", latest_releases)
 
-    pr_tag = "1"  # Specify the pull request number you want to retrieve
+    # pr_tag = "1"  # Specify the pull request number you want to retrieve
     # pr_info = get_pr(owner, repo, pr_tag, platform=platform)
     # print("Pull Request Info:", pr_info)
 
-    pr_files = get_pr_files(owner, repo, pr_tag, platform=platform)
-    print("Pull Request Files:", pr_files)
+    # pr_files = get_pr_files(owner, repo, pr_tag, platform=platform)
+    # print("Pull Request Files:", pr_files)
+
+    # commit = get_commits(owner, repo, platform=platform)
+    # print("Commits:", commit)
+
+    # commit_file = get_commit_files(owner, repo, commit[0]["sha"], platform=platform)
+    # print("\n\nCommit Files:", commit_file)
+
+    # commit_info = get_repo_commit_info(owner, repo, platform=platform)
+    # print("\n\nCommit Info:", commit_info)
+
+    pr = get_pr(owner, repo, platform=platform)
+    print("Pull Requests:", pr)
+
+    pr_files = get_pr_files(owner, repo, platform=platform)
+    print("\n\nPull Request Files:", pr_files)

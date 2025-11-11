@@ -1788,10 +1788,62 @@ def format_tree_sitter_analysis_results(stats: Dict[str, Any]) -> Dict[str, Any]
     return formatted_stats
 
 
+def format_tree_sitter_analysis_results_to_prompt(stats: Dict[str, Any]) -> str:
+    """Formats analysis statistics into a human-readable string for prompts.
+
+    Args:
+        stats (Dict[str, Any]): Raw statistics captured by the analyzers.
+    Returns:
+        str: Formatted string representation of the analysis.
+    """
+    # this func format the results to prompt str to prevent token overflows
+    if not stats:
+        return "No analysis data available."
+    lines = []
+
+    # Format classes compactly
+    classes = stats.get("classes", [])
+    if classes:
+        class_items = []
+        for cls in classes:
+            doc = (cls.get("docstring") or "").replace("\n", " ").strip()
+            doc_str = f" - {doc}" if doc else ""
+            class_items.append(f"{cls['name']}{doc_str}")
+        lines.append("Classes: " + "; ".join(class_items))
+
+    # Format functions compactly
+    functions = stats.get("functions", [])
+    if functions:
+        func_items = []
+        for func in functions:
+            doc = (func.get("docstring") or "").replace("\n", " ").strip()
+            ret_type = func.get("return_type", "")
+            ret_str = f" -> {ret_type}" if ret_type else ""
+            doc_str = f" - {doc}" if doc else ""
+            func_items.append(f"{func['name']}{ret_str}{doc_str}")
+        lines.append("Functions: " + "; ".join(func_items))
+
+    # Format dependencies compactly
+    deps = stats.get("outer_dependencies", [])
+    if deps:
+        dep_items = []
+        for dep in deps:
+            module = dep.get("module", "")
+            name = dep.get("name", "")
+            dep_str = f"{module}.{name}" if name else module
+            if dep_str and dep_str not in dep_items:  # avoid duplicates
+                dep_items.append(dep_str)
+        if dep_items:
+            lines.append("Dependencies: " + ", ".join(dep_items))
+
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     import sys
     import json
 
+    # use "uv run python -m utils.code_analyzer <file_path>" to test
     if len(sys.argv) < 2:
         print("Usage: uv run utils/code_analyzer.py <file_path>")
         sys.exit(1)
@@ -1800,6 +1852,8 @@ if __name__ == "__main__":
     if os.path.isfile(path):
         file_stats = analyze_file_with_tree_sitter(path)
         if file_stats:
-            print(json.dumps(format_tree_sitter_analysis_results(file_stats), indent=2))
+            # print(format_tree_sitter_analysis_results(file_stats))
+            print(format_tree_sitter_analysis_results_to_prompt(file_stats))
+            # print(json.dumps(format_tree_sitter_analysis_results(file_stats), indent=2))
     else:
         print("Please provide a valid file path.")
