@@ -542,7 +542,7 @@ async def doc_generation_agent_tool(
 
 
 @tool(
-    description="summary_agent_tool(wiki_path: str, docs_json: str, repo_info_json: str = \"\", code_analysis_json: str = \"\") -> dict: Summarize generated docs, optionally incorporating repo info and code analysis."
+    description='summary_agent_tool(wiki_path: str, docs_json: str, repo_info_json: str = "", code_analysis_json: str = "") -> dict: Summarize generated docs, optionally incorporating repo info and code analysis.'
 )
 async def summary_agent_tool(
     wiki_path: str,

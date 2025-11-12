@@ -14,13 +14,13 @@ import re
 
 class SummaryAgent(BaseAgent):
     """Agent for generating Wiki index and summary.
-    
+
     Inherits from BaseAgent to leverage common workflow patterns.
     """
-    
+
     def __init__(self, repo_path: str = "", wiki_path: str = ""):
         """Initialize the SummaryAgent.
-        
+
         Args:
             repo_path (str): Local path to the repository (optional)
             wiki_path (str): Path to wiki directory
@@ -52,17 +52,17 @@ class SummaryAgent(BaseAgent):
                         Do NOT include text outside the JSON structure in your final response.
                     """
         )
-        
+
         tools = [
             write_file_tool,
             read_file_tool,
         ]
-        
+
         super().__init__(
             tools=tools,
             system_prompt=system_prompt,
             repo_path=repo_path,
-            wiki_path=wiki_path
+            wiki_path=wiki_path,
         )
 
     def run(
@@ -85,7 +85,7 @@ class SummaryAgent(BaseAgent):
         """
         # Prepare document information
         doc_list = self._prepare_document_list(docs)
-        
+
         # Prepare statistics
         statistics = self._prepare_statistics(repo_info, code_analysis)
 
@@ -126,7 +126,7 @@ class SummaryAgent(BaseAgent):
 
         # Build and return result
         result = self._build_result(final_state, index_file, docs, wiki_path)
-        
+
         print(f"\n=== Index Generation Complete ===")
         print(f"Index file: {result['index_file']}")
         print(f"Status: {result['verification_status']}")
@@ -135,10 +135,10 @@ class SummaryAgent(BaseAgent):
 
     def _prepare_document_list(self, docs: list) -> list:
         """Prepare document list with descriptions.
-        
+
         Args:
             docs (list): List of document paths
-            
+
         Returns:
             list: List of documents with metadata
         """
@@ -152,27 +152,30 @@ class SummaryAgent(BaseAgent):
         doc_list = []
         for doc_path in docs:
             filename = os.path.basename(doc_path)
-            doc_list.append({
-                "filename": filename,
-                "path": doc_path,
-                "description": doc_descriptions.get(filename, "Documentation file"),
-            })
-        
+            doc_list.append(
+                {
+                    "filename": filename,
+                    "path": doc_path,
+                    "description": doc_descriptions.get(filename, "Documentation file"),
+                }
+            )
+
         return doc_list
 
-    def _prepare_statistics(self, repo_info: dict = None, 
-                           code_analysis: dict = None) -> dict:
+    def _prepare_statistics(
+        self, repo_info: dict = None, code_analysis: dict = None
+    ) -> dict:
         """Prepare repository and code statistics.
-        
+
         Args:
             repo_info (dict, optional): Repository information
             code_analysis (dict, optional): Code analysis results
-            
+
         Returns:
             dict: Structured statistics
         """
         statistics = {}
-        
+
         if repo_info:
             statistics["repository"] = {
                 "name": repo_info.get("repo_name", "Unknown"),
@@ -194,18 +197,17 @@ class SummaryAgent(BaseAgent):
                     "average_complexity", 0
                 ),
             }
-        
+
         return statistics
 
-    def _build_prompt(self, doc_list: list, statistics: dict, 
-                      wiki_path: str) -> str:
+    def _build_prompt(self, doc_list: list, statistics: dict, wiki_path: str) -> str:
         """Build the prompt for index generation.
-        
+
         Args:
             doc_list (list): List of documents
             statistics (dict): Repository statistics
             wiki_path (str): Wiki path
-            
+
         Returns:
             str: Complete prompt
         """
@@ -260,16 +262,17 @@ class SummaryAgent(BaseAgent):
                     After saving the file, return the summary in JSON format.
                 """
 
-    def _build_result(self, final_state: AgentState, index_file: str,
-                      docs: list, wiki_path: str) -> dict:
+    def _build_result(
+        self, final_state: AgentState, index_file: str, docs: list, wiki_path: str
+    ) -> dict:
         """Build the final result dictionary.
-        
+
         Args:
             final_state (AgentState): Final agent state
             index_file (str): Path to index file
             docs (list): List of generated documents
             wiki_path (str): Wiki path
-            
+
         Returns:
             dict: Complete result with verification
         """
@@ -302,6 +305,7 @@ class SummaryAgent(BaseAgent):
             print(f"   Warning: Index file may not have been created")
 
         return result
+
 
 # ========== SummaryAgentTest ==========
 def SummaryAgentTest():

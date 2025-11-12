@@ -1853,7 +1853,15 @@ if __name__ == "__main__":
         file_stats = analyze_file_with_tree_sitter(path)
         if file_stats:
             # print(format_tree_sitter_analysis_results(file_stats))
-            print(format_tree_sitter_analysis_results_to_prompt(file_stats))
+            # write to a json file
+            # with open("analysis_results.json", "w", encoding="utf-8") as f:
+            #     json.dump(format_tree_sitter_analysis_results(file_stats), f, indent=2)
+            # print("Analysis results written to analysis_results.json")
+            # write to a txt file
+            with open("analysis_results.txt", "w", encoding="utf-8") as f:
+                f.write(format_tree_sitter_analysis_results_to_prompt(file_stats))
+            print("Analysis results written to analysis_results.txt")
+            # print(format_tree_sitter_analysis_results_to_prompt(file_stats))
             # print(json.dumps(format_tree_sitter_analysis_results(file_stats), indent=2))
     else:
         print("Please provide a valid file path.")
