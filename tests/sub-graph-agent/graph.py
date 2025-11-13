@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
+import json
 import os
 import time
 
@@ -49,7 +50,7 @@ def log_state(state: dict):
 class RepoInfoSubGraphState(TypedDict):
     # branch-specific inputs (copied by parent into these namespaced keys)
     basic_info_for_repo: dict
-    # subgraph output
+    # outputs
     commit_info: dict
     pr_info: dict
     release_note_info: dict
@@ -65,9 +66,9 @@ class RepoInfoSubGraphBuilder:
         # this node need to collect repo commit info and preprocess for doc-generation
         print("→ Processing repo_info_commit_node...")
         commit_info = get_repo_commit_info(
-            owner=state["basic_info_for_repo"]["owner"],
-            repo=state["basic_info_for_repo"]["repo"],
-            platform=state["basic_info_for_repo"].get("platform", "github"),
+            owner=state.get("basic_info_for_repo", {}).get("owner", ""),
+            repo=state.get("basic_info_for_repo", {}).get("repo", ""),
+            platform=state.get("basic_info_for_repo", {}).get("platform", "github"),
         )
         print("✓ Commit info retrieved successfully")
         return {"commit_info": commit_info}
@@ -77,9 +78,9 @@ class RepoInfoSubGraphBuilder:
         # this node need to collect repo pr info and preprocess for doc-generation
         print("→ Processing repo_info_pr_node...")
         pr = get_pr(
-            owner=state["basic_info_for_repo"]["owner"],
-            repo=state["basic_info_for_repo"]["repo"],
-            platform=state["basic_info_for_repo"].get("platform", "github"),
+            owner=state.get("basic_info_for_repo", {}).get("owner", ""),
+            repo=state.get("basic_info_for_repo", {}).get("repo", ""),
+            platform=state.get("basic_info_for_repo", {}).get("platform", "github"),
         )
         print("✓ PR info retrieved successfully")
         return {"pr_info": pr}
@@ -89,9 +90,9 @@ class RepoInfoSubGraphBuilder:
         # this node need to collect repo release note info and preprocess for doc-generation
         print("→ Processing repo_info_release_note_node...")
         release_note = get_release_note(
-            owner=state["basic_info_for_repo"]["owner"],
-            repo=state["basic_info_for_repo"]["repo"],
-            platform=state["basic_info_for_repo"].get("platform", "github"),
+            owner=state.get("basic_info_for_repo", {}).get("owner", ""),
+            repo=state.get("basic_info_for_repo", {}).get("repo", ""),
+            platform=state.get("basic_info_for_repo", {}).get("platform", "github"),
         )
         print("✓ Release note info retrieved successfully")
         return {"release_note_info": release_note}
@@ -104,8 +105,8 @@ class RepoInfoSubGraphBuilder:
             "repo_info_release_note_node", self.repo_info_release_note_node
         )
         repo_info_builder.add_edge(START, "repo_info_commit_node")
-        repo_info_builder.add_edge("repo_info_commit_node", "repo_info_pr_node")
-        repo_info_builder.add_edge("repo_info_pr_node", "repo_info_release_note_node")
+        repo_info_builder.add_edge(START, "repo_info_pr_node")
+        repo_info_builder.add_edge(START, "repo_info_release_note_node")
         return repo_info_builder.compile(checkpointer=True)
 
     def get_graph(self):
@@ -117,7 +118,12 @@ class RepoDocGenerationState(TypedDict):
     commit_info: dict
     pr_info: dict
     release_note_info: dict
-    repo_documentation: dict
+    # outputs
+    commit_documentation: str
+    pr_documentation: str
+    release_note_documentation: str
+    overall_documentation: str
+    repo_update_log: str
 
 
 class RepoDocGenerationSubGraphBuilder:
@@ -214,8 +220,8 @@ Please structure the documentation with clear sections and make it suitable for 
         # 1. based on the repo_info to generate overall repo documentation
         # 2. filter out md files which can be the documentation source files
         print("→ Processing overall_doc_generation_node...")
-        owner = state["basic_info_for_repo"]["owner"]
-        repo = state["basic_info_for_repo"]["repo"]
+        owner = state.get("basic_info_for_repo", {}).get("owner", "")
+        repo = state.get("basic_info_for_repo", {}).get("repo", "")
         basic_info_for_repo = state.get("basic_info_for_repo", {})
         repo_info = basic_info_for_repo.get("repo_info", {})
         repo_structure = basic_info_for_repo.get("repo_structure", [])
@@ -248,10 +254,7 @@ Please structure the documentation with clear sections and make it suitable for 
         response = llm.invoke([system_prompt, human_prompt])
         print("✓ Overall documentation generated")
         return {
-            "repo_documentation": {
-                "overall_documentation": response.content,
-                "status": "overall repo documentation generated.",
-            }
+            "overall_documentation": response.content,
         }
 
     def commit_doc_generation_node(self, state: dict):
@@ -269,12 +272,7 @@ Please structure the documentation with clear sections and make it suitable for 
         print("✓ Commit documentation generated")
 
         return {
-            "repo_documentation": {
-                **state.get("repo_documentation", {}),
-                "commit_documentation": response.content,
-                "status": state["repo_documentation"].get("status", "")
-                + " repo commit documentation generated.",
-            }
+            "commit_documentation": response.content,
         }
 
     def pr_doc_generation_node(self, state: dict):
@@ -292,12 +290,7 @@ Please structure the documentation with clear sections and make it suitable for 
         print("✓ PR documentation generated")
 
         return {
-            "repo_documentation": {
-                **state.get("repo_documentation", {}),
-                "pr_documentation": response.content,
-                "status": state["repo_documentation"].get("status", "")
-                + " repo pr documentation generated.",
-            }
+            "pr_documentation": response.content,
         }
 
     def release_note_doc_generation_node(self, state: dict):
@@ -317,48 +310,77 @@ Please structure the documentation with clear sections and make it suitable for 
         print("✓ Release note documentation generated")
 
         return {
-            "repo_documentation": {
-                **state.get("repo_documentation", {}),
-                "release_note_documentation": response.content,
-                "status": state["repo_documentation"].get("status", "")
-                + " repo release note documentation generated.",
-            }
+            "release_note_documentation": response.content,
+        }
+
+    def repo_update_log_doc_generation_node(self, state: dict):
+        # log_state(state)
+        # this node generates the doc about the repo commit, pr, and release_note date this time
+        # with this doc, next time run agent, can compare date between the date in this doc to update current doc
+        print("→ Processing repo_update_log_doc_generation_node")
+        # 1. get relevant info
+        commit_info = state.get("commit_info", {})
+        pr_info = state.get("pr_info", {})
+        release_note_info = state.get("release_note_info", {})
+        # 2. extract the date from info and convert to string
+        commit_date = str(commit_info.get("commits", [{}])[0].get("date", "N/A"))
+        pr_created_at_date = str(pr_info.get("prs", [{}])[0].get("created_at", "N/A"))
+        pr_merged_at_date = str(pr_info.get("prs", [{}])[0].get("merged_at", "N/A"))
+        release_note_created_at_date = str(
+            release_note_info.get("releases", [{}])[0].get("created_at", "N/A")
+        )
+        release_note_published_at_date = str(
+            release_note_info.get("releases", [{}])[0].get("published_at", "N/A")
+        )
+        # 3. merge into a json doc
+        repo_update_log = {
+            "log_date": str(state.get("basic_info_for_repo", {}).get("date", "N/A")),
+            "commit_date": commit_date,
+            "pr_created_at_date": pr_created_at_date,
+            "pr_merged_at_date": pr_merged_at_date,
+            "release_note_created_at_date": release_note_created_at_date,
+            "release_note_published_at_date": release_note_published_at_date,
+        }
+        print("✓ Repo update log documentation generated")
+        return {
+            "repo_update_log": json.dumps(
+                repo_update_log, indent=2, ensure_ascii=False
+            ),
         }
 
     def write_doc_to_file_node(self, state: dict):
         # log_state(state)
         # this node need to write the generated repo documentation to files
         print("→ Processing write_doc_to_file_node...")
-        repo_doc = state.get("repo_documentation", {})
-        owner = state["basic_info_for_repo"]["owner"]
-        repo = state["basic_info_for_repo"]["repo"]
-        wiki_path = state["basic_info_for_repo"].get("wiki_path", "./.wikis/default")
+        owner = state.get("basic_info_for_repo", {}).get("owner", "")
+        repo = state.get("basic_info_for_repo", {}).get("repo", "")
+        date = state.get("basic_info_for_repo", {}).get("date", "")
+        wiki_path = state.get("basic_info_for_repo", {}).get(
+            "wiki_path", "./.wikis/default"
+        )
         os.makedirs(wiki_path, exist_ok=True)
 
         write_file(
             os.path.join(wiki_path, "overall_documentation.md"),
-            repo_doc.get("overall_documentation", ""),
+            state.get("overall_documentation", ""),
         )
         write_file(
             os.path.join(wiki_path, "commit_documentation.md"),
-            repo_doc.get("commit_documentation", ""),
+            state.get("commit_documentation", ""),
         )
         write_file(
             os.path.join(wiki_path, "pr_documentation.md"),
-            repo_doc.get("pr_documentation", ""),
+            state.get("pr_documentation", ""),
         )
         write_file(
             os.path.join(wiki_path, "release_note_documentation.md"),
-            repo_doc.get("release_note_documentation", ""),
+            state.get("release_note_documentation", ""),
+        )
+        write_file(
+            os.path.join(wiki_path, f"repo_update_log_{date}.json"),
+            state.get("repo_update_log", ""),
         )
         print("✓ Documentation files written successfully")
-        return {
-            "repo_documentation": {
-                **repo_doc,
-                "status": repo_doc.get("status", "")
-                + " Documentation written to files.",
-            }
-        }
 
     def build(self):
         repo_doc_builder = StateGraph(RepoDocGenerationState)
@@ -372,19 +394,28 @@ Please structure the documentation with clear sections and make it suitable for 
         repo_doc_builder.add_node(
             "release_note_doc_generation_node", self.release_note_doc_generation_node
         )
+        repo_doc_builder.add_node(
+            "repo_update_log_doc_generation_node",
+            self.repo_update_log_doc_generation_node,
+        )
         repo_doc_builder.add_node("write_doc_to_file_node", self.write_doc_to_file_node)
         repo_doc_builder.add_edge(START, "overall_doc_generation_node")
+        repo_doc_builder.add_edge(START, "commit_doc_generation_node")
+        repo_doc_builder.add_edge(START, "pr_doc_generation_node")
+        repo_doc_builder.add_edge(START, "release_note_doc_generation_node")
+        repo_doc_builder.add_edge(START, "repo_update_log_doc_generation_node")
         repo_doc_builder.add_edge(
-            "overall_doc_generation_node", "commit_doc_generation_node"
+            "overall_doc_generation_node", "write_doc_to_file_node"
         )
         repo_doc_builder.add_edge(
-            "commit_doc_generation_node", "pr_doc_generation_node"
+            "commit_doc_generation_node", "write_doc_to_file_node"
         )
-        repo_doc_builder.add_edge(
-            "pr_doc_generation_node", "release_note_doc_generation_node"
-        )
+        repo_doc_builder.add_edge("pr_doc_generation_node", "write_doc_to_file_node")
         repo_doc_builder.add_edge(
             "release_note_doc_generation_node", "write_doc_to_file_node"
+        )
+        repo_doc_builder.add_edge(
+            "repo_update_log_doc_generation_node", "write_doc_to_file_node"
         )
         return repo_doc_builder.compile(checkpointer=True)
 
@@ -394,6 +425,7 @@ Please structure the documentation with clear sections and make it suitable for 
 
 class CodeAnalysisSubGraphState(TypedDict):
     basic_info_for_code: dict
+    # outputs
     code_analysis: dict
 
 
@@ -468,21 +500,21 @@ Focus on: key functions/classes, main purpose, and important logic."""
         def get_max_num_files(mode: str) -> int:
             # mode decide the number of code files to analyze
             # if "fast" -> max 20 files
-            # if "smart" -> max 50 files
+            # if "smart" -> max 100 files
             match mode:
                 case "fast":
                     return 20
                 case "smart":
-                    return 50
+                    return 100
                 case _:
                     return 20
 
         print("→ Processing code_filter_node...")
-        mode = state["basic_info_for_code"].get("mode", "fast")
+        mode = state.get("basic_info_for_code", {}).get("mode", "fast")
         max_num_files = get_max_num_files(mode)
         print(f"   → Mode: {mode}, max_num_files: {max_num_files}")
-        repo_info = state["basic_info_for_code"].get("repo_info", {})
-        repo_structure = state["basic_info_for_code"].get("repo_structure", [])
+        repo_info = state.get("basic_info_for_code", {}).get("repo_info", {})
+        repo_structure = state.get("basic_info_for_code", {}).get("repo_structure", [])
         # 2. call llm to determine which files to analyze based on repo_info
         # filter supported code files (.py, .js, .go, .cpp, .java, .rs etc.)
         system_prompt = self._get_system_prompt()
@@ -503,14 +535,13 @@ Focus on: key functions/classes, main purpose, and important logic."""
             )
             code_files = code_files[:max_num_files]
 
-        print("DEBUG: code_files =", code_files)
+        # print("DEBUG: code_files =", code_files)
         print(
             f"✓ Filtered {len(code_files)} code files for analysis (max: {max_num_files})"
         )
         return {
             "code_analysis": {
                 "code_files": code_files,
-                "status": "Code files filtered.",
             }
         }
 
@@ -585,17 +616,15 @@ Focus on: key functions/classes, main purpose, and important logic."""
         # log_state(state)
         # this node need to analyze the filtered code files
         print("→ Processing code_analysis_node (concurrent)...")
-        code_files = state["code_analysis"].get("code_files", [])
+        code_files = state.get("code_analysis", {}).get("code_files", [])
 
         if not code_files:
             print("⚠ No code files to analyze")
             return {
                 "code_analysis": {
-                    **state["code_analysis"],
+                    **state.get("code_analysis", {}),
                     "analysis_results": {},
                     "analysis_summary": {},
-                    "status": state["code_analysis"].get("status", "")
-                    + " No files to analyze.",
                 }
             }
 
@@ -640,11 +669,9 @@ Focus on: key functions/classes, main purpose, and important logic."""
         print(f"✓ Code analysis completed for {len(analysis_results)} files")
         return {
             "code_analysis": {
-                **state["code_analysis"],
+                **state.get("code_analysis", {}),
                 "analysis_results": analysis_results,
                 "analysis_summary": analysis_summary,
-                "status": state["code_analysis"].get("status", "")
-                + " Code analysis completed.",
             }
         }
 
@@ -663,6 +690,7 @@ Focus on: key functions/classes, main purpose, and important logic."""
 class CodeDocGenerationState(TypedDict):
     basic_info_for_code: dict
     code_analysis: dict
+    # outputs
     code_documentation: dict
 
 
@@ -712,6 +740,10 @@ Guidelines:
                 analysis = f"File Content:\n{content}"
             case "analysis":
                 analysis = f"Analysis Result:\n{analysis}"
+        if summary:
+            summary = f"Analysis Summary:\n{summary}"
+        else:
+            summary = ""
         return HumanMessage(
             content=f"""Generate comprehensive documentation for the code file '{file_path}'.
 Based on the following analysis results and summary, create a detailed documentation that includes:
@@ -720,8 +752,7 @@ Based on the following analysis results and summary, create a detailed documenta
 3. Important algorithms or design patterns used
 4. Dependencies and relationships with other files
 {analysis}
-Analysis Summary:
-{summary if summary else "No summary available."}
+{summary}
 Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
         )
 
@@ -764,7 +795,6 @@ Please structure the documentation with clear sections and make it suitable for 
             return {
                 "code_documentation": {
                     "code_file_documentation": {},
-                    "status": "No files to generate documentation for.",
                 }
             }
 
@@ -814,7 +844,6 @@ Please structure the documentation with clear sections and make it suitable for 
         return {
             "code_documentation": {
                 "code_file_documentation": code_file_docs,
-                "status": "Code documentation generated.",
             }
         }
 
@@ -888,8 +917,6 @@ Please structure the documentation with clear sections and make it suitable for 
             return {
                 "code_documentation": {
                     **code_doc,
-                    "status": code_doc.get("status", "")
-                    + " No documentation to write.",
                 }
             }
 
@@ -941,23 +968,18 @@ Please structure the documentation with clear sections and make it suitable for 
                     print(f"  ✗ Error processing {file_path}: {str(e)}")
                     failed_files.append(file_path)
 
-        status_msg = f"Code documentation written to files. ({success_count} succeeded"
+        status_msg = f"Code documentation written to files. ({success_count}/{len(code_file_docs)} succeeded"
         if failed_files:
             status_msg += f", {len(failed_files)} failed)"
             print(f"⚠ Failed to write {len(failed_files)} files: {failed_files}")
         else:
             status_msg += ")"
 
-        print(
-            f"✓ Code documentation files written successfully: {success_count}/{len(code_file_docs)}"
-        )
+        print(f"✓ Code documentation writing completed. {status_msg}")
 
         return {
             "code_documentation": {
                 **code_doc,
-                "status": code_doc.get("status", "") + " " + status_msg,
-                "write_success_count": success_count,
-                "write_failed_files": failed_files,
             }
         }
 
@@ -982,16 +1004,23 @@ class ParentGraphState(TypedDict):
     platform: str
     mode: str
     max_workers: int
-    basic_info: dict
+    date: str
     # branch-namespaced fields to be consumed by child subgraphs
     basic_info_for_repo: dict | None
     basic_info_for_code: dict | None
-    # outputs
+    # repo_info_sub_graph outputs
     commit_info: dict | None
     pr_info: dict | None
     release_note_info: dict | None
+    # code_analysis_sub_graph outputs
     code_analysis: dict | None
-    repo_documentation: dict | None
+    # repo_doc_generation_sub_graph outputs
+    commit_documentation: str | None
+    pr_documentation: str | None
+    release_note_documentation: str | None
+    overall_documentation: str | None
+    repo_update_log: str | None
+    # code_doc_generation_sub_graph outputs
     code_documentation: dict | None
 
 
@@ -1016,13 +1045,18 @@ class ParentGraphBuilder:
         platform = state.get("platform", "github")
         mode = state.get("mode", "fast")
         max_workers = state.get("max_workers", 10)
+        date = state.get("date", datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
         repo_root_path = "./.repos"
         wiki_root_path = "./.wikis"
         repo_path = f"{repo_root_path}/{owner}_{repo}"
-        wiki_path = f"{wiki_root_path}/{owner}_{repo}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+        wiki_path = f"{wiki_root_path}/{owner}_{repo}/{date}"
 
         print(f"📦 Repository: {owner}/{repo}")
         print(f"🔗 Platform: {platform}")
+        print(f"⚙️ Mode: {mode}")
+        print(f"👷 Max Workers: {max_workers}")
+        print(f"📁 Repo Path: {repo_path}")
+        print(f"📄 Wiki Path: {wiki_path}")
 
         repo_info = get_repo_info(owner, repo, platform=platform)
         repo_structure = get_repo_structure(repo_path)
@@ -1036,6 +1070,7 @@ class ParentGraphBuilder:
             "platform": platform,
             "mode": mode,
             "max_workers": max_workers,
+            "date": date,
             "repo_path": repo_path,
             "wiki_path": wiki_path,
             "repo_info": repo_info,
@@ -1043,20 +1078,8 @@ class ParentGraphBuilder:
         }
 
         return {
-            "basic_info": {
-                "owner": owner,
-                "repo": repo,
-                "platform": platform,
-                "mode": mode,
-                "max_workers": max_workers,
-                "message": "Basic info retrieved.",
-            },
             "basic_info_for_repo": combined_info,
             "basic_info_for_code": combined_info,
-            "owner_for_repo": owner,
-            "repo_for_repo": repo,
-            "owner_for_code": owner,
-            "repo_for_code": repo,
         }
 
     def build(self, checkpointer):
@@ -1087,24 +1110,23 @@ class ParentGraphBuilder:
         return self.graph
 
 
-if __name__ == "__main__":
-    # use "uv run python -m tests.sub-graph-agent.graph" to run this file
+def demo():
+    CONFIG.display()
+    parent_graph_builder = ParentGraphBuilder(branch_mode="all")
+    graph = parent_graph_builder.get_graph()
     # draw the graph structure if you want
     # draw_graph(graph)
-    CONFIG.display()
-    parent_graph_builder = ParentGraphBuilder(branch_mode="code")
-    graph = parent_graph_builder.get_graph()
-    config = {
-        "configurable": {"thread_id": f"wiki-generation-{datetime.now().timestamp()}"}
-    }
+    date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    config = {"configurable": {"thread_id": f"wiki-generation-{date}"}}
     start_time = time.time()
     for chunk in graph.stream(
         {
             "owner": "facebook",
             "repo": "zstd",
             "platform": "github",
-            "mode": "fast",  # or "smart"
+            "mode": "fast",  # "fast" or "smart"
             "max_workers": 50,  # 20 worker -> 3 - 4 minutes
+            "date": date,
         },
         config=config,
         subgraphs=True,
@@ -1112,10 +1134,14 @@ if __name__ == "__main__":
         pass
 
     end_time = time.time()
-
     elapsed_time = end_time - start_time
 
     print("\n" + "=" * 80)
     print("✅ Graph execution completed successfully!")
     print("=" * 80)
     print(f"Total execution time: {elapsed_time:.2f} seconds")
+
+
+if __name__ == "__main__":
+    # use "uv run python -m tests.sub-graph-agent.graph" to run this file
+    demo()
