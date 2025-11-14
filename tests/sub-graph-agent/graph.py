@@ -403,10 +403,13 @@ Please structure the documentation with clear sections and make it suitable for 
         repo_info_builder.add_node(
             "release_note_doc_generation_node", self.release_note_doc_generation_node
         )
+        repo_info_builder.add_node("repo_info_update_log_node", self.repo_info_update_log_node)
+        repo_info_builder.add_node("update_log_doc_generation_node", self.update_log_doc_generation_node)
         repo_info_builder.add_edge(START, "repo_info_commit_node")
         repo_info_builder.add_edge(START, "repo_info_pr_node")
         repo_info_builder.add_edge(START, "repo_info_release_note_node")
         repo_info_builder.add_edge(START, "repo_info_overview_node")
+        repo_info_builder.add_edge(START, "repo_info_update_log_node")
         repo_info_builder.add_edge(
             "repo_info_overview_node", "overview_doc_generation_node"
         )
@@ -416,6 +419,9 @@ Please structure the documentation with clear sections and make it suitable for 
         repo_info_builder.add_edge("repo_info_pr_node", "pr_doc_generation_node")
         repo_info_builder.add_edge(
             "repo_info_release_note_node", "release_note_doc_generation_node"
+        )
+        repo_info_builder.add_edge(
+            "repo_info_update_log_node", "update_log_doc_generation_node"
         )
         return repo_info_builder.compile(checkpointer=True)
 
@@ -876,14 +882,6 @@ class ParentGraphState(TypedDict):
     release_note_info: dict | None
     # code_analysis_sub_graph outputs
     code_analysis: dict | None
-    # repo_doc_generation_sub_graph outputs
-    commit_documentation: str | None
-    pr_documentation: str | None
-    release_note_documentation: str | None
-    overall_documentation: str | None
-    repo_update_log: str | None
-    # code_doc_generation_sub_graph outputs
-    code_documentation: dict | None
 
 
 class ParentGraphBuilder:
