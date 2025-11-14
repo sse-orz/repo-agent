@@ -493,6 +493,64 @@ Focus on: key functions/classes, main purpose, and important logic."""
 Focus on: key functions/classes, main purpose, and important logic."""
         )
 
+    @staticmethod
+    def _get_system_prompt_for_doc():
+        """Generate a comprehensive system prompt for code documentation generation."""
+        return SystemMessage(
+            content="""You are an expert technical documentation writer specializing in generating comprehensive code documentation. 
+Your role is to analyze provided code analysis results and create clear, well-structured documentation that helps developers understand the codebase structure, functionality, and architecture.
+
+Guidelines:
+- Use Markdown formatting for better readability
+- Be concise yet informative
+- Highlight key components and their relationships
+- Organize information logically with clear sections
+- Include code snippets and examples when helpful
+- Document complex algorithms and design patterns"""
+        )
+
+    @staticmethod
+    def _get_code_doc_prompt(
+        file_path: str, analysis: dict, summary: str
+    ) -> HumanMessage:
+        """Generate a prompt for code documentation."""
+
+        # based on the size between analysis and content, adjust the prompt design
+        def _compare_size_between_content_and_analysis(
+            content: str, formatted_analysis: str
+        ) -> str:
+            content_size = len(content)
+            analysis_size = len(formatted_analysis)
+
+            if content_size <= analysis_size:
+                return "content"
+            else:
+                return "analysis"
+
+        file_path_resolved = resolve_path(file_path)
+        content = read_file(file_path_resolved)
+        match_choice = _compare_size_between_content_and_analysis(content, analysis)
+        match match_choice:
+            case "content":
+                analysis = f"File Content:\n{content}"
+            case "analysis":
+                analysis = f"Analysis Result:\n{analysis}"
+        if summary:
+            summary = f"Analysis Summary:\n{summary}"
+        else:
+            summary = ""
+        return HumanMessage(
+            content=f"""Generate comprehensive documentation for the code file '{file_path}'.
+Based on the following analysis results and summary, create a detailed documentation that includes:
+1. Overview of the file's purpose and functionality
+2. Key components (functions, classes, etc.) and their roles
+3. Important algorithms or design patterns used
+4. Dependencies and relationships with other files
+{analysis}
+{summary}
+Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
+        )
+
     def code_filter_node(self, state: dict):
         # log_state(state)
         # this node need to filter useful code files for analysis
@@ -612,150 +670,6 @@ Focus on: key functions/classes, main purpose, and important logic."""
             "summary": summary_response.content,
         }
 
-    def code_analysis_node(self, state: dict):
-        # log_state(state)
-        # this node need to analyze the filtered code files
-        print("→ Processing code_analysis_node (concurrent)...")
-        code_files = state.get("code_analysis", {}).get("code_files", [])
-
-        if not code_files:
-            print("⚠ No code files to analyze")
-            return {
-                "code_analysis": {
-                    **state.get("code_analysis", {}),
-                    "analysis_results": {},
-                    "analysis_summary": {},
-                }
-            }
-
-        analysis_results = {}
-        analysis_summary = {}
-
-        # Determine optimal number of workers
-        # Adjust max_workers based on your API rate limits
-        max_workers = min(
-            state.get("max_workers", 10), len(code_files)
-        )  # Max 10 concurrent requests
-
-        print(f"  → Using {max_workers} concurrent workers for {len(code_files)} files")
-
-        # Use ThreadPoolExecutor for concurrent execution
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_file = {
-                executor.submit(
-                    self._analyze_single_file, file_path, idx, len(code_files)
-                ): file_path
-                for idx, file_path in enumerate(code_files, 1)
-            }
-
-            # Collect results as they complete
-            completed = 0
-            for future in as_completed(future_to_file):
-                file_path = future_to_file[future]
-                try:
-                    result_file_path, results = future.result()
-                    analysis_results[result_file_path] = results["analysis"]
-                    analysis_summary[result_file_path] = results["summary"]
-                    completed += 1
-                    print(
-                        f"  ✓ Completed {completed}/{len(code_files)}: {result_file_path}"
-                    )
-                except Exception as e:
-                    print(f"  ✗ Error analyzing {file_path}: {str(e)}")
-                    analysis_results[file_path] = f"Error during analysis: {str(e)}"
-                    analysis_summary[file_path] = f"Error during analysis: {str(e)}"
-
-        print(f"✓ Code analysis completed for {len(analysis_results)} files")
-        return {
-            "code_analysis": {
-                **state.get("code_analysis", {}),
-                "analysis_results": analysis_results,
-                "analysis_summary": analysis_summary,
-            }
-        }
-
-    def build(self):
-        analysis_builder = StateGraph(CodeAnalysisSubGraphState)
-        analysis_builder.add_node("code_filter_node", self.code_filter_node)
-        analysis_builder.add_node("code_analysis_node", self.code_analysis_node)
-        analysis_builder.add_edge(START, "code_filter_node")
-        analysis_builder.add_edge("code_filter_node", "code_analysis_node")
-        return analysis_builder.compile(checkpointer=True)
-
-    def get_graph(self):
-        return self.graph
-
-
-class CodeDocGenerationState(TypedDict):
-    basic_info_for_code: dict
-    code_analysis: dict
-    # outputs
-    code_documentation: dict
-
-
-class CodeDocGenerationSubGraphBuilder:
-    def __init__(self):
-        self.graph = self.build()
-
-    @staticmethod
-    def _get_system_prompt():
-        """Generate a comprehensive system prompt for code documentation generation."""
-        return SystemMessage(
-            content="""You are an expert technical documentation writer specializing in generating comprehensive code documentation. 
-Your role is to analyze provided code analysis results and create clear, well-structured documentation that helps developers understand the codebase structure, functionality, and architecture.
-
-Guidelines:
-- Use Markdown formatting for better readability
-- Be concise yet informative
-- Highlight key components and their relationships
-- Organize information logically with clear sections
-- Include code snippets and examples when helpful
-- Document complex algorithms and design patterns"""
-        )
-
-    @staticmethod
-    def _get_code_doc_prompt(
-        file_path: str, analysis: dict, summary: str
-    ) -> HumanMessage:
-        """Generate a prompt for code documentation."""
-
-        # based on the size between analysis and content, adjust the prompt design
-        def _compare_size_between_content_and_analysis(
-            content: str, formatted_analysis: str
-        ) -> str:
-            content_size = len(content)
-            analysis_size = len(formatted_analysis)
-
-            if content_size <= analysis_size:
-                return "content"
-            else:
-                return "analysis"
-
-        file_path_resolved = resolve_path(file_path)
-        content = read_file(file_path_resolved)
-        match_choice = _compare_size_between_content_and_analysis(content, analysis)
-        match match_choice:
-            case "content":
-                analysis = f"File Content:\n{content}"
-            case "analysis":
-                analysis = f"Analysis Result:\n{analysis}"
-        if summary:
-            summary = f"Analysis Summary:\n{summary}"
-        else:
-            summary = ""
-        return HumanMessage(
-            content=f"""Generate comprehensive documentation for the code file '{file_path}'.
-Based on the following analysis results and summary, create a detailed documentation that includes:
-1. Overview of the file's purpose and functionality
-2. Key components (functions, classes, etc.) and their roles
-3. Important algorithms or design patterns used
-4. Dependencies and relationships with other files
-{analysis}
-{summary}
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
-        )
-
     def _generate_single_file_doc(
         self, file_path: str, analysis: dict, summary: str, idx: int, total: int
     ) -> tuple[str, str]:
@@ -771,7 +685,7 @@ Please structure the documentation with clear sections and make it suitable for 
         # Create a new LLM instance for each thread to avoid context accumulation
         llm = CONFIG.get_llm()
 
-        system_prompt = self._get_system_prompt()
+        system_prompt = self._get_system_prompt_for_doc()
         human_prompt = self._get_code_doc_prompt(file_path, analysis, summary)
 
         try:
@@ -780,72 +694,6 @@ Please structure the documentation with clear sections and make it suitable for 
         except Exception as e:
             print(f"  ✗ Error generating documentation for {file_path}: {str(e)}")
             return file_path, f"# Error\n\nFailed to generate documentation: {str(e)}"
-
-    def loop_code_doc_node(self, state: dict):
-        """
-        Concurrent version of documentation generation node.
-        Uses ThreadPoolExecutor to generate documentation for multiple files in parallel.
-        """
-        print("→ Processing loop_code_doc_node (concurrent)...")
-        analysis_results = state.get("code_analysis", {}).get("analysis_results", {})
-        analysis_summary = state.get("code_analysis", {}).get("analysis_summary", {})
-
-        if not analysis_results:
-            print("⚠ No analysis results to generate documentation from")
-            return {
-                "code_documentation": {
-                    "code_file_documentation": {},
-                }
-            }
-
-        code_file_docs = {}
-
-        # Determine optimal number of workers
-        max_workers = min(
-            state.get("max_workers", 10), len(analysis_results)
-        )  # Max 10 concurrent requests
-        print(
-            f"  → Using {max_workers} concurrent workers for {len(analysis_results)} files"
-        )
-
-        # Use ThreadPoolExecutor for concurrent execution
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_file = {
-                executor.submit(
-                    self._generate_single_file_doc,
-                    file_path,
-                    analysis,
-                    analysis_summary.get(file_path, ""),
-                    idx,
-                    len(analysis_results),
-                ): file_path
-                for idx, (file_path, analysis) in enumerate(analysis_results.items(), 1)
-            }
-
-            # Collect results as they complete
-            completed = 0
-            for future in as_completed(future_to_file):
-                file_path = future_to_file[future]
-                try:
-                    result_file_path, doc_content = future.result()
-                    code_file_docs[result_file_path] = doc_content
-                    completed += 1
-                    print(
-                        f"  ✓ Completed {completed}/{len(analysis_results)}: {result_file_path}"
-                    )
-                except Exception as e:
-                    print(f"  ✗ Error processing {file_path}: {str(e)}")
-                    code_file_docs[file_path] = (
-                        f"# Error\n\nFailed to generate documentation: {str(e)}"
-                    )
-
-        print(f"✓ Code documentation generated for {len(code_file_docs)} files")
-        return {
-            "code_documentation": {
-                "code_file_documentation": code_file_docs,
-            }
-        }
 
     def _write_single_doc_file(
         self,
@@ -896,58 +744,88 @@ Please structure the documentation with clear sections and make it suitable for 
             print(f"  ✗ Error writing documentation for {file_path}: {str(e)}")
             return file_path, False
 
-    def write_code_doc_to_file_node(self, state: dict):
+    def _single_thread_process(
+        self, file_path: str, idx: int, total: int, wiki_path: str, repo_path: str
+    ) -> tuple[str, bool]:
         """
-        Concurrent version of documentation writing node.
-        Uses ThreadPoolExecutor to write multiple documentation files in parallel.
+        Process a single file through the complete workflow:
+        1. Analyze the file
+        2. Generate documentation
+        3. Write documentation to file
+
+        Args:
+            file_path (str): Path to the code file
+            idx (int): Index of the file in the list
+            total (int): Total number of files
+            wiki_path (str): Path to write documentation files
+            repo_path (str): Base repository path (for relative path calculation)
+
+        Returns:
+            tuple[str, bool]: file_path and success status
         """
-        print("→ Processing write_code_doc_to_file_node (concurrent)...")
-        code_doc = state.get("code_documentation", {})
-        basic_info = state.get("basic_info_for_code", {})
-        wiki_path = basic_info.get("wiki_path", "./.wikis/default")
-        repo_path = basic_info.get("repo_path", "./.repos")
+        try:
+            # Step 1: Analyze the file
+            file_path, analysis_result = self._analyze_single_file(
+                file_path, idx, total
+            )
+            analysis = analysis_result.get("analysis", "")
+            summary = analysis_result.get("summary", "")
 
-        # Ensure wiki directory exists
-        os.makedirs(wiki_path, exist_ok=True)
+            # Step 2: Generate documentation for the file
+            file_path, doc_content = self._generate_single_file_doc(
+                file_path, analysis, summary, idx, total
+            )
 
-        code_file_docs = code_doc.get("code_file_documentation", {})
+            # Step 3: Write documentation to file
+            file_path, write_success = self._write_single_doc_file(
+                file_path, doc_content, wiki_path, repo_path, idx, total
+            )
 
-        if not code_file_docs:
-            print("⚠ No documentation to write")
-            return {
-                "code_documentation": {
-                    **code_doc,
-                }
-            }
+            if write_success:
+                return file_path, True
+            else:
+                return file_path, False
 
-        # Determine optimal number of workers for I/O operations
-        # I/O operations can handle more concurrency than CPU-bound tasks
-        max_workers = min(
-            state.get("max_workers", 10), len(code_file_docs)
-        )  # Max 10 concurrent file writes
-        print(
-            f"  → Using {max_workers} concurrent workers for {len(code_file_docs)} files"
+        except Exception as e:
+            print(f"  ✗ Error in worker process for {file_path}: {str(e)}")
+            return file_path, False
+
+    def code_analysis_node(self, state: dict):
+        # log_state(state)
+        # this node need to analyze the filtered code files
+        print("→ Processing code_analysis_node (concurrent)...")
+        code_files = state.get("code_analysis", {}).get("code_files", [])
+
+        if not code_files:
+            print("⚠ No code files to analyze")
+            return
+
+        wiki_path = state.get("basic_info_for_code", {}).get(
+            "wiki_path", "./.wikis/default"
         )
+        repo_path = state.get("basic_info_for_code", {}).get("repo_path", "./.repos")
 
-        success_count = 0
-        failed_files = []
+        # Determine optimal number of workers
+        # Adjust max_workers based on your API rate limits
+        max_workers = min(
+            state.get("max_workers", 10), len(code_files)
+        )  # Max 10 concurrent requests
 
-        # Use ThreadPoolExecutor for concurrent file writing
+        print(f"  → Using {max_workers} concurrent workers for {len(code_files)} files")
+
+        # Use ThreadPoolExecutor for concurrent execution
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
+            # Submit all tasks using _single_thread_process
             future_to_file = {
                 executor.submit(
-                    self._write_single_doc_file,
+                    self._single_thread_process,
                     file_path,
-                    doc_content,
+                    idx,
+                    len(code_files),
                     wiki_path,
                     repo_path,
-                    idx,
-                    len(code_file_docs),
                 ): file_path
-                for idx, (file_path, doc_content) in enumerate(
-                    code_file_docs.items(), 1
-                )
+                for idx, file_path in enumerate(code_files, 1)
             }
 
             # Collect results as they complete
@@ -955,43 +833,27 @@ Please structure the documentation with clear sections and make it suitable for 
             for future in as_completed(future_to_file):
                 file_path = future_to_file[future]
                 try:
-                    result_file_path, success = future.result()
-                    if success:
-                        success_count += 1
+                    result_file_path, result = future.result()
+                    if result:
+                        print(f"  ✓ Documentation written for {file_path}")
                     else:
-                        failed_files.append(result_file_path)
+                        print(f"  ⚠ Processing failed for {file_path}")
                     completed += 1
                     print(
-                        f"  ✓ Processed {completed}/{len(code_file_docs)}: {result_file_path}"
+                        f"  ✓ Completed {completed}/{len(code_files)}: {result_file_path}"
                     )
                 except Exception as e:
                     print(f"  ✗ Error processing {file_path}: {str(e)}")
-                    failed_files.append(file_path)
 
-        status_msg = f"Code documentation written to files. ({success_count}/{len(code_file_docs)} succeeded"
-        if failed_files:
-            status_msg += f", {len(failed_files)} failed)"
-            print(f"⚠ Failed to write {len(failed_files)} files: {failed_files}")
-        else:
-            status_msg += ")"
-
-        print(f"✓ Code documentation writing completed. {status_msg}")
-
-        return {
-            "code_documentation": {
-                **code_doc,
-            }
-        }
+        print(f"✓ Code analysis completed for {len(code_files)} files")
 
     def build(self):
-        code_doc_builder = StateGraph(CodeDocGenerationState)
-        code_doc_builder.add_node("loop_code_doc_node", self.loop_code_doc_node)
-        code_doc_builder.add_node(
-            "write_code_doc_to_file_node", self.write_code_doc_to_file_node
-        )
-        code_doc_builder.add_edge(START, "loop_code_doc_node")
-        code_doc_builder.add_edge("loop_code_doc_node", "write_code_doc_to_file_node")
-        return code_doc_builder.compile(checkpointer=True)
+        analysis_builder = StateGraph(CodeAnalysisSubGraphState)
+        analysis_builder.add_node("code_filter_node", self.code_filter_node)
+        analysis_builder.add_node("code_analysis_node", self.code_analysis_node)
+        analysis_builder.add_edge(START, "code_filter_node")
+        analysis_builder.add_edge("code_filter_node", "code_analysis_node")
+        return analysis_builder.compile(checkpointer=True)
 
     def get_graph(self):
         return self.graph
@@ -1029,7 +891,6 @@ class ParentGraphBuilder:
     def __init__(self, branch_mode: str = "all"):
         self.repo_info_graph = RepoInfoSubGraphBuilder().get_graph()
         self.code_analysis_graph = CodeAnalysisSubGraphBuilder().get_graph()
-        self.code_doc_generation_graph = CodeDocGenerationSubGraphBuilder().get_graph()
         self.checkpointer = MemorySaver()
         self.branch = branch_mode  # "all" or "code" or "repo"
         self.graph = self.build(self.checkpointer)
@@ -1086,17 +947,14 @@ class ParentGraphBuilder:
         builder.add_node("basic_info_node", self.basic_info_node)
         builder.add_node("repo_info_graph", self.repo_info_graph)
         builder.add_node("code_analysis_graph", self.code_analysis_graph)
-        builder.add_node("code_doc_generation_graph", self.code_doc_generation_graph)
         match self.branch:
             case "all":
                 builder.add_edge(START, "basic_info_node")
                 builder.add_edge("basic_info_node", "repo_info_graph")
                 builder.add_edge("basic_info_node", "code_analysis_graph")
-                builder.add_edge("code_analysis_graph", "code_doc_generation_graph")
             case "code":
                 builder.add_edge(START, "basic_info_node")
                 builder.add_edge("basic_info_node", "code_analysis_graph")
-                builder.add_edge("code_analysis_graph", "code_doc_generation_graph")
             case "repo":
                 builder.add_edge(START, "basic_info_node")
                 builder.add_edge("basic_info_node", "repo_info_graph")
@@ -1108,7 +966,7 @@ class ParentGraphBuilder:
 
 def demo():
     CONFIG.display()
-    parent_graph_builder = ParentGraphBuilder(branch_mode="repo")
+    parent_graph_builder = ParentGraphBuilder(branch_mode="code")
     graph = parent_graph_builder.get_graph()
     # draw the graph structure if you want
     # draw_graph(graph)
