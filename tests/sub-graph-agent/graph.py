@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
+import json
 import os
 import time
 
@@ -49,78 +50,15 @@ def log_state(state: dict):
 class RepoInfoSubGraphState(TypedDict):
     # branch-specific inputs (copied by parent into these namespaced keys)
     basic_info_for_repo: dict
-    # subgraph output
+    # outputs
     commit_info: dict
     pr_info: dict
     release_note_info: dict
+    overview_info: str
+    update_log_info: str
 
 
 class RepoInfoSubGraphBuilder:
-
-    def __init__(self):
-        self.graph = self.build()
-
-    def repo_info_commit_node(self, state: dict):
-        # log_state(state)
-        # this node need to collect repo commit info and preprocess for doc-generation
-        print("→ Processing repo_info_commit_node...")
-        commit_info = get_repo_commit_info(
-            owner=state["basic_info_for_repo"]["owner"],
-            repo=state["basic_info_for_repo"]["repo"],
-            platform=state["basic_info_for_repo"].get("platform", "github"),
-        )
-        print("✓ Commit info retrieved successfully")
-        return {"commit_info": commit_info}
-
-    def repo_info_pr_node(self, state: dict):
-        # log_state(state)
-        # this node need to collect repo pr info and preprocess for doc-generation
-        print("→ Processing repo_info_pr_node...")
-        pr = get_pr(
-            owner=state["basic_info_for_repo"]["owner"],
-            repo=state["basic_info_for_repo"]["repo"],
-            platform=state["basic_info_for_repo"].get("platform", "github"),
-        )
-        print("✓ PR info retrieved successfully")
-        return {"pr_info": pr}
-
-    def repo_info_release_note_node(self, state: dict):
-        # log_state(state)
-        # this node need to collect repo release note info and preprocess for doc-generation
-        print("→ Processing repo_info_release_note_node...")
-        release_note = get_release_note(
-            owner=state["basic_info_for_repo"]["owner"],
-            repo=state["basic_info_for_repo"]["repo"],
-            platform=state["basic_info_for_repo"].get("platform", "github"),
-        )
-        print("✓ Release note info retrieved successfully")
-        return {"release_note_info": release_note}
-
-    def build(self):
-        repo_info_builder = StateGraph(RepoInfoSubGraphState)
-        repo_info_builder.add_node("repo_info_commit_node", self.repo_info_commit_node)
-        repo_info_builder.add_node("repo_info_pr_node", self.repo_info_pr_node)
-        repo_info_builder.add_node(
-            "repo_info_release_note_node", self.repo_info_release_note_node
-        )
-        repo_info_builder.add_edge(START, "repo_info_commit_node")
-        repo_info_builder.add_edge("repo_info_commit_node", "repo_info_pr_node")
-        repo_info_builder.add_edge("repo_info_pr_node", "repo_info_release_note_node")
-        return repo_info_builder.compile(checkpointer=True)
-
-    def get_graph(self):
-        return self.graph
-
-
-class RepoDocGenerationState(TypedDict):
-    basic_info_for_repo: dict
-    commit_info: dict
-    pr_info: dict
-    release_note_info: dict
-    repo_documentation: dict
-
-
-class RepoDocGenerationSubGraphBuilder:
 
     def __init__(self):
         self.graph = self.build()
@@ -138,6 +76,25 @@ Guidelines:
 - Highlight key changes and their impact
 - Organize information logically with clear sections
 - Include relevant metrics and statistics when available"""
+        )
+
+    @staticmethod
+    def _get_overview_doc_prompt(repo_info: dict, doc_contents: str) -> HumanMessage:
+        """Generate a prompt for overall repository documentation."""
+        repo_name = repo_info.get("repo", "")
+        owner = repo_info.get("owner", "")
+
+        return HumanMessage(
+            content=f"""Generate overall repository documentation for the repository '{owner}/{repo_name}'.
+Based on the following repository information and documentation source files, create a detailed analysis that includes:
+1. Overview of the repository structure and key components
+2. Summary of existing documentation and its coverage
+3. Identification of documentation gaps and areas for improvement
+Repository Information:
+{repo_info}
+Documentation Source Files Content:
+{doc_contents}
+Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
         )
 
     @staticmethod
@@ -207,15 +164,15 @@ Release Information:
 Please structure the documentation with clear sections and make it suitable for users planning upgrades."""
         )
 
-    def overall_doc_generation_node(self, state: dict):
+    def repo_info_overview_node(self, state: dict):
         # log_state(state)
         # basic_info_for_repo has repo_structure and repo_info attributes
         # this node need to do these things:
         # 1. based on the repo_info to generate overall repo documentation
         # 2. filter out md files which can be the documentation source files
         print("→ Processing overall_doc_generation_node...")
-        owner = state["basic_info_for_repo"]["owner"]
-        repo = state["basic_info_for_repo"]["repo"]
+        owner = state.get("basic_info_for_repo", {}).get("owner", "")
+        repo = state.get("basic_info_for_repo", {}).get("repo", "")
         basic_info_for_repo = state.get("basic_info_for_repo", {})
         repo_info = basic_info_for_repo.get("repo_info", {})
         repo_structure = basic_info_for_repo.get("repo_structure", [])
@@ -232,27 +189,40 @@ Please structure the documentation with clear sections and make it suitable for 
                 doc_contents.append(f"# Source File: {file_path}\n\n{content}\n\n")
         combined_doc_content = "\n".join(doc_contents)
         system_prompt = self._get_system_prompt()
-        human_prompt = HumanMessage(
-            content=f"""Generate overall repository documentation for the repository '{owner}/{repo}'.
-Based on the following repository information and documentation source files, create a detailed analysis that includes:
-1. Overview of the repository structure and key components
-2. Summary of existing documentation and its coverage
-3. Identification of documentation gaps and areas for improvement
-Repository Information:
-{repo_info}
-Documentation Source Files Content:
-{combined_doc_content}
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
-        )
+        human_prompt = self._get_overview_doc_prompt(repo_info, combined_doc_content)
         llm = CONFIG.get_llm()
         response = llm.invoke([system_prompt, human_prompt])
         print("✓ Overall documentation generated")
         return {
-            "repo_documentation": {
-                "overall_documentation": response.content,
-                "status": "overall repo documentation generated.",
-            }
+            "overview_info": response.content,
         }
+
+    def overview_doc_generation_node(self, state: dict):
+        # log_state(state)
+        wiki_path = state.get("basic_info_for_repo", {}).get(
+            "wiki_path", "./.wikis/default"
+        )
+        os.makedirs(wiki_path, exist_ok=True)
+
+        file_name = os.path.join(wiki_path, "overview_documentation.md")
+        print(f"→ Writing overview info to {file_name}")
+        write_file(
+            file_name,
+            state.get("overview_info", ""),
+        )
+        print("✓ Overview documentation written successfully")
+
+    def repo_info_commit_node(self, state: dict):
+        # log_state(state)
+        # this node need to collect repo commit info and preprocess for doc-generation
+        print("→ Processing repo_info_commit_node...")
+        commit_info = get_repo_commit_info(
+            owner=state.get("basic_info_for_repo", {}).get("owner", ""),
+            repo=state.get("basic_info_for_repo", {}).get("repo", ""),
+            platform=state.get("basic_info_for_repo", {}).get("platform", "github"),
+        )
+        print("✓ Commit info retrieved successfully")
+        return {"commit_info": commit_info}
 
     def commit_doc_generation_node(self, state: dict):
         # log_state(state)
@@ -260,6 +230,10 @@ Please structure the documentation with clear sections and make it suitable for 
         print("→ Processing commit_doc_generation_node...")
         commit_info = state.get("commit_info", {})
         repo_info = state.get("basic_info_for_repo", {})
+        wiki_path = state.get("basic_info_for_repo", {}).get(
+            "wiki_path", "./.wikis/default"
+        )
+        os.makedirs(wiki_path, exist_ok=True)
 
         system_prompt = self._get_system_prompt()
         human_prompt = self._generate_commit_doc_prompt(commit_info, repo_info)
@@ -268,14 +242,25 @@ Please structure the documentation with clear sections and make it suitable for 
         response = llm.invoke([system_prompt, human_prompt])
         print("✓ Commit documentation generated")
 
-        return {
-            "repo_documentation": {
-                **state.get("repo_documentation", {}),
-                "commit_documentation": response.content,
-                "status": state["repo_documentation"].get("status", "")
-                + " repo commit documentation generated.",
-            }
-        }
+        file_name = os.path.join(wiki_path, "commit_documentation.md")
+        print(f"→ Writing commit info to {file_name}")
+        write_file(
+            file_name,
+            response.content,
+        )
+        print("✓ Commit documentation written successfully")
+
+    def repo_info_pr_node(self, state: dict):
+        # log_state(state)
+        # this node need to collect repo pr info and preprocess for doc-generation
+        print("→ Processing repo_info_pr_node...")
+        pr = get_pr(
+            owner=state.get("basic_info_for_repo", {}).get("owner", ""),
+            repo=state.get("basic_info_for_repo", {}).get("repo", ""),
+            platform=state.get("basic_info_for_repo", {}).get("platform", "github"),
+        )
+        print("✓ PR info retrieved successfully")
+        return {"pr_info": pr}
 
     def pr_doc_generation_node(self, state: dict):
         # log_state(state)
@@ -283,6 +268,10 @@ Please structure the documentation with clear sections and make it suitable for 
         print("→ Processing pr_doc_generation_node...")
         pr_info = state.get("pr_info", {})
         repo_info = state.get("basic_info_for_repo", {})
+        wiki_path = state.get("basic_info_for_repo", {}).get(
+            "wiki_path", "./.wikis/default"
+        )
+        os.makedirs(wiki_path, exist_ok=True)
 
         system_prompt = self._get_system_prompt()
         human_prompt = self._generate_pr_doc_prompt(pr_info, repo_info)
@@ -291,14 +280,25 @@ Please structure the documentation with clear sections and make it suitable for 
         response = llm.invoke([system_prompt, human_prompt])
         print("✓ PR documentation generated")
 
-        return {
-            "repo_documentation": {
-                **state.get("repo_documentation", {}),
-                "pr_documentation": response.content,
-                "status": state["repo_documentation"].get("status", "")
-                + " repo pr documentation generated.",
-            }
-        }
+        file_name = os.path.join(wiki_path, "pr_documentation.md")
+        print(f"→ Writing PR info to {file_name}")
+        write_file(
+            file_name,
+            response.content,
+        )
+        print("✓ PR documentation written successfully")
+
+    def repo_info_release_note_node(self, state: dict):
+        # log_state(state)
+        # this node need to collect repo release note info and preprocess for doc-generation
+        print("→ Processing repo_info_release_note_node...")
+        release_note = get_release_note(
+            owner=state.get("basic_info_for_repo", {}).get("owner", ""),
+            repo=state.get("basic_info_for_repo", {}).get("repo", ""),
+            platform=state.get("basic_info_for_repo", {}).get("platform", "github"),
+        )
+        print("✓ Release note info retrieved successfully")
+        return {"release_note_info": release_note}
 
     def release_note_doc_generation_node(self, state: dict):
         # log_state(state)
@@ -306,6 +306,10 @@ Please structure the documentation with clear sections and make it suitable for 
         print("→ Processing release_note_doc_generation_node...")
         release_note_info = state.get("release_note_info", {})
         repo_info = state.get("basic_info_for_repo", {})
+        wiki_path = state.get("basic_info_for_repo", {}).get(
+            "wiki_path", "./.wikis/default"
+        )
+        os.makedirs(wiki_path, exist_ok=True)
 
         system_prompt = self._get_system_prompt()
         human_prompt = self._generate_release_note_doc_prompt(
@@ -316,77 +320,110 @@ Please structure the documentation with clear sections and make it suitable for 
         response = llm.invoke([system_prompt, human_prompt])
         print("✓ Release note documentation generated")
 
+        file_name = os.path.join(wiki_path, "release_note_documentation.md")
+        print(f"→ Writing release note info to {file_name}")
+        write_file(
+            file_name,
+            response.content,
+        )
+        print("✓ Release note documentation written successfully")
+
+    def repo_info_update_log_node(self, state: dict):
+        # log_state(state)
+        # this node need to generate the doc about the repo commit, pr, and release_note date this time
+        # with this doc, next time run agent, can compare date between the date in this doc to update current doc
+        print("→ Processing repo_info_update_log_node")
+        # 1. get relevant info
+        commit_info = state.get("commit_info", {})
+        pr_info = state.get("pr_info", {})
+        release_note_info = state.get("release_note_info", {})
+        # 2. extract the date from info and convert to string
+        commit_date = str(commit_info.get("commits", [{}])[0].get("date", "N/A"))
+        pr_created_at_date = str(pr_info.get("prs", [{}])[0].get("created_at", "N/A"))
+        pr_merged_at_date = str(pr_info.get("prs", [{}])[0].get("merged_at", "N/A"))
+        release_note_created_at_date = str(
+            release_note_info.get("releases", [{}])[0].get("created_at", "N/A")
+        )
+        release_note_published_at_date = str(
+            release_note_info.get("releases", [{}])[0].get("published_at", "N/A")
+        )
+        # 3. merge into a json doc
+        update_log_info = {
+            "log_date": str(state.get("basic_info_for_repo", {}).get("date", "N/A")),
+            "commit_date": commit_date,
+            "pr_created_at_date": pr_created_at_date,
+            "pr_merged_at_date": pr_merged_at_date,
+            "release_note_created_at_date": release_note_created_at_date,
+            "release_note_published_at_date": release_note_published_at_date,
+        }
+        print("✓ Repo update log documentation generated")
         return {
-            "repo_documentation": {
-                **state.get("repo_documentation", {}),
-                "release_note_documentation": response.content,
-                "status": state["repo_documentation"].get("status", "")
-                + " repo release note documentation generated.",
-            }
+            "update_log_info": json.dumps(
+                update_log_info, indent=2, ensure_ascii=False
+            ),
         }
 
-    def write_doc_to_file_node(self, state: dict):
+    def update_log_doc_generation_node(self, state: dict):
         # log_state(state)
-        # this node need to write the generated repo documentation to files
-        print("→ Processing write_doc_to_file_node...")
-        repo_doc = state.get("repo_documentation", {})
-        owner = state["basic_info_for_repo"]["owner"]
-        repo = state["basic_info_for_repo"]["repo"]
-        wiki_path = state["basic_info_for_repo"].get("wiki_path", "./.wikis/default")
+        # this node need to write the generated repo update log to file
+        print("→ Processing update_log_doc_generation_node...")
+        owner = state.get("basic_info_for_repo", {}).get("owner", "")
+        repo = state.get("basic_info_for_repo", {}).get("repo", "")
+        date = state.get("basic_info_for_repo", {}).get("date", "")
+        wiki_path = state.get("basic_info_for_repo", {}).get(
+            "wiki_path", "./.wikis/default"
+        )
         os.makedirs(wiki_path, exist_ok=True)
 
         write_file(
-            os.path.join(wiki_path, "overall_documentation.md"),
-            repo_doc.get("overall_documentation", ""),
+            os.path.join(wiki_path, f"repo_update_log_{date}.json"),
+            state.get("update_log_info", ""),
         )
-        write_file(
-            os.path.join(wiki_path, "commit_documentation.md"),
-            repo_doc.get("commit_documentation", ""),
-        )
-        write_file(
-            os.path.join(wiki_path, "pr_documentation.md"),
-            repo_doc.get("pr_documentation", ""),
-        )
-        write_file(
-            os.path.join(wiki_path, "release_note_documentation.md"),
-            repo_doc.get("release_note_documentation", ""),
-        )
-        print("✓ Documentation files written successfully")
-        return {
-            "repo_documentation": {
-                **repo_doc,
-                "status": repo_doc.get("status", "")
-                + " Documentation written to files.",
-            }
-        }
+        print("✓ Repo update log file written successfully")
 
     def build(self):
-        repo_doc_builder = StateGraph(RepoDocGenerationState)
-        repo_doc_builder.add_node(
-            "overall_doc_generation_node", self.overall_doc_generation_node
+        repo_info_builder = StateGraph(RepoInfoSubGraphState)
+        repo_info_builder.add_node(
+            "repo_info_overview_node", self.repo_info_overview_node
         )
-        repo_doc_builder.add_node(
+        repo_info_builder.add_node(
+            "overview_doc_generation_node", self.overview_doc_generation_node
+        )
+        repo_info_builder.add_node("repo_info_commit_node", self.repo_info_commit_node)
+        repo_info_builder.add_node(
             "commit_doc_generation_node", self.commit_doc_generation_node
         )
-        repo_doc_builder.add_node("pr_doc_generation_node", self.pr_doc_generation_node)
-        repo_doc_builder.add_node(
+        repo_info_builder.add_node("repo_info_pr_node", self.repo_info_pr_node)
+        repo_info_builder.add_node(
+            "pr_doc_generation_node", self.pr_doc_generation_node
+        )
+        repo_info_builder.add_node(
+            "repo_info_release_note_node", self.repo_info_release_note_node
+        )
+        repo_info_builder.add_node(
             "release_note_doc_generation_node", self.release_note_doc_generation_node
         )
-        repo_doc_builder.add_node("write_doc_to_file_node", self.write_doc_to_file_node)
-        repo_doc_builder.add_edge(START, "overall_doc_generation_node")
-        repo_doc_builder.add_edge(
-            "overall_doc_generation_node", "commit_doc_generation_node"
+        repo_info_builder.add_node("repo_info_update_log_node", self.repo_info_update_log_node)
+        repo_info_builder.add_node("update_log_doc_generation_node", self.update_log_doc_generation_node)
+        repo_info_builder.add_edge(START, "repo_info_commit_node")
+        repo_info_builder.add_edge(START, "repo_info_pr_node")
+        repo_info_builder.add_edge(START, "repo_info_release_note_node")
+        repo_info_builder.add_edge(START, "repo_info_overview_node")
+        repo_info_builder.add_edge(START, "repo_info_update_log_node")
+        repo_info_builder.add_edge(
+            "repo_info_overview_node", "overview_doc_generation_node"
         )
-        repo_doc_builder.add_edge(
-            "commit_doc_generation_node", "pr_doc_generation_node"
+        repo_info_builder.add_edge(
+            "repo_info_commit_node", "commit_doc_generation_node"
         )
-        repo_doc_builder.add_edge(
-            "pr_doc_generation_node", "release_note_doc_generation_node"
+        repo_info_builder.add_edge("repo_info_pr_node", "pr_doc_generation_node")
+        repo_info_builder.add_edge(
+            "repo_info_release_note_node", "release_note_doc_generation_node"
         )
-        repo_doc_builder.add_edge(
-            "release_note_doc_generation_node", "write_doc_to_file_node"
+        repo_info_builder.add_edge(
+            "repo_info_update_log_node", "update_log_doc_generation_node"
         )
-        return repo_doc_builder.compile(checkpointer=True)
+        return repo_info_builder.compile(checkpointer=True)
 
     def get_graph(self):
         return self.graph
@@ -394,6 +431,7 @@ Please structure the documentation with clear sections and make it suitable for 
 
 class CodeAnalysisSubGraphState(TypedDict):
     basic_info_for_code: dict
+    # outputs
     code_analysis: dict
 
 
@@ -461,6 +499,64 @@ Focus on: key functions/classes, main purpose, and important logic."""
 Focus on: key functions/classes, main purpose, and important logic."""
         )
 
+    @staticmethod
+    def _get_system_prompt_for_doc():
+        """Generate a comprehensive system prompt for code documentation generation."""
+        return SystemMessage(
+            content="""You are an expert technical documentation writer specializing in generating comprehensive code documentation. 
+Your role is to analyze provided code analysis results and create clear, well-structured documentation that helps developers understand the codebase structure, functionality, and architecture.
+
+Guidelines:
+- Use Markdown formatting for better readability
+- Be concise yet informative
+- Highlight key components and their relationships
+- Organize information logically with clear sections
+- Include code snippets and examples when helpful
+- Document complex algorithms and design patterns"""
+        )
+
+    @staticmethod
+    def _get_code_doc_prompt(
+        file_path: str, analysis: dict, summary: str
+    ) -> HumanMessage:
+        """Generate a prompt for code documentation."""
+
+        # based on the size between analysis and content, adjust the prompt design
+        def _compare_size_between_content_and_analysis(
+            content: str, formatted_analysis: str
+        ) -> str:
+            content_size = len(content)
+            analysis_size = len(formatted_analysis)
+
+            if content_size <= analysis_size:
+                return "content"
+            else:
+                return "analysis"
+
+        file_path_resolved = resolve_path(file_path)
+        content = read_file(file_path_resolved)
+        match_choice = _compare_size_between_content_and_analysis(content, analysis)
+        match match_choice:
+            case "content":
+                analysis = f"File Content:\n{content}"
+            case "analysis":
+                analysis = f"Analysis Result:\n{analysis}"
+        if summary:
+            summary = f"Analysis Summary:\n{summary}"
+        else:
+            summary = ""
+        return HumanMessage(
+            content=f"""Generate comprehensive documentation for the code file '{file_path}'.
+Based on the following analysis results and summary, create a detailed documentation that includes:
+1. Overview of the file's purpose and functionality
+2. Key components (functions, classes, etc.) and their roles
+3. Important algorithms or design patterns used
+4. Dependencies and relationships with other files
+{analysis}
+{summary}
+Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
+        )
+
     def code_filter_node(self, state: dict):
         # log_state(state)
         # this node need to filter useful code files for analysis
@@ -468,21 +564,21 @@ Focus on: key functions/classes, main purpose, and important logic."""
         def get_max_num_files(mode: str) -> int:
             # mode decide the number of code files to analyze
             # if "fast" -> max 20 files
-            # if "smart" -> max 50 files
+            # if "smart" -> max 100 files
             match mode:
                 case "fast":
                     return 20
                 case "smart":
-                    return 50
+                    return 100
                 case _:
                     return 20
 
         print("→ Processing code_filter_node...")
-        mode = state["basic_info_for_code"].get("mode", "fast")
+        mode = state.get("basic_info_for_code", {}).get("mode", "fast")
         max_num_files = get_max_num_files(mode)
         print(f"   → Mode: {mode}, max_num_files: {max_num_files}")
-        repo_info = state["basic_info_for_code"].get("repo_info", {})
-        repo_structure = state["basic_info_for_code"].get("repo_structure", [])
+        repo_info = state.get("basic_info_for_code", {}).get("repo_info", {})
+        repo_structure = state.get("basic_info_for_code", {}).get("repo_structure", [])
         # 2. call llm to determine which files to analyze based on repo_info
         # filter supported code files (.py, .js, .go, .cpp, .java, .rs etc.)
         system_prompt = self._get_system_prompt()
@@ -503,14 +599,13 @@ Focus on: key functions/classes, main purpose, and important logic."""
             )
             code_files = code_files[:max_num_files]
 
-        print("DEBUG: code_files =", code_files)
+        # print("DEBUG: code_files =", code_files)
         print(
             f"✓ Filtered {len(code_files)} code files for analysis (max: {max_num_files})"
         )
         return {
             "code_analysis": {
                 "code_files": code_files,
-                "status": "Code files filtered.",
             }
         }
 
@@ -581,150 +676,6 @@ Focus on: key functions/classes, main purpose, and important logic."""
             "summary": summary_response.content,
         }
 
-    def code_analysis_node(self, state: dict):
-        # log_state(state)
-        # this node need to analyze the filtered code files
-        print("→ Processing code_analysis_node (concurrent)...")
-        code_files = state["code_analysis"].get("code_files", [])
-
-        if not code_files:
-            print("⚠ No code files to analyze")
-            return {
-                "code_analysis": {
-                    **state["code_analysis"],
-                    "analysis_results": {},
-                    "analysis_summary": {},
-                    "status": state["code_analysis"].get("status", "")
-                    + " No files to analyze.",
-                }
-            }
-
-        analysis_results = {}
-        analysis_summary = {}
-
-        # Determine optimal number of workers
-        # Adjust max_workers based on your API rate limits
-        max_workers = min(
-            state.get("max_workers", 10), len(code_files)
-        )  # Max 10 concurrent requests
-
-        print(f"  → Using {max_workers} concurrent workers for {len(code_files)} files")
-
-        # Use ThreadPoolExecutor for concurrent execution
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_file = {
-                executor.submit(
-                    self._analyze_single_file, file_path, idx, len(code_files)
-                ): file_path
-                for idx, file_path in enumerate(code_files, 1)
-            }
-
-            # Collect results as they complete
-            completed = 0
-            for future in as_completed(future_to_file):
-                file_path = future_to_file[future]
-                try:
-                    result_file_path, results = future.result()
-                    analysis_results[result_file_path] = results["analysis"]
-                    analysis_summary[result_file_path] = results["summary"]
-                    completed += 1
-                    print(
-                        f"  ✓ Completed {completed}/{len(code_files)}: {result_file_path}"
-                    )
-                except Exception as e:
-                    print(f"  ✗ Error analyzing {file_path}: {str(e)}")
-                    analysis_results[file_path] = f"Error during analysis: {str(e)}"
-                    analysis_summary[file_path] = f"Error during analysis: {str(e)}"
-
-        print(f"✓ Code analysis completed for {len(analysis_results)} files")
-        return {
-            "code_analysis": {
-                **state["code_analysis"],
-                "analysis_results": analysis_results,
-                "analysis_summary": analysis_summary,
-                "status": state["code_analysis"].get("status", "")
-                + " Code analysis completed.",
-            }
-        }
-
-    def build(self):
-        analysis_builder = StateGraph(CodeAnalysisSubGraphState)
-        analysis_builder.add_node("code_filter_node", self.code_filter_node)
-        analysis_builder.add_node("code_analysis_node", self.code_analysis_node)
-        analysis_builder.add_edge(START, "code_filter_node")
-        analysis_builder.add_edge("code_filter_node", "code_analysis_node")
-        return analysis_builder.compile(checkpointer=True)
-
-    def get_graph(self):
-        return self.graph
-
-
-class CodeDocGenerationState(TypedDict):
-    basic_info_for_code: dict
-    code_analysis: dict
-    code_documentation: dict
-
-
-class CodeDocGenerationSubGraphBuilder:
-    def __init__(self):
-        self.graph = self.build()
-
-    @staticmethod
-    def _get_system_prompt():
-        """Generate a comprehensive system prompt for code documentation generation."""
-        return SystemMessage(
-            content="""You are an expert technical documentation writer specializing in generating comprehensive code documentation. 
-Your role is to analyze provided code analysis results and create clear, well-structured documentation that helps developers understand the codebase structure, functionality, and architecture.
-
-Guidelines:
-- Use Markdown formatting for better readability
-- Be concise yet informative
-- Highlight key components and their relationships
-- Organize information logically with clear sections
-- Include code snippets and examples when helpful
-- Document complex algorithms and design patterns"""
-        )
-
-    @staticmethod
-    def _get_code_doc_prompt(
-        file_path: str, analysis: dict, summary: str
-    ) -> HumanMessage:
-        """Generate a prompt for code documentation."""
-
-        # based on the size between analysis and content, adjust the prompt design
-        def _compare_size_between_content_and_analysis(
-            content: str, formatted_analysis: str
-        ) -> str:
-            content_size = len(content)
-            analysis_size = len(formatted_analysis)
-
-            if content_size <= analysis_size:
-                return "content"
-            else:
-                return "analysis"
-
-        file_path_resolved = resolve_path(file_path)
-        content = read_file(file_path_resolved)
-        match_choice = _compare_size_between_content_and_analysis(content, analysis)
-        match match_choice:
-            case "content":
-                analysis = f"File Content:\n{content}"
-            case "analysis":
-                analysis = f"Analysis Result:\n{analysis}"
-        return HumanMessage(
-            content=f"""Generate comprehensive documentation for the code file '{file_path}'.
-Based on the following analysis results and summary, create a detailed documentation that includes:
-1. Overview of the file's purpose and functionality
-2. Key components (functions, classes, etc.) and their roles
-3. Important algorithms or design patterns used
-4. Dependencies and relationships with other files
-{analysis}
-Analysis Summary:
-{summary if summary else "No summary available."}
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
-        )
-
     def _generate_single_file_doc(
         self, file_path: str, analysis: dict, summary: str, idx: int, total: int
     ) -> tuple[str, str]:
@@ -740,7 +691,7 @@ Please structure the documentation with clear sections and make it suitable for 
         # Create a new LLM instance for each thread to avoid context accumulation
         llm = CONFIG.get_llm()
 
-        system_prompt = self._get_system_prompt()
+        system_prompt = self._get_system_prompt_for_doc()
         human_prompt = self._get_code_doc_prompt(file_path, analysis, summary)
 
         try:
@@ -749,74 +700,6 @@ Please structure the documentation with clear sections and make it suitable for 
         except Exception as e:
             print(f"  ✗ Error generating documentation for {file_path}: {str(e)}")
             return file_path, f"# Error\n\nFailed to generate documentation: {str(e)}"
-
-    def loop_code_doc_node(self, state: dict):
-        """
-        Concurrent version of documentation generation node.
-        Uses ThreadPoolExecutor to generate documentation for multiple files in parallel.
-        """
-        print("→ Processing loop_code_doc_node (concurrent)...")
-        analysis_results = state.get("code_analysis", {}).get("analysis_results", {})
-        analysis_summary = state.get("code_analysis", {}).get("analysis_summary", {})
-
-        if not analysis_results:
-            print("⚠ No analysis results to generate documentation from")
-            return {
-                "code_documentation": {
-                    "code_file_documentation": {},
-                    "status": "No files to generate documentation for.",
-                }
-            }
-
-        code_file_docs = {}
-
-        # Determine optimal number of workers
-        max_workers = min(
-            state.get("max_workers", 10), len(analysis_results)
-        )  # Max 10 concurrent requests
-        print(
-            f"  → Using {max_workers} concurrent workers for {len(analysis_results)} files"
-        )
-
-        # Use ThreadPoolExecutor for concurrent execution
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_file = {
-                executor.submit(
-                    self._generate_single_file_doc,
-                    file_path,
-                    analysis,
-                    analysis_summary.get(file_path, ""),
-                    idx,
-                    len(analysis_results),
-                ): file_path
-                for idx, (file_path, analysis) in enumerate(analysis_results.items(), 1)
-            }
-
-            # Collect results as they complete
-            completed = 0
-            for future in as_completed(future_to_file):
-                file_path = future_to_file[future]
-                try:
-                    result_file_path, doc_content = future.result()
-                    code_file_docs[result_file_path] = doc_content
-                    completed += 1
-                    print(
-                        f"  ✓ Completed {completed}/{len(analysis_results)}: {result_file_path}"
-                    )
-                except Exception as e:
-                    print(f"  ✗ Error processing {file_path}: {str(e)}")
-                    code_file_docs[file_path] = (
-                        f"# Error\n\nFailed to generate documentation: {str(e)}"
-                    )
-
-        print(f"✓ Code documentation generated for {len(code_file_docs)} files")
-        return {
-            "code_documentation": {
-                "code_file_documentation": code_file_docs,
-                "status": "Code documentation generated.",
-            }
-        }
 
     def _write_single_doc_file(
         self,
@@ -867,60 +750,88 @@ Please structure the documentation with clear sections and make it suitable for 
             print(f"  ✗ Error writing documentation for {file_path}: {str(e)}")
             return file_path, False
 
-    def write_code_doc_to_file_node(self, state: dict):
+    def _single_thread_process(
+        self, file_path: str, idx: int, total: int, wiki_path: str, repo_path: str
+    ) -> tuple[str, bool]:
         """
-        Concurrent version of documentation writing node.
-        Uses ThreadPoolExecutor to write multiple documentation files in parallel.
+        Process a single file through the complete workflow:
+        1. Analyze the file
+        2. Generate documentation
+        3. Write documentation to file
+
+        Args:
+            file_path (str): Path to the code file
+            idx (int): Index of the file in the list
+            total (int): Total number of files
+            wiki_path (str): Path to write documentation files
+            repo_path (str): Base repository path (for relative path calculation)
+
+        Returns:
+            tuple[str, bool]: file_path and success status
         """
-        print("→ Processing write_code_doc_to_file_node (concurrent)...")
-        code_doc = state.get("code_documentation", {})
-        basic_info = state.get("basic_info_for_code", {})
-        wiki_path = basic_info.get("wiki_path", "./.wikis/default")
-        repo_path = basic_info.get("repo_path", "./.repos")
+        try:
+            # Step 1: Analyze the file
+            file_path, analysis_result = self._analyze_single_file(
+                file_path, idx, total
+            )
+            analysis = analysis_result.get("analysis", "")
+            summary = analysis_result.get("summary", "")
 
-        # Ensure wiki directory exists
-        os.makedirs(wiki_path, exist_ok=True)
+            # Step 2: Generate documentation for the file
+            file_path, doc_content = self._generate_single_file_doc(
+                file_path, analysis, summary, idx, total
+            )
 
-        code_file_docs = code_doc.get("code_file_documentation", {})
+            # Step 3: Write documentation to file
+            file_path, write_success = self._write_single_doc_file(
+                file_path, doc_content, wiki_path, repo_path, idx, total
+            )
 
-        if not code_file_docs:
-            print("⚠ No documentation to write")
-            return {
-                "code_documentation": {
-                    **code_doc,
-                    "status": code_doc.get("status", "")
-                    + " No documentation to write.",
-                }
-            }
+            if write_success:
+                return file_path, True
+            else:
+                return file_path, False
 
-        # Determine optimal number of workers for I/O operations
-        # I/O operations can handle more concurrency than CPU-bound tasks
-        max_workers = min(
-            state.get("max_workers", 10), len(code_file_docs)
-        )  # Max 10 concurrent file writes
-        print(
-            f"  → Using {max_workers} concurrent workers for {len(code_file_docs)} files"
+        except Exception as e:
+            print(f"  ✗ Error in worker process for {file_path}: {str(e)}")
+            return file_path, False
+
+    def code_analysis_node(self, state: dict):
+        # log_state(state)
+        # this node need to analyze the filtered code files
+        print("→ Processing code_analysis_node (concurrent)...")
+        code_files = state.get("code_analysis", {}).get("code_files", [])
+
+        if not code_files:
+            print("⚠ No code files to analyze")
+            return
+
+        wiki_path = state.get("basic_info_for_code", {}).get(
+            "wiki_path", "./.wikis/default"
         )
+        repo_path = state.get("basic_info_for_code", {}).get("repo_path", "./.repos")
 
-        success_count = 0
-        failed_files = []
+        # Determine optimal number of workers
+        # Adjust max_workers based on your API rate limits
+        max_workers = min(
+            state.get("max_workers", 10), len(code_files)
+        )  # Max 10 concurrent requests
 
-        # Use ThreadPoolExecutor for concurrent file writing
+        print(f"  → Using {max_workers} concurrent workers for {len(code_files)} files")
+
+        # Use ThreadPoolExecutor for concurrent execution
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
+            # Submit all tasks using _single_thread_process
             future_to_file = {
                 executor.submit(
-                    self._write_single_doc_file,
+                    self._single_thread_process,
                     file_path,
-                    doc_content,
+                    idx,
+                    len(code_files),
                     wiki_path,
                     repo_path,
-                    idx,
-                    len(code_file_docs),
                 ): file_path
-                for idx, (file_path, doc_content) in enumerate(
-                    code_file_docs.items(), 1
-                )
+                for idx, file_path in enumerate(code_files, 1)
             }
 
             # Collect results as they complete
@@ -928,48 +839,27 @@ Please structure the documentation with clear sections and make it suitable for 
             for future in as_completed(future_to_file):
                 file_path = future_to_file[future]
                 try:
-                    result_file_path, success = future.result()
-                    if success:
-                        success_count += 1
+                    result_file_path, result = future.result()
+                    if result:
+                        print(f"  ✓ Documentation written for {file_path}")
                     else:
-                        failed_files.append(result_file_path)
+                        print(f"  ⚠ Processing failed for {file_path}")
                     completed += 1
                     print(
-                        f"  ✓ Processed {completed}/{len(code_file_docs)}: {result_file_path}"
+                        f"  ✓ Completed {completed}/{len(code_files)}: {result_file_path}"
                     )
                 except Exception as e:
                     print(f"  ✗ Error processing {file_path}: {str(e)}")
-                    failed_files.append(file_path)
 
-        status_msg = f"Code documentation written to files. ({success_count} succeeded"
-        if failed_files:
-            status_msg += f", {len(failed_files)} failed)"
-            print(f"⚠ Failed to write {len(failed_files)} files: {failed_files}")
-        else:
-            status_msg += ")"
-
-        print(
-            f"✓ Code documentation files written successfully: {success_count}/{len(code_file_docs)}"
-        )
-
-        return {
-            "code_documentation": {
-                **code_doc,
-                "status": code_doc.get("status", "") + " " + status_msg,
-                "write_success_count": success_count,
-                "write_failed_files": failed_files,
-            }
-        }
+        print(f"✓ Code analysis completed for {len(code_files)} files")
 
     def build(self):
-        code_doc_builder = StateGraph(CodeDocGenerationState)
-        code_doc_builder.add_node("loop_code_doc_node", self.loop_code_doc_node)
-        code_doc_builder.add_node(
-            "write_code_doc_to_file_node", self.write_code_doc_to_file_node
-        )
-        code_doc_builder.add_edge(START, "loop_code_doc_node")
-        code_doc_builder.add_edge("loop_code_doc_node", "write_code_doc_to_file_node")
-        return code_doc_builder.compile(checkpointer=True)
+        analysis_builder = StateGraph(CodeAnalysisSubGraphState)
+        analysis_builder.add_node("code_filter_node", self.code_filter_node)
+        analysis_builder.add_node("code_analysis_node", self.code_analysis_node)
+        analysis_builder.add_edge(START, "code_filter_node")
+        analysis_builder.add_edge("code_filter_node", "code_analysis_node")
+        return analysis_builder.compile(checkpointer=True)
 
     def get_graph(self):
         return self.graph
@@ -982,17 +872,16 @@ class ParentGraphState(TypedDict):
     platform: str
     mode: str
     max_workers: int
-    basic_info: dict
+    date: str
     # branch-namespaced fields to be consumed by child subgraphs
     basic_info_for_repo: dict | None
     basic_info_for_code: dict | None
-    # outputs
+    # repo_info_sub_graph outputs
     commit_info: dict | None
     pr_info: dict | None
     release_note_info: dict | None
+    # code_analysis_sub_graph outputs
     code_analysis: dict | None
-    repo_documentation: dict | None
-    code_documentation: dict | None
 
 
 class ParentGraphBuilder:
@@ -1000,8 +889,6 @@ class ParentGraphBuilder:
     def __init__(self, branch_mode: str = "all"):
         self.repo_info_graph = RepoInfoSubGraphBuilder().get_graph()
         self.code_analysis_graph = CodeAnalysisSubGraphBuilder().get_graph()
-        self.repo_doc_generation_graph = RepoDocGenerationSubGraphBuilder().get_graph()
-        self.code_doc_generation_graph = CodeDocGenerationSubGraphBuilder().get_graph()
         self.checkpointer = MemorySaver()
         self.branch = branch_mode  # "all" or "code" or "repo"
         self.graph = self.build(self.checkpointer)
@@ -1016,13 +903,18 @@ class ParentGraphBuilder:
         platform = state.get("platform", "github")
         mode = state.get("mode", "fast")
         max_workers = state.get("max_workers", 10)
+        date = state.get("date", datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
         repo_root_path = "./.repos"
         wiki_root_path = "./.wikis"
         repo_path = f"{repo_root_path}/{owner}_{repo}"
-        wiki_path = f"{wiki_root_path}/{owner}_{repo}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+        wiki_path = f"{wiki_root_path}/{owner}_{repo}/{date}"
 
         print(f"📦 Repository: {owner}/{repo}")
         print(f"🔗 Platform: {platform}")
+        print(f"⚙️ Mode: {mode}")
+        print(f"👷 Max Workers: {max_workers}")
+        print(f"📁 Repo Path: {repo_path}")
+        print(f"📄 Wiki Path: {wiki_path}")
 
         repo_info = get_repo_info(owner, repo, platform=platform)
         repo_structure = get_repo_structure(repo_path)
@@ -1036,6 +928,7 @@ class ParentGraphBuilder:
             "platform": platform,
             "mode": mode,
             "max_workers": max_workers,
+            "date": date,
             "repo_path": repo_path,
             "wiki_path": wiki_path,
             "repo_info": repo_info,
@@ -1043,20 +936,8 @@ class ParentGraphBuilder:
         }
 
         return {
-            "basic_info": {
-                "owner": owner,
-                "repo": repo,
-                "platform": platform,
-                "mode": mode,
-                "max_workers": max_workers,
-                "message": "Basic info retrieved.",
-            },
             "basic_info_for_repo": combined_info,
             "basic_info_for_code": combined_info,
-            "owner_for_repo": owner,
-            "repo_for_repo": repo,
-            "owner_for_code": owner,
-            "repo_for_code": repo,
         }
 
     def build(self, checkpointer):
@@ -1064,47 +945,40 @@ class ParentGraphBuilder:
         builder.add_node("basic_info_node", self.basic_info_node)
         builder.add_node("repo_info_graph", self.repo_info_graph)
         builder.add_node("code_analysis_graph", self.code_analysis_graph)
-        builder.add_node("repo_doc_generation_graph", self.repo_doc_generation_graph)
-        builder.add_node("code_doc_generation_graph", self.code_doc_generation_graph)
         match self.branch:
             case "all":
                 builder.add_edge(START, "basic_info_node")
                 builder.add_edge("basic_info_node", "repo_info_graph")
                 builder.add_edge("basic_info_node", "code_analysis_graph")
-                builder.add_edge("repo_info_graph", "repo_doc_generation_graph")
-                builder.add_edge("code_analysis_graph", "code_doc_generation_graph")
             case "code":
                 builder.add_edge(START, "basic_info_node")
                 builder.add_edge("basic_info_node", "code_analysis_graph")
-                builder.add_edge("code_analysis_graph", "code_doc_generation_graph")
             case "repo":
                 builder.add_edge(START, "basic_info_node")
                 builder.add_edge("basic_info_node", "repo_info_graph")
-                builder.add_edge("repo_info_graph", "repo_doc_generation_graph")
         return builder.compile(checkpointer=checkpointer)
 
     def get_graph(self):
         return self.graph
 
 
-if __name__ == "__main__":
-    # use "uv run python -m tests.sub-graph-agent.graph" to run this file
-    # draw the graph structure if you want
-    # draw_graph(graph)
+def demo():
     CONFIG.display()
     parent_graph_builder = ParentGraphBuilder(branch_mode="code")
     graph = parent_graph_builder.get_graph()
-    config = {
-        "configurable": {"thread_id": f"wiki-generation-{datetime.now().timestamp()}"}
-    }
+    # draw the graph structure if you want
+    # draw_graph(graph)
+    date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    config = {"configurable": {"thread_id": f"wiki-generation-{date}"}}
     start_time = time.time()
     for chunk in graph.stream(
         {
             "owner": "facebook",
             "repo": "zstd",
             "platform": "github",
-            "mode": "fast",  # or "smart"
+            "mode": "fast",  # "fast" or "smart"
             "max_workers": 50,  # 20 worker -> 3 - 4 minutes
+            "date": date,
         },
         config=config,
         subgraphs=True,
@@ -1112,10 +986,18 @@ if __name__ == "__main__":
         pass
 
     end_time = time.time()
-
     elapsed_time = end_time - start_time
 
     print("\n" + "=" * 80)
     print("✅ Graph execution completed successfully!")
     print("=" * 80)
     print(f"Total execution time: {elapsed_time:.2f} seconds")
+
+
+if __name__ == "__main__":
+    # use "uv run python -m tests.sub-graph-agent.graph" to run this file
+    demo()
+
+    # - draw the repo_info_sub_graph
+    # repo_info_sub_graph = RepoInfoSubGraphBuilder().get_graph()
+    # draw_graph(repo_info_sub_graph)
