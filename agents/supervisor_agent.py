@@ -11,28 +11,18 @@ from .repo_info_agent import RepoInfoAgent
 from .code_analysis_agent import CodeAnalysisAgent
 from .doc_generation_agent import DocGenerationAgent
 from .summary_agent import SummaryAgent
-from .base_agent import AgentState
+from .base_agent import BaseAgent, AgentState
 
-from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph import StateGraph, END
-from langchain_core.messages import (
-    BaseMessage,
-    SystemMessage,
-    HumanMessage,
-)
-from langgraph.graph.message import add_messages
-from typing import TypedDict, Annotated, Sequence
+from langchain_core.messages import SystemMessage, HumanMessage
 import os
-import sys
 import json
 import traceback
-from pathlib import Path
+import time
 from datetime import datetime
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 
 
-class SupervisorAgent:
+class SupervisorAgent(BaseAgent):
     """
     Orchestrates the complete Wiki generation pipeline with intelligent
     LLM-driven file selection for optimal code analysis.
@@ -49,37 +39,59 @@ class SupervisorAgent:
             owner (str, optional): Repository owner for remote info
             repo_name (str, optional): Repository name for remote info
         """
-        self.repo_path = repo_path
-        self.wiki_path = wiki_path
+        # Initialize base agent with supervisor-specific system prompt
+        system_prompt = SystemMessage(
+            content="""You are a Wiki generation supervisor specializing in intelligent file selection.
+                        
+                        Your expertise includes:
+                        - Identifying core/critical files that define main functionality
+                        - Recognizing architectural patterns and key components
+                        - Prioritizing smaller files for efficiency
+                        - Avoiding redundant, boilerplate, or generated code
+                        - Selecting diverse files covering different aspects
+                        
+                        Always return your selection in valid JSON format with clear reasoning.
+                        Focus on quality over quantity - select files that provide maximum insight into the codebase.
+                    """
+        )
+        
+        # Initialize BaseAgent with no tools (supervisor doesn't use tools directly)
+        super().__init__(
+            tools=[],
+            system_prompt=system_prompt,
+            repo_path=repo_path,
+            wiki_path=wiki_path,
+        )
+        
         self.owner = owner
         self.repo_name = repo_name
-        self.llm = CONFIG.get_llm()
 
         # Initialize agents for each stage
-        self.repo_agent = RepoInfoAgent(
-            self.llm,
-            [
-                get_repo_structure_tool,
-                get_repo_basic_info_tool,
-                get_repo_commit_info_tool,
-            ],
-        )
-        self.code_agent = CodeAnalysisAgent(
-            self.llm, [code_file_analysis_tool, read_file_tool]
-        )
-        self.doc_agent = DocGenerationAgent(self.llm, [write_file_tool, read_file_tool])
-        self.summary_agent = SummaryAgent(self.llm, [write_file_tool, read_file_tool])
+        self.repo_agent = RepoInfoAgent(repo_path=repo_path, wiki_path=wiki_path)
+        self.code_agent = CodeAnalysisAgent(repo_path=repo_path, wiki_path=wiki_path)
+        self.doc_agent = DocGenerationAgent(repo_path=repo_path, wiki_path=wiki_path)
+        self.summary_agent = SummaryAgent(repo_path=repo_path, wiki_path=wiki_path)
 
         # Store results from each stage
         self.repo_info = None
         self.code_analysis = None
         self.doc_result = None
         self.summary_result = None
+        
+        # Time tracking for each stage
+        self.stage_times = {
+            "repo_info": 0.0,
+            "file_selection": 0.0,
+            "code_analysis": 0.0,
+            "documentation": 0.0,
+            "index_generation": 0.0,
+            "total": 0.0,
+        }
 
     def generate(
         self, max_files: int = 50, batch_size: int = 10, max_workers: int = 3
     ) -> Dict[str, Any]:
-        """Execute the complete wiki generation pipeline.
+        """Execute the complete wiki generation pipeline with time tracking.
 
         Args:
             max_files (int): Maximum number of files to analyze (default 50)
@@ -87,8 +99,10 @@ class SupervisorAgent:
             max_workers (int): Maximum parallel workers for batch processing (default 3)
 
         Returns:
-            Dict[str, Any]: Summary of the entire pipeline execution
+            Dict[str, Any]: Summary of the entire pipeline execution with time statistics
         """
+        pipeline_start_time = time.time()
+        
         print("\n" + "=" * 80)
         print("WIKI GENERATION PIPELINE STARTED")
         print("=" * 80)
@@ -98,19 +112,28 @@ class SupervisorAgent:
             print("\n" + "=" * 80)
             print("Stage 1: Collecting Repository Information")
             print("=" * 80)
-            self.repo_info = self.repo_agent.run(self.repo_path)
+            stage_start = time.time()
+            
+            self.repo_info = self.repo_agent.run(owner=self.owner, repo_name=self.repo_name)
+            
+            self.stage_times["repo_info"] = time.time() - stage_start
             print(f"✓ Repository: {self.repo_info.get('repo_name', 'Unknown')}")
             print(f"✓ Language: {self.repo_info.get('main_language', 'Unknown')}")
             print(f"✓ Directories: {len(self.repo_info.get('structure', []))}")
+            print(f" Time: {self.stage_times['repo_info']:.2f}s")
 
             # Stage 2: Intelligently select and analyze code files
             print("\n" + "=" * 80)
             print("Stage 2: Intelligent File Selection & Code Analysis")
             print("=" * 80)
 
-            # Use LLM to intelligently select files
+            # Sub-stage 2.1: File selection
+            selection_start = time.time()
             file_list = self._select_important_files(self.repo_info, max_files)
+            self.stage_times["file_selection"] = time.time() - selection_start
+            print(f"File Selection Time: {self.stage_times['file_selection']:.2f}s")
 
+            # Sub-stage 2.2: Code analysis
             if not file_list:
                 print("⚠ No code files found to analyze")
                 self.code_analysis = {
@@ -125,15 +148,17 @@ class SupervisorAgent:
                         "languages": [],
                     },
                 }
+                self.stage_times["code_analysis"] = 0.0
             else:
-                # Analyze selected files with parallel batch processing
+                analysis_start = time.time()
                 self.code_analysis = self.code_agent.run(
-                    repo_path=self.repo_path,
                     file_list=file_list,
                     batch_size=batch_size,
                     parallel_batches=True,
                     max_workers=max_workers,
                 )
+                self.stage_times["code_analysis"] = time.time() - analysis_start
+                
                 print(
                     f"\n✓ Analyzed {self.code_analysis.get('analyzed_files', 0)} files"
                 )
@@ -143,24 +168,30 @@ class SupervisorAgent:
                 print(
                     f"✓ Total classes: {self.code_analysis['summary'].get('total_classes', 0)}"
                 )
+                print(f"Code Analysis Time: {self.stage_times['code_analysis']:.2f}s")
 
             # Stage 3: Generate documentation
             print("\n" + "=" * 80)
             print("Stage 3: Generating Documentation")
             print("=" * 80)
+            doc_start = time.time()
 
-            self.doc_result = self.doc_agent.run(
+            self.doc_result = self.doc_agent.run_parallel(
                 repo_info=self.repo_info,
                 code_analysis=self.code_analysis,
                 wiki_path=self.wiki_path,
             )
+            
+            self.stage_times["documentation"] = time.time() - doc_start
             generated_docs = self.doc_result.get("generated_files", [])
             print(f"✓ Generated {len(generated_docs)} documents")
+            print(f"Documentation Time: {self.stage_times['documentation']:.2f}s")
 
             # Stage 4: Generate index
             print("\n" + "=" * 80)
             print("Stage 4: Generating Index")
             print("=" * 80)
+            index_start = time.time()
 
             self.summary_result = self.summary_agent.run(
                 docs=generated_docs,
@@ -168,7 +199,13 @@ class SupervisorAgent:
                 repo_info=self.repo_info,
                 code_analysis=self.code_analysis,
             )
+            
+            self.stage_times["index_generation"] = time.time() - index_start
             print(f"✓ Index file: {self.summary_result.get('index_file', 'N/A')}")
+            print(f"Index Generation Time: {self.stage_times['index_generation']:.2f}s")
+
+            # Calculate total time
+            self.stage_times["total"] = time.time() - pipeline_start_time
 
             # Final summary
             print("\n" + "=" * 80)
@@ -181,12 +218,14 @@ class SupervisorAgent:
             return pipeline_summary
 
         except Exception as e:
-            print(f"\n Error during wiki generation: {e}")
+            self.stage_times["total"] = time.time() - pipeline_start_time
+            print(f"\n❌ Error during wiki generation: {e}")
             traceback.print_exc()
             return {
                 "status": "failed",
                 "error": str(e),
                 "stage": self._get_current_stage(),
+                "time_statistics": self.stage_times,
             }
 
     def _select_important_files(self, repo_info: dict, max_files: int) -> list:
@@ -351,10 +390,7 @@ class SupervisorAgent:
             print("⚠ No code files found")
             return []
 
-        # Step 2: Use LLM Agent to select files
-        selection_agent = self._create_file_selection_agent()
-
-        # Prepare file list for LLM (limit to avoid token overflow)
+        # Step 2: Prepare file list for LLM (limit to avoid token overflow)
         max_files_for_llm = min(500, len(all_files_metadata))
 
         # Sort by size (smaller first) and take subset for LLM analysis
@@ -448,79 +484,76 @@ class SupervisorAgent:
                     - Select up to {max_files} files total
                 """
 
-        initial_state = AgentState(
-            messages=[HumanMessage(content=prompt)],
-            repo_path=self.repo_path,
-            wiki_path="",
-        )
-
-        # Run the selection agent
-        print("🤖 LLM is analyzing and selecting files...")
-        final_state = None
-
+        # Run the selection using LLM directly (no need for agent workflow)
+        print("LLM is analyzing and selecting files...")
+        
         try:
-            for state in selection_agent.stream(
-                initial_state,
-                stream_mode="values",
-                config={
-                    "configurable": {
-                        "thread_id": f"file-selection-{datetime.now().timestamp()}"
-                    },
-                    "recursion_limit": 30,
-                },
-            ):
-                final_state = state
+            # Direct LLM call for faster response (avoid agent workflow overhead)
+            system_prompt = SystemMessage(
+                content="""You are a code analysis expert specializing in selecting important files for codebase analysis.
+                
+                Your expertise includes:
+                - Identifying core/critical files that define main functionality
+                - Recognizing architectural patterns and key components
+                - Prioritizing smaller files for efficiency
+                - Avoiding redundant, boilerplate, or generated code
+                - Selecting diverse files covering different aspects
+                
+                Always return your selection in valid JSON format with clear reasoning.
+                Focus on quality over quantity - select files that provide maximum insight into the codebase.
+                """
+            )
+            
+            response = self.llm.invoke([system_prompt, HumanMessage(content=prompt)])
+            content = response.content
+            
+            # Extract selected files from LLM response
+            selected_files = []
+            
+            try:
+                import re
+                
+                # Extract JSON from response (handle markdown code blocks)
+                json_match = re.search(
+                    r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", content
+                )
+                if json_match:
+                    json_str = json_match.group(1)
+                else:
+                    json_match = re.search(r"\{[\s\S]*\}", content)
+                    json_str = json_match.group() if json_match else None
+
+                if json_str:
+                    result = json.loads(json_str)
+                    selected_relative_paths = result.get("selected_files", [])
+                    reasoning = result.get("reasoning", "No reasoning provided")
+
+                    print(f"\n✓ LLM Selection Reasoning: {reasoning}")
+                    print(f"✓ LLM selected {len(selected_relative_paths)} files")
+
+                    # Convert relative paths to absolute paths
+                    for rel_path in selected_relative_paths:
+                        abs_path = os.path.join(self.repo_path, rel_path)
+                        if os.path.exists(abs_path):
+                            selected_files.append(abs_path)
+                        else:
+                            # Try to find matching file in metadata
+                            for file_meta in all_files_metadata:
+                                if file_meta["relative_path"] == rel_path:
+                                    selected_files.append(file_meta["path"])
+                                    break
+                else:
+                    print("⚠ No JSON found in LLM response")
+                    
+            except json.JSONDecodeError as e:
+                print(f"⚠ Failed to parse LLM response as JSON: {e}")
+                print(f"Response content: {content[:500]}...")
+            except Exception as e:
+                print(f"⚠ Error processing LLM response: {e}")
+                
         except Exception as e:
             print(f"⚠ LLM selection error: {e}")
             return self._fallback_file_selection(all_files_metadata, max_files)
-
-        # Extract selected files from LLM response
-        selected_files = []
-
-        if final_state:
-            last_message = final_state["messages"][-1]
-            if hasattr(last_message, "content"):
-                try:
-                    content = last_message.content
-                    import re
-
-                    # Extract JSON from response (handle markdown code blocks)
-                    json_match = re.search(
-                        r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", content
-                    )
-                    if json_match:
-                        json_str = json_match.group(1)
-                    else:
-                        json_match = re.search(r"\{[\s\S]*\}", content)
-                        json_str = json_match.group() if json_match else None
-
-                    if json_str:
-                        result = json.loads(json_str)
-                        selected_relative_paths = result.get("selected_files", [])
-                        reasoning = result.get("reasoning", "No reasoning provided")
-
-                        print(f"\n✓ LLM Selection Reasoning: {reasoning}")
-                        print(f"✓ LLM selected {len(selected_relative_paths)} files")
-
-                        # Convert relative paths to absolute paths
-                        for rel_path in selected_relative_paths:
-                            abs_path = os.path.join(self.repo_path, rel_path)
-                            if os.path.exists(abs_path):
-                                selected_files.append(abs_path)
-                            else:
-                                # Try to find matching file in metadata
-                                for file_meta in all_files_metadata:
-                                    if file_meta["relative_path"] == rel_path:
-                                        selected_files.append(file_meta["path"])
-                                        break
-                    else:
-                        print("⚠ No JSON found in LLM response")
-
-                except json.JSONDecodeError as e:
-                    print(f"⚠ Failed to parse LLM response as JSON: {e}")
-                    print(f"Response content: {content[:500]}...")
-                except Exception as e:
-                    print(f"⚠ Error processing LLM response: {e}")
 
         # Fallback if LLM selection failed or returned no files
         if not selected_files:
@@ -548,40 +581,6 @@ class SupervisorAgent:
                 print(f"  ... and {len(selected_files) - 10} more files")
 
         return selected_files
-
-    def _create_file_selection_agent(self):
-        """Create an agent specifically for file selection.
-
-        Returns:
-            Compiled LangGraph application for file selection
-        """
-        selection_memory = InMemorySaver()
-        workflow = StateGraph(AgentState)
-
-        # Simple agent without tools (just LLM reasoning)
-        def selection_agent_node(state: AgentState) -> AgentState:
-            system_prompt = SystemMessage(
-                content="""You are a code analysis expert specializing in selecting important files for codebase analysis.
-
-                            Your expertise includes:
-                            - Identifying core/critical files that define main functionality
-                            - Recognizing architectural patterns and key components
-                            - Prioritizing smaller files for efficiency
-                            - Avoiding redundant, boilerplate, or generated code
-                            - Selecting diverse files covering different aspects
-
-                            Always return your selection in valid JSON format with clear reasoning.
-                            Focus on quality over quantity - select files that provide maximum insight into the codebase.
-                        """
-            )
-            response = self.llm.invoke([system_prompt] + state["messages"])
-            return {"messages": [response]}
-
-        workflow.add_node("agent", selection_agent_node)
-        workflow.set_entry_point("agent")
-        workflow.set_finish_point("agent")
-
-        return workflow.compile(checkpointer=selection_memory)
 
     def _fallback_file_selection(self, all_files: list, max_files: int) -> list:
         """Fallback heuristic-based file selection when LLM fails.
@@ -674,10 +673,40 @@ class SupervisorAgent:
             return "stage_1_repo_info"
 
     def _generate_pipeline_summary(self) -> Dict[str, Any]:
-        """Generate a comprehensive summary of the pipeline execution."""
+        """Generate a comprehensive summary of the pipeline execution with time statistics."""
         return {
             "status": "success",
             "wiki_path": self.wiki_path,
+            "time_statistics": {
+                "total_time": self.stage_times["total"],
+                "stages": {
+                    "repo_info": {
+                        "time_seconds": self.stage_times["repo_info"],
+                        "percentage": (self.stage_times["repo_info"] / self.stage_times["total"] * 100) 
+                            if self.stage_times["total"] > 0 else 0,
+                    },
+                    "file_selection": {
+                        "time_seconds": self.stage_times["file_selection"],
+                        "percentage": (self.stage_times["file_selection"] / self.stage_times["total"] * 100)
+                            if self.stage_times["total"] > 0 else 0,
+                    },
+                    "code_analysis": {
+                        "time_seconds": self.stage_times["code_analysis"],
+                        "percentage": (self.stage_times["code_analysis"] / self.stage_times["total"] * 100)
+                            if self.stage_times["total"] > 0 else 0,
+                    },
+                    "documentation": {
+                        "time_seconds": self.stage_times["documentation"],
+                        "percentage": (self.stage_times["documentation"] / self.stage_times["total"] * 100)
+                            if self.stage_times["total"] > 0 else 0,
+                    },
+                    "index_generation": {
+                        "time_seconds": self.stage_times["index_generation"],
+                        "percentage": (self.stage_times["index_generation"] / self.stage_times["total"] * 100)
+                            if self.stage_times["total"] > 0 else 0,
+                    },
+                },
+            },
             "stages": {
                 "repo_info": {
                     "completed": self.repo_info is not None,
@@ -757,14 +786,28 @@ class SupervisorAgent:
         }
 
     def _print_summary(self, summary: Dict[str, Any]):
-        """Print a formatted summary of the pipeline execution."""
-        print(f"\n Pipeline Summary:")
+        """Print a formatted summary of the pipeline execution with time statistics."""
+        print(f"\nPipeline Summary:")
         print(f"  Wiki Location: {summary['wiki_path']}")
-        print(f"\n Statistics:")
+        
+        print(f"\nTime Statistics:")
+        time_stats = summary.get('time_statistics', {})
+        total_time = time_stats.get('total_time', 0)
+        print(f"  Total Time: {total_time:.2f}s")
+        
+        if 'stages' in time_stats:
+            print(f"\n  Stage Breakdown:")
+            for stage_name, stage_data in time_stats['stages'].items():
+                time_sec = stage_data.get('time_seconds', 0)
+                percentage = stage_data.get('percentage', 0)
+                stage_display = stage_name.replace("_", " ").title()
+                print(f"    • {stage_display}: {time_sec:.2f}s ({percentage:.1f}%)")
+        
+        print(f"\nStatistics:")
         print(f"  Total Documents: {summary['statistics']['total_documents']}")
         print(f"  Functions Analyzed: {summary['statistics']['total_functions']}")
         print(f"  Classes Analyzed: {summary['statistics']['total_classes']}")
-        print(f"  Average Complexity: {summary['statistics']['average_complexity']}")
+        print(f"  Average Complexity: {summary['statistics']['average_complexity']:.2f}")
 
         print(f"\n Stage Completion:")
         for stage_name, stage_info in summary["stages"].items():
