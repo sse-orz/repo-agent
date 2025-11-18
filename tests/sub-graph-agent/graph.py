@@ -1195,7 +1195,7 @@ class ParentGraphBuilder:
                 repo=repo,
                 platform=platform,
             )
-            # commit_info comtains `repo_info`, "commits_count`, `commits`
+            # commit_info contains `repo_info`, "commits_count`, `commits`
             commits = commit_info.get("commits", [])
             # get `commit_sha`
             log_data = read_json(log_path)
