@@ -53,6 +53,7 @@ def log_state(state: dict):
     #     print(f"{key}: {value}")
     # write to a log file
     log_file = "./.logs/state_log.txt"
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
     with open(log_file, "a", encoding="utf-8") as f:
         f.write("Current State:\n")
         f.write(f"{json.dumps(state, indent=2, default=str)}\n")
