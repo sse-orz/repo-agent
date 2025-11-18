@@ -102,11 +102,20 @@ Based on the following repository information and documentation source files, cr
 1. Overview of the repository structure and key components
 2. Summary of existing documentation and its coverage
 3. Identification of documentation gaps and areas for improvement
+4. Architecture visualization using Mermaid diagrams (include at least one of the following):
+   - System architecture diagram (graph/flowchart)
+   - Component relationships diagram
+   - Module dependency diagram
+   - Data flow diagram
+   Use Mermaid markdown syntax (```mermaid ... ```) to create clear, informative diagrams
+
 Repository Information:
 {repo_info}
+
 Documentation Source Files Content:
 {doc_contents}
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
+
+Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers. Include Mermaid diagrams to visualize the repository architecture and component relationships."""
         )
 
     @staticmethod
@@ -123,13 +132,23 @@ Please structure the documentation with clear sections and make it suitable for 
         return HumanMessage(
             content=f"""The overall repository documentation for the repository '{owner}/{repo_name}' needs to be updated based on new commit, PR, and release note information. The previous documentation can be found at '{overview_doc_path}'.
 Based on the following updated information, please update the existing documentation to reflect the latest changes. Ensure that the documentation remains comprehensive and well-structured.
+
 Updated Commit Information:
 {commit_info}
+
 Updated PR Information:
 {pr_info}
+
 Updated Release Note Information:
 {release_note_info}
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
+
+Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers. 
+
+IMPORTANT: Update or add Mermaid diagrams to reflect any architectural changes:
+- Update existing Mermaid diagrams if the architecture has changed
+- Add new diagrams (system architecture, component relationships, module dependencies, data flow) if needed
+- Use Mermaid markdown syntax (```mermaid ... ```) to visualize the updated repository structure and changes
+- Highlight new components or modified relationships in the diagrams"""
         )
 
     @staticmethod
@@ -659,9 +678,15 @@ Based on the following analysis results and summary, create a detailed documenta
 2. Key components (functions, classes, etc.) and their roles
 3. Important algorithms or design patterns used
 4. Dependencies and relationships with other files
+5. Visual representations using Mermaid diagrams where applicable:
+   - Class diagram (for OOP code showing class relationships and hierarchies)
+   - Flowchart (for complex algorithms or control flow)
+   - Sequence diagram (for interactions between components/functions)
+   - Call graph (showing function call relationships)
+   Use Mermaid markdown syntax (```mermaid ... ```) to create clear, informative diagrams
 {analysis}
 {summary}
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
+Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers. Include Mermaid diagrams to visualize code structure, relationships, and logic flow."""
         )
 
     def code_filter_node(self, state: dict):

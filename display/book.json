@@ -20,7 +20,8 @@
     "github-buttons",
     "alerts",
     "include-codeblock",
-    "lunr"
+    "lunr",
+    "mermaid-gb3"
   ],
   "pluginsConfig": {
     "sharing": {
