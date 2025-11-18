@@ -1,4 +1,5 @@
 import os
+import json
 from typing import List, Optional
 
 
@@ -143,6 +144,26 @@ def write_file(file_path: str, content: str) -> bool:
     except Exception as e:
         print(f"Error writing to file {file_path}: {e}")
         return False
+
+
+def read_json(file_path: str) -> Optional[dict]:
+    """Read a JSON file and return its content as a dictionary.
+
+    Args:
+        file_path (str): The path to the JSON file.
+    Returns:
+        Optional[dict]: The content of the JSON file as a dictionary, or None if an error occurs.
+    """
+
+    if not os.path.exists(file_path):
+        print(f"File {file_path} does not exist.")
+        return None
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error reading JSON file {file_path}: {e}")
+        return None
 
 
 if __name__ == "__main__":
