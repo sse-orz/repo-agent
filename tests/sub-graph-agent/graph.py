@@ -296,7 +296,8 @@ Please structure the documentation with clear sections and make it suitable for 
             # if overview_documentation.md exists, show that the relevant documents have been generated,
             # so no need to generate overall doc again
             print("   → [skip] Overall documentation is up-to-date. No updates needed.")
-            return
+            existing_content = read_file(file_name) or ""
+            return {"overview_info": existing_content}
         else:
             print("   → [generate] Generating overall documentation without updates.")
             # filter out md files
