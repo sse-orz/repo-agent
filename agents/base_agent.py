@@ -29,9 +29,9 @@ class AgentState(TypedDict):
 
 class BaseAgent:
     def __init__(
-        self, tools, system_prompt: SystemMessage, repo_path: str, wiki_path: str
+        self, tools, system_prompt: SystemMessage, repo_path: str, wiki_path: str, llm=None
     ):
-        self.llm = CONFIG.get_llm()
+        self.llm = llm if llm else CONFIG.get_llm()
         self.repo_path = repo_path
         self.wiki_path = wiki_path
         self.memory = InMemorySaver()
