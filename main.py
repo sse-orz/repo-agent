@@ -2,7 +2,9 @@ from utils.repo import clone_repo, pull_repo
 from agents.wiki_agent import WikiAgent
 from agents.rag_agent import RAGAgent
 from agents.supervisor_agent import SupervisorAgent
+from agents.sub_graph.parent import ParentGraphBuilder
 from config import CONFIG
+from datetime import datetime
 import json
 
 
@@ -176,7 +178,6 @@ def main():
             # 2.1 check if repo exists locally, if not, clone it
             platform, owner, repo, repo_path = preprocess_repo(repo_name)
             # 3.1 check if wiki files have been generated, if not, generate them
-            # TODO: implement generate wiki logic
             wiki_path = f"./.wikis/{owner}_{repo}"
 
             # method 1: wiki agent directly generate wiki files
@@ -185,32 +186,45 @@ def main():
             # wiki_agent.run()
 
             # method 2: use supervisor agent to manage the process (including repo info collect, code analysis, doc generation, wiki generation, etc.)
-            supervisor = SupervisorAgent(
-                repo_path=repo_path,
-                wiki_path=wiki_path,
-                owner=owner,
-                repo_name=repo,
-            )
+            # supervisor = SupervisorAgent(
+            #     repo_path=repo_path,
+            #     wiki_path=wiki_path,
+            #     owner=owner,
+            #     repo_name=repo,
+            # )
 
-            # Run with intelligent file selection
-            result = supervisor.generate(
-                max_files=30,  # Select up to 30 important files
-                batch_size=10,  # Process 10 files per batch
-                max_workers=3,  # Use 3 parallel workers
+            # # Run with intelligent file selection
+            # result = supervisor.generate(
+            #     max_files=30,  # Select up to 30 important files
+            #     batch_size=10,  # Process 10 files per batch
+            #     max_workers=3,  # Use 3 parallel workers
+            # )
+            
+            # method 3: use sub-graph agent to build code graph and generate wiki files
+            parent_graph_builder = ParentGraphBuilder(branch_mode="all")
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            parent_graph_builder.run(
+                inputs={
+                    "owner": owner,
+                    "repo": repo,
+                    "platform": platform,
+                    "mode": "fast",  # "fast" or "smart"
+                    "max_workers": 50,  # 20 worker -> 3 - 4 minutes
+                    "date": date,
+                    "log": False,
+                },
+                config={
+                    "configurable": {
+                        "thread_id": f"wiki-generation-{date}",
+                    }
+                },
+                count_time=True,
             )
-
-            # print("\n" + "=" * 80)
-            # print("Final Result:")
-            # print("=" * 80)
-            # print(json.dumps(result, indent=2))
-            # 3.2 if exist, check if they are up to date, if not, update them
-            # TODO: implement update wiki logic
-            # TODO: implement saving wiki files to vector database
+            
             print("Wiki generation completed. Exiting.")
             display_book()
             return
         case "ask":
-            # TODO: implement question answering logic here
             print(f"Mode: {mode}")
             rag_agent = RAGAgent()
             rag_agent.run()

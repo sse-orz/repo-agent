@@ -54,7 +54,7 @@ class SupervisorAgent(BaseAgent):
                         Focus on quality over quantity - select files that provide maximum insight into the codebase.
                     """
         )
-        
+
         # Initialize BaseAgent with no tools (supervisor doesn't use tools directly)
         super().__init__(
             tools=[],
@@ -62,7 +62,7 @@ class SupervisorAgent(BaseAgent):
             repo_path=repo_path,
             wiki_path=wiki_path,
         )
-        
+
         self.owner = owner
         self.repo_name = repo_name
 
@@ -77,7 +77,7 @@ class SupervisorAgent(BaseAgent):
         self.code_analysis = None
         self.doc_result = None
         self.summary_result = None
-        
+
         # Time tracking for each stage
         self.stage_times = {
             "repo_info": 0.0,
@@ -102,7 +102,7 @@ class SupervisorAgent(BaseAgent):
             Dict[str, Any]: Summary of the entire pipeline execution with time statistics
         """
         pipeline_start_time = time.time()
-        
+
         print("\n" + "=" * 80)
         print("WIKI GENERATION PIPELINE STARTED")
         print("=" * 80)
@@ -113,9 +113,11 @@ class SupervisorAgent(BaseAgent):
             print("Stage 1: Collecting Repository Information")
             print("=" * 80)
             stage_start = time.time()
-            
-            self.repo_info = self.repo_agent.run(owner=self.owner, repo_name=self.repo_name)
-            
+
+            self.repo_info = self.repo_agent.run(
+                owner=self.owner, repo_name=self.repo_name
+            )
+
             self.stage_times["repo_info"] = time.time() - stage_start
             print(f"✓ Repository: {self.repo_info.get('repo_name', 'Unknown')}")
             print(f"✓ Language: {self.repo_info.get('main_language', 'Unknown')}")
@@ -158,7 +160,7 @@ class SupervisorAgent(BaseAgent):
                     max_workers=max_workers,
                 )
                 self.stage_times["code_analysis"] = time.time() - analysis_start
-                
+
                 print(
                     f"\n✓ Analyzed {self.code_analysis.get('analyzed_files', 0)} files"
                 )
@@ -181,7 +183,7 @@ class SupervisorAgent(BaseAgent):
                 code_analysis=self.code_analysis,
                 wiki_path=self.wiki_path,
             )
-            
+
             self.stage_times["documentation"] = time.time() - doc_start
             generated_docs = self.doc_result.get("generated_files", [])
             print(f"✓ Generated {len(generated_docs)} documents")
@@ -199,7 +201,7 @@ class SupervisorAgent(BaseAgent):
                 repo_info=self.repo_info,
                 code_analysis=self.code_analysis,
             )
-            
+
             self.stage_times["index_generation"] = time.time() - index_start
             print(f"✓ Index file: {self.summary_result.get('index_file', 'N/A')}")
             print(f"Index Generation Time: {self.stage_times['index_generation']:.2f}s")
@@ -486,7 +488,7 @@ class SupervisorAgent(BaseAgent):
 
         # Run the selection using LLM directly (no need for agent workflow)
         print("LLM is analyzing and selecting files...")
-        
+
         try:
             # Direct LLM call for faster response (avoid agent workflow overhead)
             system_prompt = SystemMessage(
@@ -503,20 +505,18 @@ class SupervisorAgent(BaseAgent):
                 Focus on quality over quantity - select files that provide maximum insight into the codebase.
                 """
             )
-            
+
             response = self.llm.invoke([system_prompt, HumanMessage(content=prompt)])
             content = response.content
-            
+
             # Extract selected files from LLM response
             selected_files = []
-            
+
             try:
                 import re
-                
+
                 # Extract JSON from response (handle markdown code blocks)
-                json_match = re.search(
-                    r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", content
-                )
+                json_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", content)
                 if json_match:
                     json_str = json_match.group(1)
                 else:
@@ -544,13 +544,13 @@ class SupervisorAgent(BaseAgent):
                                     break
                 else:
                     print("⚠ No JSON found in LLM response")
-                    
+
             except json.JSONDecodeError as e:
                 print(f"⚠ Failed to parse LLM response as JSON: {e}")
                 print(f"Response content: {content[:500]}...")
             except Exception as e:
                 print(f"⚠ Error processing LLM response: {e}")
-                
+
         except Exception as e:
             print(f"⚠ LLM selection error: {e}")
             return self._fallback_file_selection(all_files_metadata, max_files)
@@ -682,28 +682,63 @@ class SupervisorAgent(BaseAgent):
                 "stages": {
                     "repo_info": {
                         "time_seconds": self.stage_times["repo_info"],
-                        "percentage": (self.stage_times["repo_info"] / self.stage_times["total"] * 100) 
-                            if self.stage_times["total"] > 0 else 0,
+                        "percentage": (
+                            (
+                                self.stage_times["repo_info"]
+                                / self.stage_times["total"]
+                                * 100
+                            )
+                            if self.stage_times["total"] > 0
+                            else 0
+                        ),
                     },
                     "file_selection": {
                         "time_seconds": self.stage_times["file_selection"],
-                        "percentage": (self.stage_times["file_selection"] / self.stage_times["total"] * 100)
-                            if self.stage_times["total"] > 0 else 0,
+                        "percentage": (
+                            (
+                                self.stage_times["file_selection"]
+                                / self.stage_times["total"]
+                                * 100
+                            )
+                            if self.stage_times["total"] > 0
+                            else 0
+                        ),
                     },
                     "code_analysis": {
                         "time_seconds": self.stage_times["code_analysis"],
-                        "percentage": (self.stage_times["code_analysis"] / self.stage_times["total"] * 100)
-                            if self.stage_times["total"] > 0 else 0,
+                        "percentage": (
+                            (
+                                self.stage_times["code_analysis"]
+                                / self.stage_times["total"]
+                                * 100
+                            )
+                            if self.stage_times["total"] > 0
+                            else 0
+                        ),
                     },
                     "documentation": {
                         "time_seconds": self.stage_times["documentation"],
-                        "percentage": (self.stage_times["documentation"] / self.stage_times["total"] * 100)
-                            if self.stage_times["total"] > 0 else 0,
+                        "percentage": (
+                            (
+                                self.stage_times["documentation"]
+                                / self.stage_times["total"]
+                                * 100
+                            )
+                            if self.stage_times["total"] > 0
+                            else 0
+                        ),
                     },
                     "index_generation": {
                         "time_seconds": self.stage_times["index_generation"],
-                        "percentage": (self.stage_times["index_generation"] / self.stage_times["total"] * 100)
-                            if self.stage_times["total"] > 0 else 0,
+                        "percentage": (
+                            (
+                                self.stage_times["index_generation"]
+                                / self.stage_times["total"]
+                                * 100
+                            )
+                            if self.stage_times["total"] > 0
+                            else 0
+                        ),
                     },
                 },
             },
@@ -789,25 +824,27 @@ class SupervisorAgent(BaseAgent):
         """Print a formatted summary of the pipeline execution with time statistics."""
         print(f"\nPipeline Summary:")
         print(f"  Wiki Location: {summary['wiki_path']}")
-        
+
         print(f"\nTime Statistics:")
-        time_stats = summary.get('time_statistics', {})
-        total_time = time_stats.get('total_time', 0)
+        time_stats = summary.get("time_statistics", {})
+        total_time = time_stats.get("total_time", 0)
         print(f"  Total Time: {total_time:.2f}s")
-        
-        if 'stages' in time_stats:
+
+        if "stages" in time_stats:
             print(f"\n  Stage Breakdown:")
-            for stage_name, stage_data in time_stats['stages'].items():
-                time_sec = stage_data.get('time_seconds', 0)
-                percentage = stage_data.get('percentage', 0)
+            for stage_name, stage_data in time_stats["stages"].items():
+                time_sec = stage_data.get("time_seconds", 0)
+                percentage = stage_data.get("percentage", 0)
                 stage_display = stage_name.replace("_", " ").title()
                 print(f"    • {stage_display}: {time_sec:.2f}s ({percentage:.1f}%)")
-        
+
         print(f"\nStatistics:")
         print(f"  Total Documents: {summary['statistics']['total_documents']}")
         print(f"  Functions Analyzed: {summary['statistics']['total_functions']}")
         print(f"  Classes Analyzed: {summary['statistics']['total_classes']}")
-        print(f"  Average Complexity: {summary['statistics']['average_complexity']:.2f}")
+        print(
+            f"  Average Complexity: {summary['statistics']['average_complexity']:.2f}"
+        )
 
         print(f"\n Stage Completion:")
         for stage_name, stage_info in summary["stages"].items():
