@@ -28,24 +28,25 @@ class GlobalConfig:
             "gitee": os.getenv("GITEE_TOKEN"),
         }
         self.LLM_PLATFORM = os.getenv("LLM_PLATFORM", "ollama").lower()
+        self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+        self.DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+        self.GLM_API_KEY = os.getenv("GLM_API_KEY", "")
+        self.MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
+
         match self.LLM_PLATFORM:
             case "ollama":
                 self.LLM_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
             case "google":
                 self.LLM_MODEL = os.getenv("GOOGLE_MODEL", "gemini-pro")
-                self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
             case "deepseek":
                 self.LLM_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-                self.DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
             case "openai":
                 self.LLM_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
-                self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
             case "glm":
                 self.LLM_MODEL = os.getenv("GLM_MODEL", "GLM-4.5")
-                self.GLM_API_KEY = os.getenv("GLM_API_KEY", "")
             case "minimax":
                 self.LLM_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-M2")
-                self.MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
             case _:
                 raise ValueError(f"Unsupported LLM_PLATFORM: {self.LLM_PLATFORM}")
 
