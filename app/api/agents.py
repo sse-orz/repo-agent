@@ -75,18 +75,18 @@ async def generate_agent_documentation_stream(
 
             if not progress_queue.empty():
                 progress_data = progress_queue.get()
-                yield f"sse: {BaseResponse(message=progress_data.get('message', ''), code=200, data=progress_data).model_dump_json()}\n\n"
+                yield f"data: {BaseResponse(message=progress_data.get('message', ''), code=200, data=progress_data).model_dump_json()}\n\n"
 
                 if progress_data.get("stage") == "done":
                     if error := result_container["error"]:
-                        yield f"sse: {BaseResponse(message='Documentation generation failed', code=500, data={'error': error}).model_dump_json()}\n\n"
+                        yield f"data: {BaseResponse(message='Documentation generation failed', code=500, data={'error': error}).model_dump_json()}\n\n"
                     else:
                         result_dict = (
                             result_container["data"].model_dump()
                             if result_container["data"]
                             else None
                         )
-                        yield f"sse: {BaseResponse(message='Documentation generation completed successfully', code=200, data=result_dict).model_dump_json()}\n\n"
+                        yield f"data: {BaseResponse(message='Documentation generation completed successfully', code=200, data=result_dict).model_dump_json()}\n\n"
                     break
 
     return StreamingResponse(
