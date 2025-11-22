@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import CONFIG
 
 
-class LaaJAgent: # llm as a judge
+class LaaJAgent:  # llm as a judge
     def __init__(self, owner: str = "facebook", repo: str = "zstd", dir: str = ""):
         self.wiki_path = f"./.wikis/{owner}_{repo}/{dir}"
         self.output_file = "./evaluation_results.out"
@@ -244,9 +244,7 @@ Return only the JSON format result without any additional content:
 
 if __name__ == "__main__":
     # use "uv run python -m tests.LaaJ.judge"
-    judge_agent = LaaJAgent(
-        owner="facebook", repo="zstd", dir=""
-    )
+    judge_agent = LaaJAgent(owner="facebook", repo="zstd", dir="")
 
     judge_agent.evaluate()
 

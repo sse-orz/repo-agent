@@ -1,7 +1,7 @@
 # prompts.py
 
 from typing import List
-from langchain.schema import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 
 
 class WikiPrompts:

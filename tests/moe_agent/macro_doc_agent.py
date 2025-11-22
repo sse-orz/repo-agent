@@ -13,7 +13,7 @@ from .summarization import ConversationSummarizer
 
 class MacroDocAgent(BaseAgent):
     """Agent for generating macro-level project documentation."""
-    
+
     # Document types and their specifications
     DOC_SPECS = {
         "README.md": {
@@ -26,7 +26,7 @@ class MacroDocAgent(BaseAgent):
                 "Installation instructions",
                 "Basic usage examples",
             ],
-            "audience": "new users and developers"
+            "audience": "new users and developers",
         },
         "ARCHITECTURE.md": {
             "title": "Architecture",
@@ -38,7 +38,7 @@ class MacroDocAgent(BaseAgent):
                 "Design patterns and principles",
                 "Module dependencies",
             ],
-            "audience": "developers and architects"
+            "audience": "developers and architects",
         },
         "DEVELOPMENT.md": {
             "title": "Development Guide",
@@ -50,7 +50,7 @@ class MacroDocAgent(BaseAgent):
                 "Contribution guidelines",
                 "Code style and standards",
             ],
-            "audience": "contributors and maintainers"
+            "audience": "contributors and maintainers",
         },
         "API.md": {
             "title": "API Reference",
@@ -62,20 +62,20 @@ class MacroDocAgent(BaseAgent):
                 "Error handling",
                 "Best practices",
             ],
-            "audience": "API users and integrators"
-        }
+            "audience": "API users and integrators",
+        },
     }
-    
+
     def __init__(
-        self, 
-        repo_identifier: str, 
-        wiki_path: Optional[str] = None, 
-        cache_path: Optional[str] = None, 
-        llm=None, 
-        max_workers: int = 5
+        self,
+        repo_identifier: str,
+        wiki_path: Optional[str] = None,
+        cache_path: Optional[str] = None,
+        llm=None,
+        max_workers: int = 5,
     ):
         """Initialize the MacroDocAgent.
-        
+
         Args:
             repo_identifier (str): Unified repository identifier (format: owner_repo_name)
             wiki_path (Optional[str]): Base wiki path. If provided, macro docs will be saved directly to this path
@@ -86,13 +86,13 @@ class MacroDocAgent(BaseAgent):
         self.repo_identifier = repo_identifier
         self.llm = llm if llm else CONFIG.get_llm()
         self.max_workers = max_workers
-        
+
         # Use provided wiki_path or default to .wikis/{repo_identifier}
         if wiki_path:
             self.wiki_base_path = Path(wiki_path)
         else:
             self.wiki_base_path = Path(f".wikis/{repo_identifier}")
-        
+
         # Use provided cache_path or default to .cache/{repo_identifier}
         if cache_path:
             self.cache_base_path = Path(cache_path)
@@ -196,32 +196,32 @@ Produce clear, professional, and comprehensive documentation that:
         else:
             summarized_messages = messages
 
-        response = self.llm_with_tools.invoke(
-            [system_prompt] + summarized_messages
-        )
+        response = self.llm_with_tools.invoke([system_prompt] + summarized_messages)
 
         extra_messages = summary_update["messages"] if summary_update else []
         return {"messages": extra_messages + [response]}
-    
-    def generate_single_doc(self, doc_type: str, repo_info: Dict[str, Any] = None) -> Dict[str, Any]:
+
+    def generate_single_doc(
+        self, doc_type: str, repo_info: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
         """Generate a single macro document.
-        
+
         Args:
             doc_type (str): Type of document to generate
             repo_info (Dict[str, Any]): Optional repository information
-            
+
         Returns:
             Dict[str, Any]: Generation result
         """
         print(f"\n📄 Generating {doc_type}...")
-        
+
         doc_path = self.wiki_base_path / doc_type
 
         spec = self.DOC_SPECS[doc_type]
 
         # Build prompt (doc-type specific instructions moved here)
         target_file_path = str(self.wiki_base_path / doc_type)
-        
+
         prompt = f"""
 # Task: Generate {doc_type} ONLY
 
@@ -318,12 +318,12 @@ Before calling write_file_tool, triple-check:
 - Content is complete and ready to write
 
 """
-        
+
         if repo_info:
             prompt += f"\n**Repository Info**:\n```json\n{json.dumps(repo_info, indent=2)}\n```\n"
-        
+
         prompt += "\nBegin documentation generation now."
-        
+
         try:
             # Invoke the agent workflow
             initial_state = AgentState(
@@ -338,7 +338,7 @@ Before calling write_file_tool, triple-check:
                     "configurable": {
                         "thread_id": f"macro-doc-{self.repo_identifier}-{doc_type}"
                     },
-                    "recursion_limit": 60, 
+                    "recursion_limit": 60,
                 },
             )
 
@@ -354,7 +354,7 @@ Before calling write_file_tool, triple-check:
             else:
                 print(f"⚠️  {doc_type} not created by agent, creating fallback...")
                 return self._create_fallback_doc(doc_type, doc_path)
-                
+
         except Exception as e:
             print(f"❌ Error generating {doc_type}: {e}")
             return {
@@ -363,19 +363,19 @@ Before calling write_file_tool, triple-check:
                 "status": "error",
                 "error": str(e),
             }
-    
+
     def _create_fallback_doc(self, doc_type: str, doc_path: Path) -> Dict[str, Any]:
         """Create a fallback document when agent fails.
-        
+
         Args:
             doc_type (str): Type of document
             doc_path (Path): Path to save document
-            
+
         Returns:
             Dict[str, Any]: Result information
         """
         spec = self.DOC_SPECS[doc_type]
-        
+
         content = f"""# {spec['title']}
 
 > Documentation for {self.repo_identifier}
@@ -384,39 +384,43 @@ Before calling write_file_tool, triple-check:
 *Documentation generation in progress...*
 
 """
-        
-        for section in spec['sections']:
+
+        for section in spec["sections"]:
             # Convert section to title case
             section_title = section.capitalize()
             content += f"\n## {section_title}\n\n*To be documented...*\n"
-        
+
         # Save fallback document
-        with open(doc_path, 'w', encoding='utf-8') as f:
+        with open(doc_path, "w", encoding="utf-8") as f:
             f.write(content)
-        
+
         return {
             "doc_type": doc_type,
             "path": str(doc_path),
             "status": "fallback",
             "size": len(content),
         }
-    
-    def generate_all_docs(self, repo_info: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+
+    def generate_all_docs(
+        self, repo_info: Dict[str, Any] = None
+    ) -> List[Dict[str, Any]]:
         """Generate all macro documentation files (Always Parallel).
-        
+
         Args:
             repo_info (Dict[str, Any]): Optional repository information
-            
+
         Returns:
             List[Dict[str, Any]]: List of results for each document
         """
         doc_types = list(self.DOC_SPECS.keys())
-        
-        print(f"\n🚀 Starting macro documentation generation for {len(doc_types)} documents...")
+
+        print(
+            f"\n🚀 Starting macro documentation generation for {len(doc_types)} documents..."
+        )
         print(f"   Parallel processing: Enabled (max_workers={self.max_workers})")
-        
+
         results = []
-        
+
         # Parallel generation using ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all tasks
@@ -424,14 +428,14 @@ Before calling write_file_tool, triple-check:
                 executor.submit(self.generate_single_doc, doc_type, repo_info): doc_type
                 for doc_type in doc_types
             }
-            
+
             # Collect results as they complete
             for future in as_completed(future_to_doc):
                 doc_type = future_to_doc[future]
                 try:
                     result = future.result()
                     results.append(result)
-                    
+
                     if result["status"] == "success":
                         print(f"✅ {doc_type}: Success ({result.get('size', 0)} bytes)")
                     elif result["status"] == "fallback":
@@ -440,16 +444,18 @@ Before calling write_file_tool, triple-check:
                         print(f"❌ {doc_type}: Failed")
                 except Exception as e:
                     print(f"❌ {doc_type}: Exception - {e}")
-                    results.append({
-                        "doc_type": doc_type,
-                        "path": None,
-                        "status": "error",
-                        "error": str(e),
-                    })
-        
+                    results.append(
+                        {
+                            "doc_type": doc_type,
+                            "path": None,
+                            "status": "error",
+                            "error": str(e),
+                        }
+                    )
+
         print(f"\n✨ Macro documentation generation complete!")
         print(f"   Success: {sum(1 for r in results if r['status'] == 'success')}")
         print(f"   Fallback: {sum(1 for r in results if r['status'] == 'fallback')}")
         print(f"   Failed: {sum(1 for r in results if r['status'] == 'error')}")
-        
+
         return results

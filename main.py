@@ -199,7 +199,7 @@ def main():
             #     batch_size=10,  # Process 10 files per batch
             #     max_workers=3,  # Use 3 parallel workers
             # )
-            
+
             # method 3: use sub-graph agent to build code graph and generate wiki files
             parent_graph_builder = ParentGraphBuilder(branch_mode="all")
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -220,7 +220,7 @@ def main():
                 },
                 count_time=True,
             )
-            
+
             print("Wiki generation completed. Exiting.")
             display_book()
             return
