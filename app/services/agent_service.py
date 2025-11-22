@@ -19,7 +19,7 @@ class AgentService:
         self.wiki_root = "./.wikis"
 
     def get_wiki_info(self, owner: str, repo: str) -> Optional[GenerateResponseData]:
-        """Get information about existing wiki documentation."""
+        # Get existing wiki information if available
         wiki_dir = f"{owner}_{repo}"
         wiki_path = os.path.join(self.wiki_root, wiki_dir)
 
@@ -39,7 +39,7 @@ class AgentService:
         )
 
     def get_wiki_files(self, wiki_path: str, owner: str, repo: str) -> List[FileInfo]:
-        """Scan wiki directory and return list of generated files."""
+        # Retrieve list of files in the wiki directory
         files = []
         if not os.path.exists(wiki_path):
             return files
@@ -59,32 +59,36 @@ class AgentService:
 
         return files
 
-    def generate_documentation(self, request: GenerateRequest) -> GenerateResponseData:
-        """Generate documentation for a repository."""
+    def generate_documentation(
+        self, request: GenerateRequest, progress_callback=None
+    ) -> GenerateResponseData:
+        # Generate or update documentation for a repository.
         CONFIG.display()
-        parent_graph_builder = ParentGraphBuilder(branch_mode=request.branch_mode)
         date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-        # Run the documentation generation
-        parent_graph_builder.run(
-            inputs={
-                "owner": request.owner,
-                "repo": request.repo,
-                "platform": request.platform,
-                "mode": request.mode,
-                "max_workers": request.max_workers,
-                "date": date,
-                "log": request.log,
-            },
-            config={
-                "configurable": {
-                    "thread_id": f"wiki-generation-{date}",
-                }
-            },
-            count_time=True,
-        )
+        inputs = {
+            "owner": request.owner,
+            "repo": request.repo,
+            "platform": request.platform,
+            "mode": request.mode,
+            "max_workers": request.max_workers,
+            "date": date,
+            "log": request.log,
+        }
+        config = {"configurable": {"thread_id": f"wiki-generation-{date}"}}
 
-        # Get wiki path and scan for generated files
+        parent_graph_builder = ParentGraphBuilder(branch_mode=request.branch_mode)
+
+        if progress_callback:
+            parent_graph_builder.stream(
+                inputs=inputs,
+                progress_callback=progress_callback,
+                config=config,
+                count_time=True,
+            )
+        else:
+            parent_graph_builder.run(inputs=inputs, config=config, count_time=True)
+
         wiki_dir = f"{request.owner}_{request.repo}"
         wiki_path = os.path.join(self.wiki_root, wiki_dir)
         wiki_url = f"/wikis/{wiki_dir}"
@@ -101,7 +105,7 @@ class AgentService:
         )
 
     def list_wikis(self) -> ListWikisResponseData:
-        """List all generated wikis."""
+        # List all generated wikis
         wikis = []
 
         if not os.path.exists(self.wiki_root):

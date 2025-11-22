@@ -1,4 +1,8 @@
 from fastapi import APIRouter, Depends, Body
+from fastapi.responses import StreamingResponse
+from queue import Queue
+from threading import Thread
+import asyncio
 
 from app.models.common import BaseResponse
 from app.models.agents import GenerateRequest
@@ -11,31 +15,88 @@ def get_agent_service() -> AgentService:
     return AgentService()
 
 
-# curl -X POST http://localhost:8000/api/v1/agents/generate -H "Content-Type: application/json" -d '{"owner": "octocat", "repo": "Hello-World"}'
+def check_existing_wiki(agent_service: AgentService, request: GenerateRequest):
+    # Check for existing wiki documentation
+    if request.need_update:
+        return None
+    return agent_service.get_wiki_info(request.owner, request.repo)
+
+
+# curl -X POST http://localhost:8000/api/v1/agents/generate
+# -H "Content-Type: application/json" -d '{"owner": "octocat", "repo": "Hello-World"}'
 @router.post("/generate")
 async def generate_agent_documentation(
     request: GenerateRequest = Body(...),
     agent_service: AgentService = Depends(get_agent_service),
 ) -> BaseResponse:
-    # generate documentation for a repository
-
-    # existing documentation check
-    # and request parameter need_update is False
-    existing_wiki = agent_service.get_wiki_info(request.owner, request.repo)
-    if existing_wiki and not request.need_update:
+    # Generate or update documentation normally
+    if existing_wiki := check_existing_wiki(agent_service, request):
         return BaseResponse(
-            message="Existing documentation found.",
-            code=200,
-            data=existing_wiki,
+            message="Existing documentation found.", code=200, data=existing_wiki
         )
 
-    # normally generate or update documentation
     data = agent_service.generate_documentation(request)
-
     return BaseResponse(
-        message="Agent documentation generated successfully.",
-        code=200,
-        data=data,
+        message="Agent documentation generated successfully.", code=200, data=data
+    )
+
+
+# curl -N http://localhost:8000/api/v1/agents/generate-stream
+# -X POST -H "Content-Type: application/json" -d '{"owner": "octocat", "repo": "Hello-World"}'
+@router.post("/generate-stream")
+async def generate_agent_documentation_stream(
+    request: GenerateRequest = Body(...),
+    agent_service: AgentService = Depends(get_agent_service),
+):
+    # Generate or update documentation in streaming mode
+    if existing_wiki := check_existing_wiki(agent_service, request):
+        return BaseResponse(
+            message="Existing documentation found.", code=200, data=existing_wiki
+        )
+
+    progress_queue = Queue()
+    result_container = {"data": None, "error": None}
+
+    def run_generation():
+        try:
+            result_container["data"] = agent_service.generate_documentation(
+                request, progress_queue.put
+            )
+        except Exception as e:
+            result_container["error"] = str(e)
+        finally:
+            progress_queue.put({"stage": "done", "message": "Generation finished"})
+
+    Thread(target=run_generation, daemon=True).start()
+
+    async def event_generator():
+        while True:
+            await asyncio.sleep(0.1)
+
+            if not progress_queue.empty():
+                progress_data = progress_queue.get()
+                yield f"sse: {BaseResponse(message=progress_data.get('message', ''), code=200, data=progress_data).model_dump_json()}\n\n"
+
+                if progress_data.get("stage") == "done":
+                    if error := result_container["error"]:
+                        yield f"sse: {BaseResponse(message='Documentation generation failed', code=500, data={'error': error}).model_dump_json()}\n\n"
+                    else:
+                        result_dict = (
+                            result_container["data"].model_dump()
+                            if result_container["data"]
+                            else None
+                        )
+                        yield f"sse: {BaseResponse(message='Documentation generation completed successfully', code=200, data=result_dict).model_dump_json()}\n\n"
+                    break
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -44,11 +105,9 @@ async def generate_agent_documentation(
 async def list_documentation(
     agent_service: AgentService = Depends(get_agent_service),
 ) -> BaseResponse:
-    # list wikis that have been generated
-    data = agent_service.list_wikis()
-
+    # List all generated wikis
     return BaseResponse(
         message="List of generated wikis retrieved successfully.",
         code=200,
-        data=data,
+        data=agent_service.list_wikis(),
     )

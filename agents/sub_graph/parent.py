@@ -319,6 +319,74 @@ class ParentGraphBuilder:
         if count_time:
             print(f"Total execution time: {elapsed_time:.2f} seconds")
 
+    def stream(
+        self,
+        inputs: ParentGraphState,
+        progress_callback,
+        config: dict = None,
+        count_time: bool = True,
+    ):
+        date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if config is None:
+            config = {"configurable": {"thread_id": f"wiki-generation-{date}"}}
+        print("Running parent graph with inputs:", inputs)
+
+        progress_callback(
+            {
+                "stage": "started",
+                "message": "Starting documentation generation",
+                "progress": 0,
+            }
+        )
+
+        start_time = time.time()
+        progress_stages = {
+            "basic_info_node": 15,
+            "check_update_node": 35,
+            "repo_info_graph": 65,
+            "code_analysis_graph": 85,
+        }
+
+        for chunk in self.graph.stream(
+            inputs,
+            config=config,
+            subgraphs=True,
+        ):
+            # Track progress based on which node is executing
+            # Chunk format: (namespace_tuple, {node_name: result_dict})
+            if chunk and isinstance(chunk, tuple) and len(chunk) >= 2:
+                # chunk[1] is a dict where keys are node names
+                if isinstance(chunk[1], dict):
+                    for node_name in chunk[1].keys():
+                        if node_name in progress_stages and progress_callback:
+                            progress_callback(
+                                {
+                                    "stage": node_name,
+                                    "message": f"Processing {node_name}",
+                                    "progress": progress_stages[node_name],
+                                }
+                            )
+                            print(
+                                f"📊 Progress Update: {node_name} - {progress_stages[node_name]}%"
+                            )
+
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print("\n" + "=" * 80)
+        print("✅ Graph execution completed successfully!")
+        print("=" * 80)
+        if count_time:
+            print(f"Total execution time: {elapsed_time:.2f} seconds")
+
+        progress_callback(
+            {
+                "stage": "completed",
+                "message": "Documentation generation completed",
+                "progress": 100,
+                "elapsed_time": elapsed_time,
+            }
+        )
+
 
 if __name__ == "__main__":
     # use "uv run python -m agents.sub_graph.parent" to run this file
