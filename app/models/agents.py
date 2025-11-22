@@ -2,19 +2,24 @@ from pydantic import BaseModel, Field
 from typing import List
 from enum import Enum
 
+
 class BranchMode(str, Enum):
     ALL = "all"
     CODE = "code"
     REPO = "repo"
     CHECK = "check"
 
+
 class GenerateRequest(BaseModel):
     owner: str = Field(..., description="Repository owner")
     repo: str = Field(..., description="Repository name")
     platform: str = Field("github", description="Platform (github, gitlab, etc.)")
+    need_update: bool = Field(
+        False, description="Whether to update existing documentation"
+    )
     branch_mode: BranchMode = Field(
         BranchMode.ALL,
-        description="Branch mode: all (repo+code), code only, repo only, or check"
+        description="Branch mode: all (repo+code), code only, repo only, or check",
     )
     mode: str = Field("fast", description="Generation mode (fast or smart)")
     max_workers: int = Field(50, description="Maximum number of workers")

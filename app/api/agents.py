@@ -11,12 +11,25 @@ def get_agent_service() -> AgentService:
     return AgentService()
 
 
+# curl -X POST http://localhost:8000/api/v1/agents/generate -H "Content-Type: application/json" -d '{"owner": "octocat", "repo": "Hello-World"}'
 @router.post("/generate")
 async def generate_agent_documentation(
     request: GenerateRequest = Body(...),
     agent_service: AgentService = Depends(get_agent_service),
 ) -> BaseResponse:
     # generate documentation for a repository
+
+    # existing documentation check
+    # and request parameter need_update is False
+    existing_wiki = agent_service.get_wiki_info(request.owner, request.repo)
+    if existing_wiki and not request.need_update:
+        return BaseResponse(
+            message="Existing documentation found.",
+            code=200,
+            data=existing_wiki,
+        )
+
+    # normally generate or update documentation
     data = agent_service.generate_documentation(request)
 
     return BaseResponse(
@@ -26,6 +39,7 @@ async def generate_agent_documentation(
     )
 
 
+# curl http://localhost:8000/api/v1/agents/list
 @router.get("/list")
 async def list_documentation(
     agent_service: AgentService = Depends(get_agent_service),

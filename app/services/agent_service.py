@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 import os
 
@@ -17,6 +17,26 @@ class AgentService:
 
     def __init__(self):
         self.wiki_root = "./.wikis"
+
+    def get_wiki_info(self, owner: str, repo: str) -> Optional[GenerateResponseData]:
+        """Get information about existing wiki documentation."""
+        wiki_dir = f"{owner}_{repo}"
+        wiki_path = os.path.join(self.wiki_root, wiki_dir)
+
+        if not os.path.exists(wiki_path):
+            return None
+
+        wiki_url = f"/wikis/{wiki_dir}"
+        files = self.get_wiki_files(wiki_path, owner, repo)
+
+        return GenerateResponseData(
+            owner=owner,
+            repo=repo,
+            wiki_path=wiki_path,
+            wiki_url=wiki_url,
+            files=files,
+            total_files=len(files),
+        )
 
     def get_wiki_files(self, wiki_path: str, owner: str, repo: str) -> List[FileInfo]:
         """Scan wiki directory and return list of generated files."""
