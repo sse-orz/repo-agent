@@ -30,7 +30,7 @@ async def generate_agent_documentation(
 async def list_documentation(
     agent_service: AgentService = Depends(get_agent_service),
 ) -> BaseResponse:
-    # list wikis that has been generated
+    # list wikis that have been generated
     data = agent_service.list_wikis()
 
     return BaseResponse(
