@@ -1,21 +1,17 @@
-from config import CONFIG
-from prompt import RAGPrompts
-
 import os
-import io
 from datetime import datetime
-from contextlib import redirect_stdout
 from typing import TypedDict, List, Annotated, Sequence
+
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_community.document_loaders import DirectoryLoader
-from langchain_core.runnables.graph import MermaidDrawMethod
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import StateGraph, START, END
+
+from config import CONFIG
 
 
 class RAGState(TypedDict):
@@ -31,303 +27,402 @@ class RAGState(TypedDict):
 
 
 class RAGAgent:
+    """RAG Agent for repository-related question answering with intelligent retrieval."""
+
     def __init__(
         self,
         wikis_dir: str = ".wikis",
         embeddings_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        max_retrieval_attempts: int = 2,
+        retrieval_k: int = 5,
+        history_window_size: int = 10,
     ):
         self.wikis_dir = wikis_dir
         self.embeddings_model_name = embeddings_model_name
+        self.max_retrieval_attempts = max_retrieval_attempts
+        self.retrieval_k = retrieval_k
+        self.history_window_size = history_window_size
         self.memory = InMemorySaver()
         self.vectorstores = {}
-        self.app = self._build_app()
+        self.app = self._build_graph()
 
-    def _build_app(self):
-        # Build the graph
+    @staticmethod
+    def _create_judge_prompt(question: str, context: str) -> SystemMessage:
+        """Create prompt to judge document sufficiency."""
+        return SystemMessage(
+            content=f"""Evaluate if the provided documents contain sufficient information to comprehensively answer the user's question.
+
+User Question: {question}
+
+Retrieved Documents:
+{context}
+
+Evaluation Criteria:
+- The documents should contain direct or highly relevant information that addresses the core of the question
+- Code snippets, API documentation, or implementation details are considered sufficient
+- General descriptions without specific technical details may be insufficient
+- If documents are mostly empty or generic, they are not sufficient
+
+Your Response: Answer with ONLY "yes" if documents are sufficient to answer the question, or "no" if more information is needed."""
+        )
+
+    @staticmethod
+    def _create_intent_check_prompt(question: str, repo_name: str) -> SystemMessage:
+        """Create prompt to check if question is repository-related."""
+        return SystemMessage(
+            content=f"""Analyze whether the following question is specifically related to the repository "{repo_name}".
+
+User Question: {question}
+
+Repository Name: {repo_name}
+
+Classification Guidelines:
+
+REPOSITORY-RELATED Questions (Answer "yes"):
+- Asks about the repository's codebase, architecture, or design patterns
+- Requests information about specific files, modules, classes, or functions
+- Seeks to understand algorithms, implementations, or technical workflows
+- Asks about the repository's purpose, features, capabilities, or limitations
+- Requests examples of how to use the code or API
+- Questions the repository's dependencies or configuration
+
+NOT Repository-Related Questions (Answer "no"):
+- General programming questions unrelated to this specific repository
+- Asks about the assistant itself or conversation meta-topics
+- Requests information about other projects or general knowledge
+- Suggests improvements or asks for critique of previous answers
+
+Your Response: Answer with ONLY "yes" if the question is repository-related, or "no" otherwise."""
+        )
+
+    @staticmethod
+    def _create_rewrite_prompt(original_question: str, repo_name: str) -> SystemMessage:
+        """Create prompt to rewrite question for better retrieval."""
+        return SystemMessage(
+            content=f"""Your task is to refine and improve the user's question about the repository "{repo_name}" to make it more specific, clear, and optimized for document retrieval.
+
+Original Question: {original_question}
+
+Refinement Guidelines:
+1. Make the question more specific and detailed if it's too vague
+2. Add technical context if the question lacks clarity
+3. Break down complex questions into focused sub-questions if needed
+4. Rephrase to use repository-specific terminology when applicable
+5. Ensure the refined question targets concrete code artifacts (functions, classes, files, etc.)
+6. Keep the refined question concise but comprehensive
+
+Output ONLY the refined question without any explanation or additional text. If the original question is already well-formed, you can return it as-is."""
+        )
+
+    @staticmethod
+    def _create_rag_generation_prompt(
+        history: str, context: str, question: str
+    ) -> SystemMessage:
+        """Create prompt for RAG-based answer generation."""
+        return SystemMessage(
+            content=f"""You are a knowledgeable Repository Analysis Assistant specializing in helping users understand and work with codebases.
+
+Your Task: Answer the user's question based EXCLUSIVELY on the provided repository documentation and code context.
+
+Conversation History:
+{'---' if history else '(No prior conversation)'}
+{history if history else ''}
+{'---' if history else ''}
+
+Repository Context (Code, Documentation, and Related Files):
+---BEGIN CONTEXT---
+{context}
+---END CONTEXT---
+
+User Question: {question}
+
+Instructions:
+1. Ground your answer entirely in the provided context - do not use external knowledge
+2. If the context doesn't contain relevant information, explicitly state: "The provided documentation does not contain information about this topic"
+3. Be specific and technical - reference actual code, file names, and line numbers when applicable
+4. If there are multiple relevant parts in the context, cite them appropriately
+5. Provide practical examples or code snippets from the documentation when helpful
+6. If the question requires clarification, ask for it before attempting to answer
+
+Provide a clear, comprehensive, and well-structured answer:"""
+        )
+
+    @staticmethod
+    def _create_direct_generation_prompt(history: str, question: str) -> SystemMessage:
+        """Create prompt for direct answer generation without RAG."""
+        return SystemMessage(
+            content=f"""You are a helpful and knowledgeable AI Assistant ready to answer general questions and provide assistance.
+
+Conversation History:
+{'---' if history else '(No prior conversation)'}
+{history if history else ''}
+{'---' if history else ''}
+
+User Question: {question}
+
+Instructions:
+1. Provide a helpful, accurate, and comprehensive answer to the question
+2. Use your general knowledge and reasoning capabilities
+3. If the question is unclear, ask for clarification
+4. Provide examples or explanations where appropriate to enhance understanding
+5. Be concise but thorough in your response
+
+Please provide a clear and helpful answer:"""
+        )
+
+    def _build_graph(self):
+        """Build and compile the LangGraph state graph."""
         graph = StateGraph(RAGState)
-        graph.add_node("check_intent", self._check_intent)
-        graph.add_node("rewrite", self._rewrite)
-        graph.add_node("retrieve", self._retrieve)
-        graph.add_node("llm_judge", self._llm_judge)
-        graph.add_node("generate_with_rag", self._generate)
-        graph.add_node("generate_direct", self._generate_direct)
 
+        # Add nodes
+        graph.add_node("check_intent", self.check_intent_node)
+        graph.add_node("rewrite", self.rewrite_node)
+        graph.add_node("retrieve", self.retrieve_node)
+        graph.add_node("judge", self.judge_node)
+        graph.add_node("generate_rag", self.generate_rag_node)
+        graph.add_node("generate_direct", self.generate_direct_node)
+
+        # Add edges
         graph.add_edge(START, "check_intent")
         graph.add_conditional_edges(
             "check_intent",
-            self._decide_rag_or_direct,
-            {
-                "rag": "rewrite",
-                "direct": "generate_direct",
-            },
+            lambda s: "rag" if s.get("is_repo_related", False) else "direct",
+            {"rag": "rewrite", "direct": "generate_direct"},
         )
         graph.add_edge("rewrite", "retrieve")
-        graph.add_edge("retrieve", "llm_judge")
+        graph.add_edge("retrieve", "judge")
         graph.add_conditional_edges(
-            "llm_judge",
-            self._decide_retrieve_or_generate,
-            {
-                "retrieve": "retrieve",
-                "generate": "generate_with_rag",
-            },
+            "judge",
+            lambda s: "generate" if s.get("is_sufficient", False) else "retrieve",
+            {"retrieve": "retrieve", "generate": "generate_rag"},
         )
-        graph.add_edge("generate_with_rag", END)
+        graph.add_edge("generate_rag", END)
         graph.add_edge("generate_direct", END)
 
-        # Compile the graph
         return graph.compile(checkpointer=self.memory)
 
-    def _invoke_llm(self, prompt) -> str:
-        """Invoke LLM with the given prompt and return the content."""
+    def _invoke_llm(self, prompt: SystemMessage) -> str:
+        """Invoke LLM with prompt and return normalized response."""
         llm = CONFIG.get_llm()
         return llm.invoke([prompt]).content.lower().strip()
 
-    def _llm_judge(self, state: RAGState) -> RAGState:
-        """Use LLM to judge if retrieved documents are sufficient for answering the question."""
+    def check_intent_node(self, state: RAGState) -> RAGState:
+        """Determine if question is repository-related."""
+        question = state["question"]
+        repo_name = state["repo_name"]
+
+        prompt = self._create_intent_check_prompt(question, repo_name)
+        judgment = self._invoke_llm(prompt)
+        is_repo_related = "yes" in judgment
+
+        return {
+            "is_repo_related": is_repo_related,
+            "messages": state["messages"]
+            + [
+                SystemMessage(
+                    content=f"[Intent]: {'Repository' if is_repo_related else 'General'} question"
+                )
+            ],
+        }
+
+    def rewrite_node(self, state: RAGState) -> RAGState:
+        """Refine question for better retrieval."""
+        original_question = state["question"]
+        repo_name = state["repo_name"]
+
+        prompt = self._create_rewrite_prompt(original_question, repo_name)
+        refined_question = self._invoke_llm(prompt)
+
+        return {
+            "question": refined_question,
+            "messages": state["messages"]
+            + [
+                SystemMessage(
+                    content=f"[Rewrite]: '{original_question}' -> '{refined_question}'"
+                )
+            ],
+        }
+
+    def judge_node(self, state: RAGState) -> RAGState:
+        """Judge if retrieved documents are sufficient."""
         question = state["question"]
         docs = state["documents"]
         retrieval_count = state.get("retrieval_count", 0)
 
-        # Limit retrieval attempts to avoid infinite loops (max 2 attempts)
-        if retrieval_count >= 2:
+        if retrieval_count >= self.max_retrieval_attempts:
             return {
                 "is_sufficient": True,
                 "retrieval_count": retrieval_count + 1,
                 "messages": state["messages"]
                 + [
                     SystemMessage(
-                        content=f"[llm_judge]: Max retrieval attempts ({retrieval_count + 1}) reached. Proceeding with generation."
+                        content=f"[Judge]: Max attempts ({retrieval_count + 1}) reached"
                     )
                 ],
             }
 
         if not docs:
-            # No documents retrieved, not sufficient
             return {
                 "is_sufficient": False,
                 "retrieval_count": retrieval_count + 1,
                 "messages": state["messages"]
-                + [
-                    SystemMessage(
-                        content="[llm_judge]: No documents retrieved. Need to retrieve more."
-                    )
-                ],
+                + [SystemMessage(content="[Judge]: No documents, retrieving more")],
             }
 
         context = "\n".join([doc.page_content for doc in docs])
-
-        # Create a prompt to judge sufficiency
-        judge_prompt = RAGPrompts.get_judge_prompt(question, context)
-
-        judgment = self._invoke_llm(judge_prompt)
-
-        # If judge says "yes" or contains "sufficient/enough", consider it sufficient
-        is_sufficient = (
-            "yes" in judgment or "sufficient" in judgment or "enough" in judgment
+        prompt = self._create_judge_prompt(question, context)
+        judgment = self._invoke_llm(prompt)
+        is_sufficient = any(
+            word in judgment for word in ["yes", "sufficient", "enough"]
         )
-
-        judge_message = f"[llm_judge]: Document sufficiency check: {judgment}. Retrieval count: {retrieval_count + 1}"
 
         return {
             "is_sufficient": is_sufficient,
             "retrieval_count": retrieval_count + 1,
-            "messages": state["messages"] + [SystemMessage(content=judge_message)],
+            "messages": state["messages"]
+            + [
+                SystemMessage(
+                    content=f"[Judge]: {'Sufficient' if is_sufficient else 'Insufficient'} (attempt {retrieval_count + 1})"
+                )
+            ],
         }
 
-    def _decide_retrieve_or_generate(self, state: RAGState) -> str:
-        """Decide whether to retrieve more documents or generate answer."""
-        if state.get("is_sufficient", False):
-            return "generate"
-        else:
-            return "retrieve"
-
-    def _check_intent(self, state: RAGState) -> RAGState:
-        """Check if the question is related to the repository."""
+    def retrieve_node(self, state: RAGState) -> RAGState:
+        """Retrieve relevant documents from vectorstore."""
         question = state["question"]
         repo_name = state["repo_name"]
 
-        # Create a prompt to judge if question is repo-related
-        intent_prompt = RAGPrompts.get_intent_check_prompt(question, repo_name)
-
-        judgment = self._invoke_llm(intent_prompt)
-
-        is_repo_related = "yes" in judgment
-        intent_message = f"[check_intent]: {'Repository-related' if is_repo_related else 'General question'}. Question: {question}"
-
-        return {
-            "is_repo_related": is_repo_related,
-            "messages": state["messages"] + [SystemMessage(content=intent_message)],
-        }
-
-    def _rewrite(self, state: RAGState) -> RAGState:
-        """Rewrite and improve the user's question for better retrieval."""
-        original_question = state["question"]
-        repo_name = state["repo_name"]
-
-        # Create a prompt to rewrite the question
-        rewrite_prompt = RAGPrompts.get_rewrite_prompt(original_question, repo_name)
-
-        llm = CONFIG.get_llm()
-        rewritten_question = llm.invoke([rewrite_prompt]).content.strip()
-
-        rewrite_message = f"[rewrite]: Original: '{original_question}' -> Refined: '{rewritten_question}'"
-
-        return {
-            "question": rewritten_question,
-            "messages": state["messages"] + [SystemMessage(content=rewrite_message)],
-        }
-
-    def _decide_rag_or_direct(self, state: RAGState) -> str:
-        """Decide whether to use RAG or direct LLM response."""
-        if state.get("is_repo_related", False):
-            return "rag"
-        else:
-            return "direct"
-
-    def _init_vectorstores(self, repo_dir: str):
-        vectorstores = {}
-        repo_path = os.path.join(self.wikis_dir, repo_dir)
-        if os.path.exists(repo_path) and os.path.isdir(repo_path):
-            loader = DirectoryLoader(repo_path, glob="**/*", show_progress=False)
-            repo_docs = loader.load()
-            for doc in repo_docs:
-                doc.metadata["source"] = repo_dir
-
-            # Create separate collection for each repo
-            collection_name = repo_dir
-            vectorstore = Chroma(
-                collection_name=collection_name,
-                embedding_function=HuggingFaceEmbeddings(
-                    model_name=self.embeddings_model_name
-                ),
-                persist_directory=f"./.chroma_dbs/{collection_name}",  # Separate directory for each collection
-            )
-            # only add documents if the vectorstore is empty
-            if not vectorstore.get()["ids"]:  # If no documents present
-                print(f"Adding documents to vectorstore for repo: {repo_dir}")
-                vectorstore.add_documents(repo_docs)
-            else:
-                print(f"Vectorstore for repo {repo_dir} already has documents.")
-            vectorstores[repo_dir] = vectorstore
-        return vectorstores
-
-    # Define retrieval function
-    def _retrieve(self, state: RAGState) -> RAGState:
-        query = state["query"]
-        question = state["question"]  # Use the refined question from rewrite step
-        repo_name = state["repo_name"]
-
-        def fallback_search(question: str) -> List[Document]:
-            docs = []
-            for vs in self.vectorstores.values():
-                docs.extend(vs.similarity_search(question, k=3))
-            return docs
-
-        # Use repo_name and refined question for retrieval
         if repo_name and repo_name in self.vectorstores:
-            docs = self.vectorstores[repo_name].similarity_search(question, k=5)
+            docs = self.vectorstores[repo_name].similarity_search(
+                question, k=self.retrieval_k
+            )
         else:
-            docs = fallback_search(question)
+            docs = self._fallback_search(question)
 
         return {
-            "query": query,
-            "question": question,
             "documents": docs,
-            "answer": "",
             "messages": state["messages"]
-            + [SystemMessage(content=f"[retrieve]: Retrieved {len(docs)} documents.")],
+            + [SystemMessage(content=f"[Retrieve]: Found {len(docs)} documents")],
         }
 
-    # Define generation function with RAG context
-    def _generate_with_rag(self, state: RAGState) -> RAGState:
-        query = state["query"]
+    def _fallback_search(self, question: str) -> List[Document]:
+        """Search across all vectorstores when specific repo not found."""
+        docs = []
+        for vs in self.vectorstores.values():
+            docs.extend(vs.similarity_search(question, k=3))
+        return docs
+
+    def generate_rag_node(self, state: RAGState) -> RAGState:
+        """Generate answer using RAG context."""
         question = state["question"]
         docs = state["documents"]
         context = "\n".join([doc.page_content for doc in docs])
-        history = self._get_history_messages(state)
+        history = self._get_history(state)
 
-        prompt = RAGPrompts.get_rag_generation_prompt(history, context, question)
+        prompt = self._create_rag_generation_prompt(history, context, question)
         llm = CONFIG.get_llm()
         answer = llm.invoke([prompt]).content
 
         return {
-            "query": query,
-            "question": question,
-            "documents": docs,
             "answer": answer,
             "messages": state["messages"] + [AIMessage(content=answer)],
         }
 
-    def _generate_direct(self, state: RAGState) -> RAGState:
-        """Generate answer directly without RAG context."""
+    def generate_direct_node(self, state: RAGState) -> RAGState:
+        """Generate answer directly without RAG."""
         question = state["question"]
-        history = self._get_history_messages(state)
+        history = self._get_history(state)
 
-        prompt = RAGPrompts.get_direct_generation_prompt(history, question)
-
+        prompt = self._create_direct_generation_prompt(history, question)
         llm = CONFIG.get_llm()
         answer = llm.invoke([prompt]).content
 
         return {
-            "query": state["query"],
-            "question": question,
-            "documents": [],
             "answer": answer,
             "messages": state["messages"] + [AIMessage(content=answer)],
         }
 
-    # For backward compatibility
-    def _generate(self, state: RAGState) -> RAGState:
-        return self._generate_with_rag(state)
+    def _get_history(self, state: RAGState) -> str:
+        """Extract and format conversation history."""
+        history = [
+            msg
+            for msg in state["messages"]
+            if isinstance(msg, (HumanMessage, AIMessage))
+        ]
 
-    def _print_stream(self, file_name: str, stream):
+        if len(history) > self.history_window_size:
+            history = history[-self.history_window_size :]
+
+        return "\n".join(
+            [
+                f"{'User' if isinstance(msg, HumanMessage) else 'Assistant'}: {msg.content}"
+                for msg in history
+            ]
+        )
+
+    def _init_vectorstores(self, repo_dir: str):
+        """Initialize vectorstores for the given repository."""
+        vectorstores = {}
+        repo_path = os.path.join(self.wikis_dir, repo_dir)
+
+        if not os.path.exists(repo_path) or not os.path.isdir(repo_path):
+            return vectorstores
+
+        loader = DirectoryLoader(
+            repo_path, glob="**/*", loader_cls=TextLoader, show_progress=False
+        )
+        repo_docs = loader.load()
+
+        for doc in repo_docs:
+            doc.metadata["source"] = repo_dir
+
+        vectorstore = Chroma(
+            collection_name=repo_dir,
+            embedding_function=HuggingFaceEmbeddings(
+                model_name=self.embeddings_model_name
+            ),
+            persist_directory=f"./.chroma_dbs/{repo_dir}",
+        )
+
+        if not vectorstore.get()["ids"]:
+            print(f"Indexing documents for: {repo_dir}")
+            vectorstore.add_documents(repo_docs)
+        else:
+            print(f"Using existing vectorstore for: {repo_dir}")
+
+        vectorstores[repo_dir] = vectorstore
+        return vectorstores
+
+    def _stream_and_print(self, stream):
+        """Process stream and print messages."""
         final_state = None
         for s in stream:
             message = s["messages"][-1]
-            self._write_log(file_name, message)
-            if isinstance(message, tuple):
-                print(message)
-            else:
-                message.pretty_print()
-            final_state = s
-        return final_state
-
-    def _write_log(self, file_name: str, message):
-        """Write a log message to a file.
-
-        Args:
-            message: The log message to write (can be a message object or string).
-        """
-        f = io.StringIO()
-        with redirect_stdout(f):
             if hasattr(message, "pretty_print"):
                 message.pretty_print()
             else:
                 print(message)
-        pretty_output = f.getvalue()
-        dir_name = "./.logs"
-        if not os.path.exists(dir_name):
-            os.makedirs(dir_name)
-        log_file_name = os.path.join(dir_name, f"{file_name}.log")
-        with open(log_file_name, "a") as log_file:
-            log_file.write(pretty_output + "\n\n")
+            final_state = s
+        return final_state
 
-    def _draw_graph(self):
-        img = self.app.get_graph().draw_mermaid_png(
-            draw_method=MermaidDrawMethod.API,
-        )
-        dir_name = "./.graphs"
-        if not os.path.exists(dir_name):
-            os.makedirs(dir_name)
-        graph_file_name = os.path.join(
-            dir_name,
-            f"rag_agent_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.png",
-        )
-        with open(graph_file_name, "wb") as f:
-            f.write(img)
+    def _log_state(self, state: RAGState, file_name: str):
+        """Log the current state to a file."""
+        log_dir = "./.logs/rag_agent"
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"{file_name}.log")
+        with open(log_file, "a") as f:
+            f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+            f.write(f"State: {state}\n")
+            f.write("-" * 40 + "\n")
 
-    def _get_initial_state(self, repo_name: str = "") -> RAGState:
-        return {
+    def run(self) -> str:
+        """Interactive CLI for querying repositories."""
+        repo_input = input('Repository name (e.g., "owner/repo"): ')
+        repo_dir = repo_input.replace("/", "_")
+        self.vectorstores = self._init_vectorstores(repo_dir)
+
+        thread_id = f"{repo_dir}-chat"
+        app_state = {
             "messages": [],
             "query": "",
             "question": "",
@@ -336,74 +431,37 @@ class RAGAgent:
             "is_sufficient": False,
             "retrieval_count": 0,
             "is_repo_related": False,
-            "repo_name": repo_name,
+            "repo_name": repo_input,
         }
+        file_name = f"{thread_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self._log_state(app_state, file_name)
 
-    def _get_history_messages(self, state: RAGState):
-        # get only user and ai answer messages from state
-        # messages like check_intent, retrieve, llm_judge are not included
-        history = []
-        for msg in state["messages"]:
-            if isinstance(msg, (HumanMessage, AIMessage)):
-                history.append(msg)
-        formatted_history = "\n".join(
-            [
-                (
-                    f"User: {msg.content}"
-                    if isinstance(msg, HumanMessage)
-                    else f"Assistant: {msg.content}"
-                )
-                for msg in history
-            ]
-        )
-        return formatted_history
-
-    def _reset_query_state(
-        self, state: RAGState, query: str, user_input: str
-    ) -> RAGState:
-        """Reset query-specific state for a new question."""
-        state["messages"] = state.get("messages", []) + [
-            HumanMessage(content=user_input)
-        ]
-        state["query"] = query
-        state["question"] = user_input
-        state["is_sufficient"] = False
-        state["retrieval_count"] = 0
-        state["is_repo_related"] = False
-        return state
-
-    # Function to run the agent
-    def run(self) -> str:
-        repo_input = input(
-            'Enter the repo name(such as "squatting-at-home123/back-puppet"): '
-        )
-        repo_dir = repo_input.replace("/", "_")
-        self.vectorstores = self._init_vectorstores(repo_dir=repo_dir)
-        time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        thread_id = f"{repo_dir}-chat-thread"
-        app_state = self._get_initial_state(repo_name=repo_input)
         while True:
-            user_input = input("Enter your query (or 'exit' to quit): ")
+            user_input = input("\nQuery (or 'exit'): ")
             if user_input.lower() == "exit":
                 break
-            query = f"{repo_dir}: {user_input}"
-            app_state = self._reset_query_state(app_state, query, user_input)
-            app_state = self._print_stream(
-                file_name=time,
-                stream=self.app.stream(
+
+            # Reset query state
+            app_state["messages"] = app_state.get("messages", []) + [
+                HumanMessage(content=user_input)
+            ]
+            app_state["question"] = user_input
+            app_state["is_sufficient"] = False
+            app_state["retrieval_count"] = 0
+            app_state = self._stream_and_print(
+                self.app.stream(
                     app_state,
                     stream_mode="values",
                     config={
                         "configurable": {"thread_id": thread_id},
                         "recursion_limit": 100,
                     },
-                ),
+                )
             )
+            self._log_state(app_state, file_name)
+        return "Session ended."
 
 
 if __name__ == "__main__":
-    # Example usage
-    # Use "uv run python -m agents.rag_agent" to run this file
     rag_agent = RAGAgent()
     rag_agent.run()
-    # rag_agent._draw_graph()

@@ -13,7 +13,7 @@ def get_repo_commit_info_tool(
     max_num: Optional[int] = 10,
 ) -> Dict[str, Optional[str]]:
     """Get the latest commit information of a repository WITHOUT patch (diff) data.
-    
+
     This modified version excludes patch information to reduce token usage.
     Each file in commit will have: filename, status, additions, deletions, changes
     but NOT the patch field.
@@ -31,7 +31,6 @@ def get_repo_commit_info_tool(
         owner=owner, repo=repo, platform=platform, max_num=max_num
     )
     return commit_info
-
 
 
 def get_github_repo_info(

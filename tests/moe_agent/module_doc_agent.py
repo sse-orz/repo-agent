@@ -18,17 +18,17 @@ from utils.code_analyzer import (
 
 class ModuleDocAgent(BaseAgent):
     """Agent for generating module-level documentation."""
-    
+
     def __init__(
-        self, 
-        repo_identifier: str, 
-        repo_root: Optional[str] = None, 
-        wiki_path: Optional[str] = None, 
-        cache_path: Optional[str] = None, 
-        llm=None
+        self,
+        repo_identifier: str,
+        repo_root: Optional[str] = None,
+        wiki_path: Optional[str] = None,
+        cache_path: Optional[str] = None,
+        llm=None,
     ):
         """Initialize the ModuleDocAgent.
-        
+
         Args:
             repo_identifier (str): Unified repository identifier (format: owner_repo_name)
             repo_root (Optional[str]): Absolute path to repository root for file resolution
@@ -38,24 +38,28 @@ class ModuleDocAgent(BaseAgent):
         """
         self.repo_identifier = repo_identifier
         self.llm = llm if llm else CONFIG.get_llm()
-        self.repo_root = Path(repo_root).absolute() if repo_root else Path(".").absolute()
-        
+        self.repo_root = (
+            Path(repo_root).absolute() if repo_root else Path(".").absolute()
+        )
+
         # Use provided wiki_path or default to .wikis/{repo_identifier}
         if wiki_path:
             self.wiki_base_path = Path(wiki_path) / "modules"
         else:
             self.wiki_base_path = Path(f".wikis/{repo_identifier}/modules")
-        
+
         # Use provided cache_path or default to .cache/{repo_identifier}
         if cache_path:
             self.module_analysis_base_path = Path(cache_path) / "module_analysis"
         else:
-            self.module_analysis_base_path = Path(f".cache/{repo_identifier}/module_analysis")
-        
+            self.module_analysis_base_path = Path(
+                f".cache/{repo_identifier}/module_analysis"
+            )
+
         # Ensure directories exist
         self.wiki_base_path.mkdir(parents=True, exist_ok=True)
         self.module_analysis_base_path.mkdir(parents=True, exist_ok=True)
-        
+
         # System prompt for module documentation
         self.system_prompt = """You are a technical documentation expert specializing in module-level code analysis and documentation.
 
@@ -91,21 +95,21 @@ Your documentation should include:
 - Focus on helping developers understand the module quickly
 - You may only read files explicitly listed for the module or the permitted cache files. If a file read fails, do not attempt to read it again. It is acceptable to focus on a subset of files you deem most important.
 """
-        
+
         tools = [
             read_file_tool,
             write_file_tool,
             ls_context_file_tool,
         ]
-        
+
         self.summarizer = ConversationSummarizer(
             model=self.llm,
             max_tokens_before_summary=8000,
             messages_to_keep=20,
         )
-        
+
         system_message = SystemMessage(content=self.system_prompt)
-        
+
         super().__init__(
             tools=tools,
             system_prompt=system_message,
@@ -113,13 +117,13 @@ Your documentation should include:
             wiki_path=str(self.wiki_base_path),
             llm=self.llm,
         )
-    
+
     def _module_slug(self, module_name: str) -> str:
         return module_name.replace("/", "_").replace("\\", "_")
-    
+
     def _get_module_analysis_path(self, module_name: str) -> Path:
         return self.module_analysis_base_path / f"{self._module_slug(module_name)}.json"
-    
+
     def _resolve_file_path(self, file_path: str) -> Path:
         candidate = Path(file_path)
         if candidate.is_absolute():
@@ -128,7 +132,7 @@ Your documentation should include:
             return candidate.resolve()
         repo_candidate = (self.repo_root / file_path).resolve()
         return repo_candidate
-    
+
     def _load_cached_module_analysis(
         self, module_name: str, files: List[str]
     ) -> Optional[Dict[str, Any]]:
@@ -143,8 +147,10 @@ Your documentation should include:
         except Exception:
             return None
         return None
-    
-    def _build_module_analysis(self, module_name: str, files: List[str]) -> Dict[str, Any]:
+
+    def _build_module_analysis(
+        self, module_name: str, files: List[str]
+    ) -> Dict[str, Any]:
         analysis: Dict[str, Any] = {
             "module_name": module_name,
             "generated_at": datetime.utcnow().isoformat() + "Z",
@@ -153,7 +159,7 @@ Your documentation should include:
             "missing_files": [],
             "file_summaries": {},
         }
-        
+
         for file_path in files:
             resolved_path = self._resolve_file_path(file_path)
             record: Dict[str, Any] = {
@@ -165,7 +171,7 @@ Your documentation should include:
                 analysis["missing_files"].append(file_path)
                 analysis["file_summaries"][file_path] = record
                 continue
-            
+
             try:
                 stats = analyze_file_with_tree_sitter(str(resolved_path))
                 formatted = (
@@ -187,12 +193,12 @@ Your documentation should include:
                         "error": f"Analysis failed: {exc}",
                     }
                 }
-            
+
             analysis["existing_files"].append(file_path)
             analysis["file_summaries"][file_path] = record
-        
+
         return analysis
-    
+
     def _ensure_module_analysis(
         self, module_name: str, files: List[str]
     ) -> Tuple[Dict[str, Any], Path]:
@@ -200,13 +206,13 @@ Your documentation should include:
         cached = self._load_cached_module_analysis(module_name, files)
         if cached:
             return cached, self._get_module_analysis_path(module_name)
-        
+
         analysis = self._build_module_analysis(module_name, files)
         analysis_path = self._get_module_analysis_path(module_name)
         with open(analysis_path, "w", encoding="utf-8") as f:
             json.dump(analysis, f, indent=2, ensure_ascii=False)
         return analysis, analysis_path
-    
+
     def _agent_node(
         self, system_prompt: SystemMessage, state: AgentState
     ) -> AgentState:
@@ -221,24 +227,22 @@ Your documentation should include:
             ]
         else:
             summarized_messages = messages
-        
-        response = self.llm_with_tools.invoke(
-            [system_prompt] + summarized_messages
-        )
-        
+
+        response = self.llm_with_tools.invoke([system_prompt] + summarized_messages)
+
         extra_messages = summary_update["messages"] if summary_update else []
         return {"messages": extra_messages + [response]}
-    
+
     def generate_module_doc(self, module: Dict[str, Any]) -> Dict[str, Any]:
         """Generate documentation for a single module.
-        
+
         Args:
             module (Dict[str, Any]): Module information including:
                 - name: Module name
                 - files: List of file paths
                 - priority: Module priority
                 - estimated_size: Size estimate
-                
+
         Returns:
             Dict[str, Any]: Result containing:
                 - module_name: Name of the module
@@ -248,24 +252,24 @@ Your documentation should include:
         """
         module_name = module["name"]
         files = module["files"]
-        
+
         print(f"\n📝 Generating documentation for module: {module_name}")
         print(f"   Files: {len(files)}")
-        
+
         # Prepare documentation path
         doc_filename = f"{module_name.replace('/', '_')}.md"
         doc_path = self.wiki_base_path / doc_filename
-        
+
         analysis_data, analysis_path = self._ensure_module_analysis(module_name, files)
         print(f"   Static analysis cache: {analysis_path}")
         confirmed_files = analysis_data.get("existing_files", [])
-        
+
         confirmed_files_text = (
             json.dumps(confirmed_files, indent=2, ensure_ascii=False)
             if confirmed_files
             else "[]"
         )
-        
+
         prompt = f"""
 Please generate documentation for the module based on the following information:
 
@@ -291,7 +295,7 @@ Please generate documentation for the module based on the following information:
 
 Please complete the analysis and documentation writing while adhering to the above restrictions.
 """
-        
+
         try:
             # Invoke the agent
             initial_state = AgentState(
@@ -309,7 +313,7 @@ Please complete the analysis and documentation writing while adhering to the abo
                     "recursion_limit": 60,
                 },
             )
-            
+
             # Check if documentation was generated
             if doc_path.exists():
                 return {
@@ -320,9 +324,11 @@ Please complete the analysis and documentation writing while adhering to the abo
                 }
             else:
                 # Fallback: create basic documentation if agent didn't complete
-                print(f"⚠️  Agent didn't complete all tasks. Creating fallback documentation...")
+                print(
+                    f"⚠️  Agent didn't complete all tasks. Creating fallback documentation..."
+                )
                 return self._create_fallback_doc(module, doc_path)
-                
+
         except Exception as e:
             print(f"❌ Error generating documentation for {module_name}: {e}")
             return {
@@ -331,20 +337,22 @@ Please complete the analysis and documentation writing while adhering to the abo
                 "summary": f"Error: {str(e)}",
                 "status": "error",
             }
-    
-    def _create_fallback_doc(self, module: Dict[str, Any], doc_path: Path) -> Dict[str, Any]:
+
+    def _create_fallback_doc(
+        self, module: Dict[str, Any], doc_path: Path
+    ) -> Dict[str, Any]:
         """Create fallback documentation when agent fails.
-        
+
         Args:
             module: Module information
             doc_path: Path to save documentation
-            
+
         Returns:
             Dict[str, Any]: Result information
         """
         module_name = module["name"]
         files = module["files"]
-        
+
         # Create basic documentation
         doc_content = f"""# {module_name}
 
@@ -363,35 +371,39 @@ This module contains {len(files)} file(s).
 ## Usage
 *To be documented...*
 """
-        
+
         # Save documentation
-        with open(doc_path, 'w', encoding='utf-8') as f:
+        with open(doc_path, "w", encoding="utf-8") as f:
             f.write(doc_content)
-        
+
         return {
             "module_name": module_name,
             "doc_path": str(doc_path),
             "summary": f"Module containing {len(files)} files",
             "status": "fallback",
         }
-    
-    def generate_all_modules(self, modules: List[Dict[str, Any]], max_workers: int = 5) -> List[Dict[str, Any]]:
+
+    def generate_all_modules(
+        self, modules: List[Dict[str, Any]], max_workers: int = 5
+    ) -> List[Dict[str, Any]]:
         """Generate documentation for all modules in parallel.
-        
+
         Args:
             modules (List[Dict[str, Any]]): List of module information
             max_workers (int): Maximum number of worker threads. Default is 5.
-            
+
         Returns:
             List[Dict[str, Any]]: List of results for each module
         """
-        print(f"\n🚀 Starting parallel module documentation generation for {len(modules)} modules...")
+        print(
+            f"\n🚀 Starting parallel module documentation generation for {len(modules)} modules..."
+        )
         print(f"   Max workers: {max_workers}")
-        
+
         results = []
         total = len(modules)
         completed_count = 0
-        
+
         # Use ThreadPoolExecutor for parallel processing
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
@@ -399,16 +411,16 @@ This module contains {len(files)} file(s).
                 executor.submit(self.generate_module_doc, module): (i + 1, module)
                 for i, module in enumerate(modules)
             }
-            
+
             # Process completed tasks as they finish
             for future in as_completed(future_to_module):
                 module_idx, module = future_to_module[future]
                 completed_count += 1
-                
+
                 try:
                     result = future.result()
                     results.append(result)
-                    
+
                     print(f"\n[{completed_count}/{total}] Module: {module['name']}")
                     if result["status"] == "success":
                         print(f"✅ Success: {result['summary']}")
@@ -416,21 +428,23 @@ This module contains {len(files)} file(s).
                         print(f"⚠️  Fallback documentation created")
                     else:
                         print(f"❌ Failed: {result.get('summary', 'Unknown error')}")
-                        
+
                 except Exception as e:
                     print(f"\n[{completed_count}/{total}] Module: {module['name']}")
                     print(f"❌ Exception occurred: {str(e)}")
-                    results.append({
-                        "module_name": module["name"],
-                        "doc_path": None,
-                        "cache_path": None,
-                        "summary": f"Exception: {str(e)}",
-                        "status": "error",
-                    })
-        
+                    results.append(
+                        {
+                            "module_name": module["name"],
+                            "doc_path": None,
+                            "cache_path": None,
+                            "summary": f"Exception: {str(e)}",
+                            "status": "error",
+                        }
+                    )
+
         print(f"\n✨ Module documentation generation complete!")
         print(f"   Success: {sum(1 for r in results if r['status'] == 'success')}")
         print(f"   Fallback: {sum(1 for r in results if r['status'] == 'fallback')}")
         print(f"   Failed: {sum(1 for r in results if r['status'] == 'error')}")
-        
+
         return results

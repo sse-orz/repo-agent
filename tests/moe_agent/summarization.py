@@ -74,7 +74,9 @@ class ConversationSummarizer:
         self.token_counter = token_counter
         self.summary_prompt = summary_prompt
 
-    def build_messages_update(self, messages: list[AnyMessage]) -> dict[str, Any] | None:
+    def build_messages_update(
+        self, messages: list[AnyMessage]
+    ) -> dict[str, Any] | None:
         """Return a partial state update for LangGraph, or None.
 
         The returned dict is intended to be merged using `add_messages` and may
@@ -154,7 +156,9 @@ class ConversationSummarizer:
 
         return 0
 
-    def _is_safe_cutoff_point(self, messages: list[AnyMessage], cutoff_index: int) -> bool:
+    def _is_safe_cutoff_point(
+        self, messages: list[AnyMessage], cutoff_index: int
+    ) -> bool:
         """Check if cutting at index would separate AI/Tool message pairs."""
         if cutoff_index >= len(messages):
             return True
@@ -201,7 +205,10 @@ class ConversationSummarizer:
         """Check if cutoff separates an AI message from its corresponding tool messages."""
         for j in range(ai_message_index + 1, len(messages)):
             message = messages[j]
-            if isinstance(message, ToolMessage) and message.tool_call_id in tool_call_ids:
+            if (
+                isinstance(message, ToolMessage)
+                and message.tool_call_id in tool_call_ids
+            ):
                 ai_before_cutoff = ai_message_index < cutoff_index
                 tool_before_cutoff = j < cutoff_index
                 if ai_before_cutoff != tool_before_cutoff:
@@ -225,7 +232,9 @@ class ConversationSummarizer:
         except Exception as e:  # noqa: BLE001
             return f"Error generating summary: {e!s}"
 
-    def _trim_messages_for_summary(self, messages: list[AnyMessage]) -> list[AnyMessage]:
+    def _trim_messages_for_summary(
+        self, messages: list[AnyMessage]
+    ) -> list[AnyMessage]:
         """Trim messages to fit within summary generation limits."""
         try:
             return trim_messages(

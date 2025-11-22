@@ -771,7 +771,7 @@ class GoAnalyzer(LanguageAnalyzer):
         for child in node.children:
             if child.type == "type_spec":
                 self._extract_type_spec(child)
-    
+
     def _extract_type_spec(self, node):
         """Extracts a single type specification (struct or interface).
 
@@ -783,20 +783,20 @@ class GoAnalyzer(LanguageAnalyzer):
         """
         name_node = node.child_by_field_name("name")
         type_node = node.child_by_field_name("type")
-        
+
         if not name_node or not type_node:
             return
-        
+
         name = name_node.text.decode("utf-8")
         docstring = self.get_docstring(node)
-        
+
         type_info = {
             "name": name,
             "docstring": docstring,
             "start_line": node.start_point[0] + 1,
             "end_line": node.end_point[0] + 1,
         }
-        
+
         # Categorize by type
         if type_node.type == "struct_type":
             # Extract struct fields
@@ -804,27 +804,31 @@ class GoAnalyzer(LanguageAnalyzer):
             type_info["fields"] = fields
             self.stats["structs"].append(type_info)
             # Also add to classes for backward compatibility
-            self.stats["classes"].append({
-                "name": name,
-                "methods": [],
-                "docstring": docstring,
-                "start_line": type_info["start_line"],
-                "end_line": type_info["end_line"],
-            })
+            self.stats["classes"].append(
+                {
+                    "name": name,
+                    "methods": [],
+                    "docstring": docstring,
+                    "start_line": type_info["start_line"],
+                    "end_line": type_info["end_line"],
+                }
+            )
         elif type_node.type == "interface_type":
             # Extract interface methods
             methods = self._extract_interface_methods(type_node)
             type_info["methods"] = methods
             self.stats["interfaces"].append(type_info)
             # Also add to classes for backward compatibility
-            self.stats["classes"].append({
-                "name": name,
-                "methods": methods,
-                "docstring": docstring,
-                "start_line": type_info["start_line"],
-                "end_line": type_info["end_line"],
-            })
-    
+            self.stats["classes"].append(
+                {
+                    "name": name,
+                    "methods": methods,
+                    "docstring": docstring,
+                    "start_line": type_info["start_line"],
+                    "end_line": type_info["end_line"],
+                }
+            )
+
     def _extract_struct_fields(self, struct_node):
         """Extracts fields from a struct_type node.
 
@@ -844,7 +848,7 @@ class GoAnalyzer(LanguageAnalyzer):
                         if field_info:
                             fields.extend(field_info)
         return fields
-    
+
     def _extract_field_info(self, field_node):
         """Extracts field name and type from a field_declaration node.
 
@@ -857,19 +861,19 @@ class GoAnalyzer(LanguageAnalyzer):
         fields = []
         names = []
         field_type = ""
-        
+
         for child in field_node.children:
             if child.type == "field_identifier":
                 names.append(child.text.decode("utf-8"))
             elif child.type not in {"field_identifier", ",", "field_declaration_list"}:
                 # This is likely the type
                 field_type = child.text.decode("utf-8")
-        
+
         for name in names:
             fields.append({"name": name, "type": field_type})
-        
+
         return fields
-    
+
     def _extract_interface_methods(self, interface_node):
         """Extracts methods from an interface_type node.
 
@@ -898,14 +902,16 @@ class GoAnalyzer(LanguageAnalyzer):
                 # This is an embedded interface (e.g., json.Marshaler)
                 embedded_name = child.text.decode("utf-8") if child.text else ""
                 if embedded_name:
-                    methods.append({
-                        "name": f"(embedded: {embedded_name})",
-                        "parameters": [],
-                        "return_type": "",
-                        "docstring": f"Embedded interface {embedded_name}",
-                    })
+                    methods.append(
+                        {
+                            "name": f"(embedded: {embedded_name})",
+                            "parameters": [],
+                            "return_type": "",
+                            "docstring": f"Embedded interface {embedded_name}",
+                        }
+                    )
         return methods
-    
+
     def _extract_interface_field_as_method(self, field_node):
         """Extracts method signature from a field_declaration in an interface.
 
@@ -919,7 +925,7 @@ class GoAnalyzer(LanguageAnalyzer):
         name = None
         params = []
         return_type = ""
-        
+
         for child in field_node.children:
             if child.type == "field_identifier":
                 name = child.text.decode("utf-8")
@@ -931,7 +937,7 @@ class GoAnalyzer(LanguageAnalyzer):
                     params = self._parse_parameters(params_node)
                 if result_node:
                     return_type = result_node.text.decode("utf-8")
-        
+
         if name:
             return {
                 "name": name,
@@ -940,7 +946,7 @@ class GoAnalyzer(LanguageAnalyzer):
                 "docstring": "",
             }
         return None
-    
+
     def _extract_method_spec(self, method_node):
         """Extracts method signature from a method_spec node.
 
@@ -953,14 +959,14 @@ class GoAnalyzer(LanguageAnalyzer):
         name_node = method_node.child_by_field_name("name")
         params_node = method_node.child_by_field_name("parameters")
         result_node = method_node.child_by_field_name("result")
-        
+
         if not name_node:
             return None
-        
+
         name = name_node.text.decode("utf-8")
         parameters = self._parse_parameters(params_node) if params_node else []
         return_type = result_node.text.decode("utf-8") if result_node else ""
-        
+
         return {
             "name": name,
             "parameters": parameters,
@@ -1969,17 +1975,17 @@ def format_tree_sitter_analysis_results(stats: Dict[str, Any]) -> Dict[str, Any]
         for d in stats.get("outer_dependencies", []):
             module = d.get("module", "").strip()
             name = d.get("name", "").strip()
-            
+
             # Skip entries where both module and name are empty
             if not module and not name:
                 continue
-            
+
             # Use tuple as key for deduplication
             key = (module, name)
             if key not in seen:
                 seen.add(key)
                 deduped.append({"module": module, "name": name})
-        
+
         summary["outer_dependencies"] = deduped
         # Also update the main stats to reflect cleaned data
         stats["outer_dependencies"] = deduped
