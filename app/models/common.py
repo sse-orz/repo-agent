@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Any
+from typing import Any
 
 
 class BaseResponse(BaseModel):
     message: str = Field(..., description="Response message")
-    code: Optional[int] = Field(200, description="Response status code")
-    data: Optional[Any] = Field(None, description="Response data payload")
+    code: int = Field(200, description="Response status code")
+    data: Any = Field(None, description="Response data payload")
