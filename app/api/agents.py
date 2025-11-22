@@ -1,11 +1,8 @@
-from fastapi import APIRouter, Depends
-from typing import List
-from datetime import datetime
+from fastapi import APIRouter, Depends, Body
 
 from app.models.common import BaseResponse
+from app.models.agents import GenerateRequest
 from app.services.agent_service import AgentService
-from agents.sub_graph.parent import ParentGraphBuilder
-from config import CONFIG
 
 router = APIRouter()
 
@@ -14,28 +11,30 @@ def get_agent_service() -> AgentService:
     return AgentService()
 
 
-@router.get("/generate")
+@router.post("/generate")
 async def generate_agent_documentation(
+    request: GenerateRequest = Body(...),
     agent_service: AgentService = Depends(get_agent_service),
 ) -> BaseResponse:
-    CONFIG.display()
-    parent_graph_builder = ParentGraphBuilder(branch_mode="all")
-    date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    parent_graph_builder.run(
-        inputs={
-            "owner": "octocat",
-            "repo": "Hello-World",
-            "platform": "github",
-            "mode": "fast",  # "fast" or "smart"
-            "max_workers": 50,  # 20 worker -> 3 - 4 minutes
-            "date": date,
-            "log": False,
-        },
-        config={
-            "configurable": {
-                "thread_id": f"wiki-generation-{date}",
-            }
-        },
-        count_time=True,
+    # generate documentation for a repository
+    data = agent_service.generate_documentation(request)
+
+    return BaseResponse(
+        message="Agent documentation generated successfully.",
+        code=200,
+        data=data,
     )
-    return BaseResponse(message="Agent documentation generated successfully.")
+
+
+@router.get("/list")
+async def list_documentation(
+    agent_service: AgentService = Depends(get_agent_service),
+) -> BaseResponse:
+    # list wikis that have been generated
+    data = agent_service.list_wikis()
+
+    return BaseResponse(
+        message="List of generated wikis retrieved successfully.",
+        code=200,
+        data=data,
+    )
