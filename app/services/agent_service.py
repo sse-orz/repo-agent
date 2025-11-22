@@ -42,7 +42,7 @@ class AgentService:
     def generate_documentation(self, request: GenerateRequest) -> GenerateResponseData:
         """Generate documentation for a repository."""
         CONFIG.display()
-        parent_graph_builder = ParentGraphBuilder(branch_mode="all")
+        parent_graph_builder = ParentGraphBuilder(branch_mode=request.branch_mode)
         date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
         # Run the documentation generation
