@@ -158,7 +158,7 @@ def get_repo_info(
 
 
 def get_github_commits(
-    owner: str, repo: str, token: Optional[str] = None, per_page: Optional[int] = 10
+    owner: str, repo: str, token: Optional[str] = None, per_page: Optional[int] = 2
 ) -> List[Dict[str, Any]]:
     """get recent commits from a GitHub repository.
 
@@ -166,7 +166,7 @@ def get_github_commits(
         owner (str): The owner of the repository.
         repo (str): The name of the repository.
         token (str, optional): GitHub personal access token. Defaults to None.
-        per_page (int, optional): Number of commits to retrieve per page. Defaults to 10.
+        per_page (int, optional): Number of commits to retrieve per page. Defaults to 2.
 
     Returns:
         list: List of commit information.
@@ -188,7 +188,7 @@ def get_github_commits(
 
 
 def get_gitee_commits(
-    owner: str, repo: str, token: Optional[str] = None, per_page: Optional[int] = 10
+    owner: str, repo: str, token: Optional[str] = None, per_page: Optional[int] = 2
 ) -> List[Dict[str, Any]]:
     """get recent commits from a Gitee repository.
 
@@ -196,7 +196,7 @@ def get_gitee_commits(
         owner (str): The owner of the repository.
         repo (str): The name of the repository.
         token (str, optional): Gitee personal access token. Defaults to None.
-        per_page (int, optional): Number of commits to retrieve per page. Defaults to 10.
+        per_page (int, optional): Number of commits to retrieve per page. Defaults to 2.
 
     Returns:
         list: List of commit information.
@@ -227,7 +227,7 @@ def get_gitee_commits(
 def get_commits(
     owner: str,
     repo: str,
-    per_page: Optional[int] = 10,
+    per_page: Optional[int] = 2,
     platform: Optional[str] = "github",
 ) -> List[Dict[str, Any]]:
     """get recent commits from a GitHub or Gitee repository.
@@ -236,7 +236,7 @@ def get_commits(
         owner (str): The owner of the repository.
         repo (str): The name of the repository.
         token (str, optional): GitHub personal access token. Defaults to None.
-        per_page (int, optional): Number of commits to retrieve per page. Defaults to 10.
+        per_page (int, optional): Number of commits to retrieve per page. Defaults to 2.
         platform (str, optional): Platform to use ("github" or "gitee"). Defaults to "github".
 
     Returns:
@@ -348,7 +348,7 @@ def get_commit_files(
 def get_repo_commit_info(
     owner: str,
     repo: str,
-    max_num: Optional[int] = 10,
+    max_num: Optional[int] = 2,
     platform: Optional[str] = "github",
 ) -> Dict[str, Any]:
     """Get repository information along with recent commits and their modified files.
@@ -356,7 +356,7 @@ def get_repo_commit_info(
     Args:
         owner (str): The owner of the repository.
         repo (str): The name of the repository.
-        max_num (Optional[int], optional): Maximum number of commits to retrieve. Defaults to 10.
+        max_num (Optional[int], optional): Maximum number of commits to retrieve. Defaults to 2.
         platform (Optional[str], optional): Platform to use ("github" or "gitee"). Defaults to "github".
     Returns:
         Dict[str, Any]: Repository information along with recent commits and their modified files.
@@ -843,6 +843,10 @@ def get_pr_files(
 if __name__ == "__main__":
     # Example usage
     # use "uv run python -m utils.repo" to run this file
+    # owner = "sse-orz"
+    # repo = "repo-agent"
+    # platform = "github"
+    
     owner = "facebook"
     repo = "zstd"
     platform = "github"
@@ -873,11 +877,11 @@ if __name__ == "__main__":
     # commit_file = get_commit_files(owner, repo, commit[0]["sha"], platform=platform)
     # print("\n\nCommit Files:", commit_file)
 
-    # commit_info = get_repo_commit_info(owner, repo, platform=platform)
-    # print("\n\nCommit Info:", commit_info)
+    commit_info = get_repo_commit_info(owner, repo, platform=platform)
+    print("\n\nCommit Info:", commit_info)
 
-    pr = get_pr(owner, repo, platform=platform)
-    print("Pull Requests:", pr)
+    # pr = get_pr(owner, repo, platform=platform)
+    # print("Pull Requests:", pr)
 
-    pr_files = get_pr_files(owner, repo, platform=platform)
-    print("\n\nPull Request Files:", pr_files)
+    # pr_files = get_pr_files(owner, repo, platform=platform)
+    # print("\n\nPull Request Files:", pr_files)
