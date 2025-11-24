@@ -648,7 +648,28 @@ class GoAnalyzer(LanguageAnalyzer):
         # Add Go-specific fields for structs and interfaces
         self.stats["structs"] = []
         self.stats["interfaces"] = []
+        # Map to store methods by their receiver type name
+        self.struct_methods = {}
         self._collect_go_imports_and_usages()
+
+    def analyze(self):
+        """Runs the AST traversal to collect structural statistics for Go files.
+        
+        Returns:
+            Dict[str, Any]: Stats with structs, interfaces and functions (no classes).
+        """
+        self._traverse(self.tree.root_node)
+        # Associate methods with their corresponding structs
+        for struct in self.stats["structs"]:
+            struct_name = struct["name"]
+            if struct_name in self.struct_methods:
+                struct["methods"] = self.struct_methods[struct_name]
+            else:
+                struct["methods"] = []
+        # Remove the "classes" field for Go to avoid duplication
+        # (structs and interfaces are already captured separately)
+        self.stats.pop("classes", None)
+        return self.stats
 
     def _collect_go_imports_and_usages(self):
         """Parses import blocks and records qualified function usages.
@@ -713,8 +734,8 @@ class GoAnalyzer(LanguageAnalyzer):
             if not self._is_in_type(node):
                 self._extract_function_info(node)
         elif node.type == "method_declaration":
-            # Methods are handled separately, but for now treat as functions
-            self._extract_function_info(node, is_method=True)
+            # Extract method and associate it with its receiver type
+            self._extract_method_declaration(node)
 
         for child in node.children:
             self._traverse(child)
@@ -803,31 +824,11 @@ class GoAnalyzer(LanguageAnalyzer):
             fields = self._extract_struct_fields(type_node)
             type_info["fields"] = fields
             self.stats["structs"].append(type_info)
-            # Also add to classes for backward compatibility
-            self.stats["classes"].append(
-                {
-                    "name": name,
-                    "methods": [],
-                    "docstring": docstring,
-                    "start_line": type_info["start_line"],
-                    "end_line": type_info["end_line"],
-                }
-            )
         elif type_node.type == "interface_type":
             # Extract interface methods
             methods = self._extract_interface_methods(type_node)
             type_info["methods"] = methods
             self.stats["interfaces"].append(type_info)
-            # Also add to classes for backward compatibility
-            self.stats["classes"].append(
-                {
-                    "name": name,
-                    "methods": methods,
-                    "docstring": docstring,
-                    "start_line": type_info["start_line"],
-                    "end_line": type_info["end_line"],
-                }
-            )
 
     def _extract_struct_fields(self, struct_node):
         """Extracts fields from a struct_type node.
@@ -884,10 +885,15 @@ class GoAnalyzer(LanguageAnalyzer):
             List[Dict]: List of method information.
         """
         methods = []
-        # Look for method_spec, method_declaration and embedded interfaces
+        # Look for method_elem (Go interface methods), method_spec, and embedded interfaces
         for child in interface_node.children:
-            # Handle explicit method declarations
-            if child.type in ("method_spec", "method_declaration"):
+            # Handle method_elem (most common in Go interfaces)
+            if child.type == "method_elem":
+                method_info = self._extract_method_elem(child)
+                if method_info:
+                    methods.append(method_info)
+            # Handle explicit method declarations (fallback)
+            elif child.type in ("method_spec", "method_declaration"):
                 method_info = self._extract_method_spec(child)
                 if method_info:
                     methods.append(method_info)
@@ -938,6 +944,38 @@ class GoAnalyzer(LanguageAnalyzer):
                 if result_node:
                     return_type = result_node.text.decode("utf-8")
 
+        if name:
+            return {
+                "name": name,
+                "parameters": params,
+                "return_type": return_type,
+                "docstring": "",
+            }
+        return None
+
+    def _extract_method_elem(self, method_node):
+        """Extracts method signature from a method_elem node (Go interface methods).
+
+        Args:
+            method_node (Node): method_elem node from interface.
+
+        Returns:
+            Optional[Dict]: Method information or None.
+        """
+        # method_elem structure: field_identifier, parameter_list, return_type
+        name = None
+        params = []
+        return_type = ""
+        
+        for child in method_node.children:
+            if child.type == "field_identifier":
+                name = child.text.decode("utf-8")
+            elif child.type == "parameter_list":
+                params = self._parse_parameters(child)
+            elif child.type not in {"field_identifier", "parameter_list", "comment"}:
+                # This is likely the return type
+                return_type = child.text.decode("utf-8")
+        
         if name:
             return {
                 "name": name,
@@ -1006,6 +1044,74 @@ class GoAnalyzer(LanguageAnalyzer):
             self.stats["functions"].append(function_info)
 
         return function_info
+
+    def _extract_method_declaration(self, node):
+        """Extracts a method declaration and associates it with its receiver type.
+
+        Args:
+            node (Node): method_declaration node from Go AST.
+
+        Returns:
+            None: Adds method info to struct_methods mapping.
+        """
+        # Extract receiver to determine which struct/type this method belongs to
+        receiver_node = node.child_by_field_name("receiver")
+        if not receiver_node:
+            return
+
+        # Get the receiver type name
+        receiver_type = self._extract_receiver_type(receiver_node)
+        if not receiver_type:
+            return
+
+        # Extract method information using the same logic as _extract_function_info
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "AnonymousMethod"
+
+        params_node = node.child_by_field_name("parameters")
+        parameters = self._parse_parameters(params_node)
+
+        result_node = node.child_by_field_name("result")
+        return_type = result_node.text.decode("utf-8") if result_node else ""
+
+        method_info = {
+            "name": name,
+            "parameters": parameters,
+            "return_type": return_type,
+            "docstring": self.get_docstring(node),
+            "start_line": node.start_point[0] + 1,
+            "end_line": node.end_point[0] + 1,
+        }
+
+        # Add method to the struct_methods mapping
+        if receiver_type not in self.struct_methods:
+            self.struct_methods[receiver_type] = []
+        self.struct_methods[receiver_type].append(method_info)
+
+    def _extract_receiver_type(self, receiver_node):
+        """Extracts the type name from a method receiver.
+
+        Args:
+            receiver_node (Node): Receiver parameter list node.
+
+        Returns:
+            Optional[str]: The base type name (without pointer) or None.
+        """
+        # The receiver is a parameter_list containing a parameter_declaration
+        for child in receiver_node.children:
+            if child.type == "parameter_declaration":
+                # Look for the type, which could be:
+                # - type_identifier (e.g., "RunStep")
+                # - pointer_type with a type_identifier child (e.g., "*RunStep")
+                for subchild in child.children:
+                    if subchild.type == "type_identifier":
+                        return subchild.text.decode("utf-8")
+                    elif subchild.type == "pointer_type":
+                        # Extract the base type from pointer type
+                        for ptr_child in subchild.children:
+                            if ptr_child.type == "type_identifier":
+                                return ptr_child.text.decode("utf-8")
+        return None
 
     def _parse_parameters(self, params_node):
         """Parses Go parameter lists into structured descriptors.
@@ -1953,11 +2059,32 @@ def format_tree_sitter_analysis_results(stats: Dict[str, Any]) -> Dict[str, Any]
     if not stats:
         return {}
 
-    summary = {
-        "classes": [
+    # Build summary.classes from classes field, or from structs+interfaces for Go
+    classes_summary = []
+    
+    # If there's a classes field, use it (Python, JS, etc.)
+    if stats.get("classes"):
+        classes_summary = [
             {"name": cls["name"], "description": cls.get("docstring", "")}
             for cls in stats.get("classes", [])
-        ],
+        ]
+    # Otherwise, for Go, combine structs and interfaces
+    else:
+        # Add structs to summary
+        for struct in stats.get("structs", []):
+            classes_summary.append({
+                "name": struct["name"],
+                "description": struct.get("docstring", "")
+            })
+        # Add interfaces to summary
+        for interface in stats.get("interfaces", []):
+            classes_summary.append({
+                "name": interface["name"],
+                "description": interface.get("docstring", "")
+            })
+
+    summary = {
+        "classes": classes_summary,
         "functions": [
             {
                 "name": func["name"],
@@ -2061,13 +2188,13 @@ if __name__ == "__main__":
         if file_stats:
             # print(format_tree_sitter_analysis_results(file_stats))
             # write to a json file
-            # with open("analysis_results.json", "w", encoding="utf-8") as f:
-            #     json.dump(format_tree_sitter_analysis_results(file_stats), f, indent=2)
-            # print("Analysis results written to analysis_results.json")
+            with open("analysis_results.json", "w", encoding="utf-8") as f:
+                json.dump(format_tree_sitter_analysis_results(file_stats), f, indent=2)
+            print("Analysis results written to analysis_results.json")
             # write to a txt file
-            with open("analysis_results.txt", "w", encoding="utf-8") as f:
-                f.write(format_tree_sitter_analysis_results_to_prompt(file_stats))
-            print("Analysis results written to analysis_results.txt")
+            # with open("analysis_results.txt", "w", encoding="utf-8") as f:
+            #     f.write(format_tree_sitter_analysis_results_to_prompt(file_stats))
+            # print("Analysis results written to analysis_results.txt")
             # print(format_tree_sitter_analysis_results_to_prompt(file_stats))
             # print(json.dumps(format_tree_sitter_analysis_results(file_stats), indent=2))
     else:
