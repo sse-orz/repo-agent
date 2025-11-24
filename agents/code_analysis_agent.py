@@ -97,26 +97,31 @@ class CodeAnalysisAgent(BaseAgent):
         file_list_str = "\n".join([f"  - {f}" for f in batch])
 
         prompt = f"""
-                    Analyze the following {len(batch)} code files:
+        Analyze the following {len(batch)} code files:
 
-                    {file_list_str}
+        {file_list_str}
 
-                    For each file:
-                    1. Use code_file_analysis_tool with the EXACT file path
-                    2. Extract all required information
-                    3. Calculate complexity score based on:
-                    - Number of functions/classes
-                    - Code length
-                    - Nesting depth
-                    - Dependencies
+        You are a Senior Technical Lead conducting a code audit. 
+        For each file, you must generate a summary statement that adheres to the following **Developer-Focused Documentation Standards**:
+        
+        1.  **Context & Intent**: Explain NOT JUST what the code does, but WHY it exists (the problem it solves).
+        2.  **Scope & Boundaries**: Clearly state input/output and strictly what is out of scope.
+        3.  **Honesty (Caveats)**: Explicitly mention known limitations, performance bottlenecks, or side effects (e.g., "Not thread-safe", "O(n^2) complexity").
+        4.  **Tone**: Use objective, neutral, and active voice (e.g., "Parses JSON", not "This beautiful code helps you..."). Avoid marketing fluff ("Easy", "Powerful").
 
-                    Return results for ALL files in the JSON format specified in the system prompt.
+        Action Plan for each file:
+        1. Use code_file_analysis_tool with the EXACT file path.
+        2. Extract architecture, dependencies, and logic flow.
+        3. Calculate complexity score (Functions, Length, Nesting, Dependencies).
+        4. **Generate the Summary Statement** based on the standards above.
 
-                    IMPORTANT: 
-                    - Analyze each file ONCE
-                    - Include ALL {len(batch)} files in your response
-                    - Use the absolute file paths as JSON keys
-                """
+        Return results for ALL files in the JSON format specified in the system prompt.
+
+        IMPORTANT: 
+        - Analyze each file ONCE.
+        - Include ALL {len(batch)} files in your response.
+        - Use the absolute file paths as JSON keys.
+    """
 
         initial_state = AgentState(
             messages=[HumanMessage(content=prompt)],

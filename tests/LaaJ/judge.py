@@ -15,6 +15,7 @@ class LaaJAgent: # llm as a judge
     def get_icl_examples(self) -> List[Dict]:
         """
         Get In-Context Learning examples
+        代码文件和文档本身都要给，评价内容正确性
         """
         return [
             {
@@ -22,36 +23,146 @@ class LaaJAgent: # llm as a judge
                 "evaluation": {
                     "score": 9,
                     "aspects": {
-                        "clarity": "Very clear, directly states the function's purpose",
-                        "completeness": "Complete description of the main functionality",
-                        "accuracy": "Accurate and correct",
-                        "conciseness": "Concise and to the point",
+                    "clarity": "Very clear, directly states the function's purpose.",
+                    "completeness": "Describes the core functionality but does not mention parameters or return value.",
+                    "accuracy": "Accurate and correct.",
+                    "conciseness": "Concise and to the point.",
+                    "context_awareness": "Limited; states purpose but not how it fits into surrounding logic.",
+                    "technical_precision": "Basic but correct; lacks details on input types.",
+                    "limitations_disclosure": "None; for simple functions this may be acceptable.",
+                    "tone_and_style": "Professional and straightforward."
                     },
-                    "overall_feedback": "Excellent documentation that clearly and accurately describes the function's purpose",
+                    "overall_feedback": "Excellent documentation that clearly and accurately describes the function's purpose.",
                     "improvement_suggestions": [
-                        "Add parameter descriptions",
-                        "Include return value explanation",
-                    ],
-                },
+                    "Add parameter descriptions.",
+                    "Include return value explanation."
+                    ]
+                }
             },
             {
                 "documentation": "Function that does stuff.",
                 "evaluation": {
                     "score": 3,
                     "aspects": {
-                        "clarity": "Very vague, unclear about specific functionality",
-                        "completeness": "Missing critical information",
-                        "accuracy": "Description is too general",
-                        "conciseness": "Overly simplistic",
+                    "clarity": "Very vague and unclear about specific functionality.",
+                    "completeness": "Missing critical details such as parameters, return values, and purpose.",
+                    "accuracy": "Too generic to be meaningful or accurate.",
+                    "conciseness": "Overly simplistic to the point of being uninformative.",
+                    "context_awareness": "None; provides no indication of use case or context.",
+                    "technical_precision": "Very poor; no technical detail at all.",
+                    "limitations_disclosure": "None; likely because the functionality is not described.",
+                    "tone_and_style": "Neutral but too vague to be useful."
                     },
-                    "overall_feedback": "Poor quality documentation lacking specific information",
+                    "overall_feedback": "Poor quality documentation lacking specific and actionable information.",
                     "improvement_suggestions": [
-                        "Clearly specify the function's exact purpose",
-                        "Add parameter and return value descriptions",
-                        "Provide usage examples",
-                    ],
-                },
+                    "Clearly specify the function's exact purpose.",
+                    "Add parameter and return value descriptions.",
+                    "Provide usage examples."
+                    ]
+                }
             },
+            {
+                "documentation": "The `RetryingClient` wraps outbound HTTP requests and retries them using exponential backoff. If a request fails due to network errors or 5xx responses, it will attempt up to 5 retries before surfacing the exception.",
+                "evaluation": {
+                    "score": 8,
+                    "aspects": {
+                    "clarity": "Clear description of when retries occur and the upper retry bound.",
+                    "completeness": "Good coverage of behavior, but missing details on jitter strategy or retry interval configuration.",
+                    "accuracy": "Accurate explanation of exponential backoff and error conditions.",
+                    "conciseness": "Compact without unnecessary filler.",
+                    "context_awareness": "Explains relationship to outbound HTTP operations.",
+                    "technical_precision": "Solid, but could specify retry timing parameters.",
+                    "limitations_disclosure": "Mentions retry cap but not the lack of circuit-breaking.",
+                    "tone_and_style": "Neutral and professional."
+                    },
+                    "overall_feedback": "Well-written operational documentation that clearly communicates retry behavior. Adding configurability notes and jitter details would improve completeness.",
+                    "improvement_suggestions": [
+                    "Mention whether jitter is applied.",
+                    "Clarify retry interval defaults and configurability.",
+                    "Call out lack of circuit-breaker or cooldown mechanisms."
+                    ]
+                }
+            },
+            {
+                "documentation": "This file contains a function `process_data` that takes a list of items and saves them to the database. It loops through the list and commits each item.",
+                "evaluation": {
+                    "score": 6,
+                    "aspects": {
+                        "context_awareness": "Low. Doesn't explain what kind of data or why it's being saved.",
+                        "technical_precision": "Average. Describes the loop but misses details (Batch commit? Transactional?).",
+                        "limitations_disclosure": "Missing. Does not mention performance implications of committing inside a loop.",
+                        "tone_and_style": "Acceptable but slightly repetitive."
+                    },
+                    "overall_feedback": "Functional but minimal. It describes the code literally but lacks architectural context and performance warnings.",
+                    "improvement_suggestions": [
+                        "Specify the database interaction model (bulk insert vs single insert).",
+                        "Mention the expected data type of the input list.",
+                        "Add context about error handling behavior."
+                    ]
+                }
+            },
+            {
+                "documentation": "A powerful and easy-to-use helper for handling user images. It magically resizes everything for you so you don't have to worry about it. Best used for profile pictures.",
+                "evaluation": {
+                    "score": 3,
+                    "aspects": {
+                        "context_awareness": "Vague. 'Handling user images' is too broad.",
+                        "technical_precision": "Poor. Uses fluff words like 'powerful', 'easy-to-use', 'magically'. No mention of algorithms or formats.",
+                        "limitations_disclosure": "None. Implies it works for 'everything' which is dangerous.",
+                        "tone_and_style": "Subjective and unprofessional. Avoid marketing language in code comments."
+                    },
+                    "overall_feedback": "Fails to provide actionable information for a developer. 'Magically' is a red flag in technical documentation.",
+                    "improvement_suggestions": [
+                        "Remove subjective adjectives (powerful, easy, beautiful).",
+                        "Specify supported image formats (JPG, PNG?).",
+                        "Explain the resizing algorithm (Lanczos, Bilinear?).",
+                        "Define inputs and outputs clearly."
+                    ]
+                }
+            },
+            {
+                "documentation": "This module exports `normalize_email`, which trims whitespace, lowercases domains, and validates basic RFC-compliant structure. It does not attempt full RFC 5322 compliance.",
+                "evaluation": {
+                    "score": 9,
+                    "aspects": {
+                    "clarity": "Very clear; developer immediately understands what the function does.",
+                    "completeness": "Covers scope, capabilities, and boundaries of validation.",
+                    "accuracy": "Correctly describes the distinction between basic parsing and full RFC compliance.",
+                    "conciseness": "Minimal yet fully informative.",
+                    "context_awareness": "Explicit about its purpose in pre-processing user emails.",
+                    "technical_precision": "Strong. Avoids overstating capabilities.",
+                    "limitations_disclosure": "Excellent; explicitly states what is *not* handled.",
+                    "tone_and_style": "Professional, factual."
+                    },
+                    "overall_feedback": "Excellent function-level documentation. It sets clear expectations and prevents misuse by clarifying validation limits.",
+                    "improvement_suggestions": [
+                    "Include examples of accepted and rejected inputs.",
+                    "Specify whether internationalized domain names (IDN) are supported."
+                    ]
+                }
+            },
+            {
+                "documentation": "Helper method `serialize_user` converts a User model into a JSON-serializable dictionary. It includes id, name, roles, and timestamps. Internal-only fields (password_hash, tokens) are intentionally omitted.",
+                "evaluation": {
+                    "score": 7,
+                    "aspects": {
+                    "clarity": "Clear description of included vs excluded fields.",
+                    "completeness": "Decent, though missing mention of null-handling and timezone formatting.",
+                    "accuracy": "Accurately states what is serialized.",
+                    "conciseness": "Tight and to the point.",
+                    "context_awareness": "Explains the mapping from model to API output.",
+                    "technical_precision": "Could specify exact timestamp format (ISO8601?).",
+                    "limitations_disclosure": "Good mention of intentionally omitted fields.",
+                    "tone_and_style": "Neutral and informative."
+                    },
+                    "overall_feedback": "Useful serialization documentation with correct security hints. Could be improved by specifying formatting rules and optional fields.",
+                    "improvement_suggestions": [
+                    "Specify timezone (UTC?) and timestamp format.",
+                    "Document behavior for missing/None attributes.",
+                    "Mention whether nested models are supported."
+                    ]
+                }
+            }
         ]
 
     def build_evaluation_prompt(
@@ -62,17 +173,17 @@ class LaaJAgent: # llm as a judge
         """
         prompt = """You are a professional documentation quality evaluation expert. Please evaluate the quality of the documentation based on the following criteria:
 
-Evaluation Criteria:
-1. Clarity: Whether the documentation is clear and easy to understand, with unambiguous expression
-2. Completeness: Whether it contains necessary information (such as function description, parameter explanations, return values, usage examples, etc.)
-3. Accuracy: Whether the description is accurate, and whether there are errors or misleading information
-4. Conciseness: Whether it is concise and to the point, avoiding unnecessary redundancy
+        Evaluation Criteria:
+        1. Clarity: Whether the documentation is clear and easy to understand, with unambiguous expression
+        2. Completeness: Whether it contains necessary information (such as function description, parameter explanations, return values, usage examples, etc.)
+        3. Accuracy: Whether the description is accurate, and whether there are errors or misleading information
+        4. Conciseness: Whether it is concise and to the point, avoiding unnecessary redundancy
 
-Scoring Scale: 1-10 points (10 being the highest)
+        Scoring Scale: 1-10 points (10 being the highest)
 
-Please refer to the following examples:
+        Please refer to the following examples:
 
-"""
+        """
 
         # Add ICL examples
         for i, example in enumerate(icl_examples):
