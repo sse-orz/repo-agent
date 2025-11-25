@@ -24,3 +24,4 @@ SUMMARY.md
 node_modules/
 evaluation_results_1.out/
 evaluation_results.out/
+.DS_Store

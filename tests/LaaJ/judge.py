@@ -4,11 +4,13 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import CONFIG
+from typing import List, Tuple
 
 
 class LaaJAgent:  # llm as a judge
     def __init__(self, owner: str = "facebook", repo: str = "zstd", dir: str = ""):
         self.wiki_path = f"./.wikis/{owner}_{repo}/{dir}"
+        self.code_path = f"./.repos/{owner}_{repo}/lib/{dir}"
         self.output_file = "./evaluation_results.out"
 
     # in-context learning examples
@@ -166,7 +168,7 @@ class LaaJAgent:  # llm as a judge
         ]
 
     def build_evaluation_prompt(
-        self, documentation: str, icl_examples: List[Dict]
+        self, documentation: str, codecontent: str,icl_examples: List[Dict]
     ) -> str:
         """
         Build evaluation prompt in English
@@ -192,42 +194,86 @@ class LaaJAgent:  # llm as a judge
             prompt += f"Evaluation Result: {json.dumps(example['evaluation'], ensure_ascii=False, indent=2)}\n\n"
 
         prompt += f"""
-Now please evaluate the following documentation:
-
-Documentation Content:
-{documentation}
-
-Please return the evaluation result in JSON format with the following fields:
-- score: Overall score (1-10)
-- aspects: Evaluation of each dimension with reasoning
-  - clarity: Clarity assessment
-  - completeness: Completeness assessment  
-  - accuracy: Accuracy assessment
-  - conciseness: Conciseness assessment
-- overall_feedback: Overall feedback
-- improvement_suggestions: List of improvement suggestions
-
-Return only the JSON format result without any additional content:
-"""
+        Input:
+        Documentation Content:
+        {documentation}
+        Code File Content:
+        {codecontent}
+        ---
+        Return a JSON object **with no additional text**, following this exact structure:
+        {{
+        "score": <1-10 integer>,
+        "aspects": {{
+            "clarity": "<assessment with reasoning>",
+            "completeness": "<assessment with reasoning>",
+            "accuracy": "<assessment with reasoning; must reference code behavior>",
+            "conciseness": "<assessment with reasoning>"
+        }},
+        "overall_feedback": "<overall summary of evaluation>",
+        "improvement_suggestions": [
+            "<suggestion 1>",
+            "<suggestion 2>",
+            "..."
+        ]
+        }}
+        Requirements:
+        - All judgments **must be grounded directly in the provided code**.
+        - If the documentation describes functionality not present in the code, flag it as inaccurate.
+        - If the documentation misses important behaviors shown in the code, flag it as incomplete.
+        - Be objective, specific, and technical.
+        - Do not include commentary outside the JSON.
+        Now evaluate.
+        """
         return prompt
 
-    def get_documentation_list(self) -> List[str]:
-        # this func is to load all the documentation files from self.wiki_path
-        # return list of documentation path
-        # e.g. ["./.wikis/xxxxxx/xxxx.md", "./.wikis/xxxxxx/xxxx2.md"]
-        documentation_list = []
-        if not os.path.exists(self.wiki_path):
-            return documentation_list
-        # e.g. self.wiki_path = "./.wikis/facebook_zstd/test_update"
-        # under this path, we will find dirs and files
+
+
+    def get_documentation_list(self) -> List[str]: # this func is to load all the documentation files from self.wiki_path # return list of documentation path # e.g. ["./.wikis/xxxxxx/xxxx.md", "./.wikis/xxxxxx/xxxx2.md"] 
+        documentation_pairs = [] 
+        if not os.path.exists(self.wiki_path): 
+            return documentation_pairs
+        
+        code_exts = [".c", ".h", ".cpp", ".hpp", ".cc"]
+        # e.g. self.wiki_path = "./.wikis/facebook_zstd/test_update" 
+        # # under this path, we will find dirs and files 
         for root, dirs, files in os.walk(self.wiki_path):
             for file in files:
-                if file.endswith(".md"):
-                    documentation_list.append(os.path.join(root, file))
-        return documentation_list
+                if not file.endswith(".md"):
+                    continue
+
+                doc_path = os.path.join(root, file)
+                # print(f"code_path: {self.code_path}")
+                # print(f"documentation: {doc_path}")
+
+                # 处理文档名 → 去掉 _doc.md 或 .md
+                doc_base = file.replace("_doc.md", "").replace(".md", "")
+                # print(f"去掉 _doc.md 或 .md: {doc_base}")
+                matched_code_path = None
+
+                # 搜索代码文件
+                for croot, _, cfiles in os.walk(self.code_path):
+                    for cfile in cfiles:
+                        # 去掉代码文件后缀
+                        for ext in code_exts:
+                            if cfile.endswith(ext):
+                                # print(f"doc:{doc_base}////code:{cfile}")
+                                if cfile == doc_base:
+                                    matched_code_path = os.path.join(croot, cfile)
+                                    break
+                        if matched_code_path:
+                            break
+                    if matched_code_path:
+                        break
+
+                if not matched_code_path:
+                    print(f"[WARN] No corresponding code file found for documentation: {doc_path}")
+                    continue
+                print(f"code file found for documentation: {doc_path}")
+                documentation_pairs.append((doc_path, matched_code_path))
+        return documentation_pairs
 
     def evaluate_single_documentation(
-        self, doc_path: str, icl_examples: List[Dict]
+        self, doc_path: str,code_path: str, icl_examples: List[Dict]
     ) -> Dict:
         """
         Evaluate a single documentation file
@@ -237,8 +283,10 @@ Return only the JSON format result without any additional content:
             with open(doc_path, "r", encoding="utf-8") as f:
                 documentation = f.read()
 
+            with open(code_path, "r", encoding="utf-8") as f:
+                            codecontent = f.read()
             # Build evaluation prompt
-            prompt = self.build_evaluation_prompt(documentation, icl_examples)
+            prompt = self.build_evaluation_prompt(documentation,codecontent, icl_examples)
 
             # Call LLM to evaluate
             llm = CONFIG.get_llm()
@@ -306,9 +354,9 @@ Return only the JSON format result without any additional content:
             # Submit all evaluation tasks
             future_to_doc = {
                 executor.submit(
-                    self.evaluate_single_documentation, doc_path, icl_examples
-                ): doc_path
-                for doc_path in documentation_list
+            self.evaluate_single_documentation, doc_path, code_path, icl_examples
+            ): (doc_path, code_path)
+            for doc_path, code_path in documentation_list
             }
 
             # Process completed tasks
