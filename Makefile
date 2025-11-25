@@ -6,6 +6,10 @@ repo:
 	@echo "Running Repo Agent..."
 	@uv run python main.py
 
+judge:
+	@echo "Running Judge Agent..."
+	@uv run python -m tests.LaaJ.judge
+
 rag:
 	@echo "Running RAG Agent..."
 	@uv run python -m agents.rag_agent

@@ -4,6 +4,7 @@ import json
 import re
 from multi_lang_tree.simplify_tree import main
 
+
 # === 查找主函数文件 ===
 def find_main_files(root="."):
     """自动搜索 main.py / main.c / main.cpp 文件"""
@@ -13,6 +14,7 @@ def find_main_files(root="."):
             if f.lower() in ("main.py", "main.c", "main.cpp"):
                 candidates.append(os.path.join(dirpath, f))
     return candidates
+
 
 # === Python 调用图解析 ===
 class PyCallGraphBuilder(ast.NodeVisitor):
@@ -40,6 +42,7 @@ class PyCallGraphBuilder(ast.NodeVisitor):
             self.functions[self.current_func]["calls"].append(func_id)
         self.generic_visit(node)
 
+
 def build_call_tree(entry_func, call_dict, visited=None):
     if visited is None:
         visited = set()
@@ -49,8 +52,12 @@ def build_call_tree(entry_func, call_dict, visited=None):
     node_info = call_dict.get(entry_func, {"calls": []})
     return {
         "name": entry_func,
-        "calls": [build_call_tree(c, call_dict, visited.copy()) for c in node_info.get("calls", [])]
+        "calls": [
+            build_call_tree(c, call_dict, visited.copy())
+            for c in node_info.get("calls", [])
+        ],
     }
+
 
 def parse_python(file_path):
     """解析 Python 文件并生成调用树"""
@@ -69,9 +76,11 @@ def parse_python(file_path):
         for node in tree.body:
             if isinstance(node, ast.If):
                 test = node.test
-                if (isinstance(test, ast.Compare) and
-                    isinstance(test.left, ast.Name) and
-                    test.left.id == "__name__"):
+                if (
+                    isinstance(test, ast.Compare)
+                    and isinstance(test.left, ast.Name)
+                    and test.left.id == "__name__"
+                ):
                     main_body_nodes = node.body
                     break
 
@@ -86,6 +95,7 @@ def parse_python(file_path):
         entry_func = "__main__"
 
     return build_call_tree(entry_func, builder.functions)
+
 
 # === C / C++ 简单调用图（正则提取）===
 def parse_c_cpp(file_path):
@@ -109,7 +119,9 @@ def parse_c_cpp(file_path):
                 brace_count -= 1
             i += 1
         body = code[body_start:i]
-        called_funcs = [m.group(1) for m in call_pattern.finditer(body) if m.group(1) != func_name]
+        called_funcs = [
+            m.group(1) for m in call_pattern.finditer(body) if m.group(1) != func_name
+        ]
         functions[func_name] = {"calls": called_funcs}
 
     if "main" not in functions:
@@ -117,17 +129,18 @@ def parse_c_cpp(file_path):
         return {}
     return build_call_tree("main", functions)
 
+
 # === 总入口 ===
 def analyze_project(root="."):
     results = []
-    
+
     # 核心修改：将传入的 root 路径作为唯一的待分析文件
     if not os.path.isfile(root):
         print(f"❌ Error: The provided path '{root}' is not a valid file.")
         return None
-        
-    main_files = [root] # 将单个文件路径放入列表中供循环使用
-    
+
+    main_files = [root]  # 将单个文件路径放入列表中供循环使用
+
     # 原代码中的查找逻辑已被移除或注释
     # main_files = find_main_files(root)
     # if not main_files:
@@ -139,10 +152,10 @@ def analyze_project(root="."):
         if not os.path.isfile(file_path):
             print(f"⚠️ Skipping '{file_path}' as it is not a valid file.")
             continue
-            
+
         ext = os.path.splitext(file_path)[1].lower()
         print(f"🔍 Analyzing {file_path} ...")
-        
+
         if ext == ".py":
             tree = parse_python(file_path)
         elif ext in (".c", ".cpp"):
@@ -150,29 +163,31 @@ def analyze_project(root="."):
         else:
             print(f"⚠️ Skipping file with unsupported extension: {ext}")
             continue
-            
+
         results.append({"file": file_path, "tree": tree})
 
     return results
 
+
 def main_process(inputpath):
     result = analyze_project(inputpath)
-    
+
     with open("call_tree.json", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
     print("✅ 已保存到 call_tree.json")
 
-    result=main("call_tree.json")
+    result = main("call_tree.json")
     print("✅ 已化简")
     with open("call_tree_simplified.json", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
     return result
 
+
 # === 执行分析并保存 ===
 # if __name__ == "__main__":
-    # result = analyze_project("repo-agent")
-    
-    # with open("call_tree.json", "w", encoding="utf-8") as f:
-    #     json.dump(result, f, indent=2, ensure_ascii=False)
+# result = analyze_project("repo-agent")
 
-    # print("✅ 已保存到 call_tree.json")
+# with open("call_tree.json", "w", encoding="utf-8") as f:
+#     json.dump(result, f, indent=2, ensure_ascii=False)
+
+# print("✅ 已保存到 call_tree.json")

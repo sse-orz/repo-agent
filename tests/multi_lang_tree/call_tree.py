@@ -1,5 +1,6 @@
 function_index = {}  # 全局统一索引
 
+
 def build_call_tree(func_name, visited=None):
     if visited is None:
         visited = set()

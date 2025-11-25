@@ -1,6 +1,7 @@
 from pyvis.network import Network
 import json
 
+
 def visualize_call_tree(json_data, output_html="call_graph.html"):
     net = Network(height="750px", width="100%", directed=True)
     net.force_atlas_2based()
@@ -33,8 +34,9 @@ def visualize_call_tree(json_data, output_html="call_graph.html"):
     net.show(output_html, notebook=False)
     print(f"✅ 函数调用图已生成：{output_html}")
 
-json_path="multi_lang_tree/call_tree.json"
 
-with open(json_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-        visualize_call_tree(data)
+json_path = "multi_lang_tree/call_tree.json"
+
+with open(json_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+    visualize_call_tree(data)
