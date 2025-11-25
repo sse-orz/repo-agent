@@ -7,7 +7,7 @@ from config import CONFIG
 from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage
 from agents.base_agent import BaseAgent, AgentState
 
-from agents.tools import write_file_tool
+from agents.tools import write_file_tool, edit_file_tool
 from .context_tools import ls_context_file_tool, read_file_tool
 from .summarization import ConversationSummarizer
 from utils.code_analyzer import (
@@ -71,6 +71,7 @@ Your task is to:
 - `read_file_tool`: Read source code files (supports line ranges for large files)
 - `write_file_tool`: Save generated documentation
 - `ls_context_file_tool`: List available context files from previous analysis
+- `edit_file_tool`: Apply precise edits to existing documentation with replace/insert/delete operations
 
 ## Local Analysis Cache
 - Before reading source files, load the pre-generated static analysis JSON stored under `.cache/{repo_identifier}/module_analysis/`.
@@ -87,6 +88,11 @@ Your documentation should include:
 4. **Usage Examples**: How to use the module
 5. **Dependencies**: What other modules/libraries this depends on
 6. **Notes**: Important considerations, best practices, or warnings
+7. **Architecture & Diagrams**:
+   - Generate at least one diagram showing the internal structure of the module or interactions with other modules (using mermaid)
+   - Use `graph TD` to show module interfaces and dependencies
+   - Optionally add a `sequenceDiagram` for key call chains
+   - Place the diagrams in the `## Architecture & Diagrams` section
 
 ## Important Guidelines
 - Read files incrementally if they are large (use start_line/end_line parameters)
@@ -100,6 +106,7 @@ Your documentation should include:
             read_file_tool,
             write_file_tool,
             ls_context_file_tool,
+            edit_file_tool,
         ]
 
         self.summarizer = ConversationSummarizer(
@@ -123,6 +130,14 @@ Your documentation should include:
 
     def _get_module_analysis_path(self, module_name: str) -> Path:
         return self.module_analysis_base_path / f"{self._module_slug(module_name)}.json"
+
+    def _get_module_doc_path(self, module_name: str) -> Path:
+        doc_filename = f"{module_name.replace('/', '_')}.md"
+        return self.wiki_base_path / doc_filename
+
+    def get_module_doc_path(self, module_name: str) -> Path:
+        """Public helper for retrieving module doc path."""
+        return self._get_module_doc_path(module_name)
 
     def _resolve_file_path(self, file_path: str) -> Path:
         candidate = Path(file_path)
@@ -213,6 +228,59 @@ Your documentation should include:
             json.dump(analysis, f, indent=2, ensure_ascii=False)
         return analysis, analysis_path
 
+    def _rebuild_module_analysis(
+        self, module_name: str, files: List[str]
+    ) -> Tuple[Dict[str, Any], Path]:
+        """Force rebuild of module analysis regardless of cache."""
+        analysis = self._build_module_analysis(module_name, files)
+        analysis_path = self._get_module_analysis_path(module_name)
+        with open(analysis_path, "w", encoding="utf-8") as f:
+            json.dump(analysis, f, indent=2, ensure_ascii=False)
+        return analysis, analysis_path
+
+    def refresh_module_analysis(
+        self, module_name: str, files: List[str], force: bool = False
+    ) -> Tuple[Dict[str, Any], Path]:
+        """Refresh analysis cache for a module."""
+        if force:
+            return self._rebuild_module_analysis(module_name, files)
+        return self._ensure_module_analysis(module_name, files)
+
+    def _format_diff_context(
+        self, changed_details: List[Dict[str, Any]], max_chars: int = 6000
+    ) -> str:
+        """Format diff snippets for prompting."""
+        if not changed_details:
+            return "No detailed diffs were supplied for this module."
+
+        sections: List[str] = []
+        remaining = max_chars
+        for detail in changed_details:
+            filename = detail.get("filename", "unknown")
+            status = detail.get("status", "M")
+            changes = detail.get("changes", 0)
+            raw_diff = detail.get("diff") or ""
+            snippet = raw_diff.strip() or "(diff unavailable)"
+
+            per_section = min(len(snippet), max(500, max_chars // 6))
+            trimmed_snippet = snippet[:per_section]
+            if len(snippet) > per_section:
+                trimmed_snippet += "\n... (truncated)"
+
+            block = (
+                f"### {filename} ({status}, ±{changes} lines)\n"
+                f"```\n{trimmed_snippet}\n```"
+            )
+
+            if remaining - len(block) <= 0:
+                sections.append("... (additional changes omitted)")
+                break
+
+            sections.append(block)
+            remaining -= len(block)
+
+        return "\n\n".join(sections)
+
     def _agent_node(
         self, system_prompt: SystemMessage, state: AgentState
     ) -> AgentState:
@@ -257,8 +325,8 @@ Your documentation should include:
         print(f"   Files: {len(files)}")
 
         # Prepare documentation path
-        doc_filename = f"{module_name.replace('/', '_')}.md"
-        doc_path = self.wiki_base_path / doc_filename
+        doc_path = self._get_module_doc_path(module_name)
+        doc_filename = doc_path.name
 
         analysis_data, analysis_path = self._ensure_module_analysis(module_name, files)
         print(f"   Static analysis cache: {analysis_path}")
@@ -286,6 +354,10 @@ Please generate documentation for the module based on the following information:
 1. First use `read_file_tool` to read the above static analysis JSON to understand the module overview.
 2. Based on the analysis results, selectively read a small number of key source files (not required to read all), use `start_line`/`end_line` to control range when necessary.
 3. Generate complete Markdown module documentation and save to `{self.wiki_base_path / doc_filename}`.
+4. Add a `## Architecture & Diagrams` section to the documentation, which includes:
+   - A module architecture diagram (using a ```mermaid code block with either graph TD or graph LR)
+   - Optionally: key call chain sequence diagrams (sequenceDiagram)
+   - Ensure that all node names are consistent with the code/module names
 
 ## Strict Constraints
 - Only read source files in the "readable files" list or the above static analysis JSON and context cache files.
@@ -335,6 +407,102 @@ Please complete the analysis and documentation writing while adhering to the abo
                 "module_name": module_name,
                 "doc_path": None,
                 "summary": f"Error: {str(e)}",
+                "status": "error",
+            }
+
+    def update_module_doc_incremental(
+        self,
+        module: Dict[str, Any],
+        changed_details: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Incrementally update an existing module document."""
+        module_name = module["name"]
+        files = module["files"]
+        changed_details = changed_details or []
+
+        doc_path = self._get_module_doc_path(module_name)
+        if not doc_path.exists():
+            print(
+                f"⚠️  Existing doc for {module_name} not found. Falling back to full generation."
+            )
+            return self.generate_module_doc(module)
+
+        print(f"\n✏️  Incrementally updating module doc: {module_name}")
+        print(f"   Target doc: {doc_path}")
+        print(f"   Changed files: {len(changed_details) or len(files)}")
+
+        _, analysis_path = self.refresh_module_analysis(module_name, files, force=True)
+        diff_context = self._format_diff_context(changed_details)
+        changed_files_meta = [
+            {
+                "filename": detail.get("filename"),
+                "status": detail.get("status"),
+                "changes": detail.get("changes"),
+            }
+            for detail in changed_details
+        ]
+
+        prompt = f"""
+You must UPDATE (not rewrite from scratch) the existing module documentation located at `{doc_path}`.
+
+## Module
+- Name: {module_name}
+- Files ({len(files)}): {json.dumps(files, ensure_ascii=False)}
+- Static analysis cache: `{analysis_path}`
+
+## Recent Code Changes
+```json
+{json.dumps(changed_files_meta, indent=2, ensure_ascii=False)}
+```
+
+## Diff Snippets
+{diff_context}
+
+## Tasks
+1. Read the latest static analysis JSON and any necessary source snippets.
+2. Read the current documentation file at `{doc_path}`.
+3. Identify the sections impacted by the above code changes (Overview, Core Components, Usage, Dependencies, Architecture & Diagrams, Notes).
+4. Use `edit_file_tool` for precise edits inside the Markdown file (add/replace sections, insert new diagrams, update bullet lists, etc.).
+5. Update or add `mermaid` diagrams to reflect the new structure/flows introduced by the changes.
+6. Mention removed files or deprecated APIs if applicable.
+7. Only call `write_file_tool` if the document requires a near-total rewrite; otherwise prefer edit operations.
+
+## Constraints
+- Preserve existing headings and formatting whenever possible.
+- Keep terminology consistent with the rest of the wiki.
+- Summaries must reflect the new behavior introduced by the diffs above.
+- When inserting new sections, follow the Markdown hierarchy already in use.
+"""
+
+        try:
+            initial_state = AgentState(
+                messages=[HumanMessage(content=prompt)],
+                repo_path="",
+                wiki_path=str(self.wiki_base_path),
+            )
+
+            _ = self.app.invoke(
+                initial_state,
+                config={
+                    "configurable": {
+                        "thread_id": f"module-doc-incremental-{self.repo_identifier}-{module_name}"
+                    },
+                    "recursion_limit": 60,
+                },
+            )
+
+            return {
+                "module_name": module_name,
+                "doc_path": str(doc_path),
+                "summary": f"Incrementally updated documentation for {module_name}",
+                "status": "updated",
+            }
+        except Exception as e:
+            print(f"❌ Error updating documentation for {module_name}: {e}")
+            return {
+                "module_name": module_name,
+                "doc_path": str(doc_path),
+                "summary": f"Incremental update error: {str(e)}",
                 "status": "error",
             }
 

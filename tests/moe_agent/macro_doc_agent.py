@@ -2,11 +2,12 @@ import json
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from config import CONFIG
 from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage
 from agents.base_agent import BaseAgent, AgentState
 
-from agents.tools import write_file_tool
+from agents.tools import write_file_tool, edit_file_tool
 from .context_tools import ls_context_file_tool, read_file_tool
 from .summarization import ConversationSummarizer
 
@@ -64,6 +65,12 @@ class MacroDocAgent(BaseAgent):
             ],
             "audience": "API users and integrators",
         },
+    }
+    DIAGRAM_REQUIREMENTS = {
+        "README.md": "Include a high-level system architecture diagram using ```mermaid graph LR``` that shows main components, services, and data stores plus their relationships.",
+        "ARCHITECTURE.md": "Include at least two diagrams: (1) an overall system architecture diagram (modules/services and their relationships) and (2) a key data flow or call chain flowchart.",
+        "DEVELOPMENT.md": "Include a development/build/test process flowchart (e.g., CI/CD) using ```mermaid flowchart```.",
+        "API.md": "Include a typical request sequence diagram using ```mermaid sequenceDiagram``` (e.g., Client → API → Service → DB).",
     }
 
     def __init__(
@@ -166,6 +173,7 @@ Produce clear, professional, and comprehensive documentation that:
             read_file_tool,
             write_file_tool,
             ls_context_file_tool,
+            edit_file_tool,
         ]
 
         self.summarizer = ConversationSummarizer(
@@ -319,6 +327,11 @@ Before calling write_file_tool, triple-check:
 
 """
 
+        diagram_req = self.DIAGRAM_REQUIREMENTS.get(doc_type, "")
+        if diagram_req:
+            prompt += f"\n\n## Diagram Requirements\n{diagram_req}\n"
+            prompt += "All diagrams must use ```mermaid code blocks; no images are required.\n"
+
         if repo_info:
             prompt += f"\n**Repository Info**:\n```json\n{json.dumps(repo_info, indent=2)}\n```\n"
 
@@ -457,5 +470,147 @@ Before calling write_file_tool, triple-check:
         print(f"   Success: {sum(1 for r in results if r['status'] == 'success')}")
         print(f"   Fallback: {sum(1 for r in results if r['status'] == 'fallback')}")
         print(f"   Failed: {sum(1 for r in results if r['status'] == 'error')}")
+
+        return results
+
+    def update_docs_incremental(
+        self,
+        doc_types: Optional[List[str]] = None,
+        change_summary: Optional[str] = None,
+        repo_info: Optional[Dict[str, Any]] = None,
+        full_change_info: Optional[Dict[str, Any]] = None,  # NEW
+    ) -> List[Dict[str, Any]]:
+        """Incrementally update existing macro docs using edit operations."""
+        doc_types = doc_types or list(self.DOC_SPECS.keys())
+        summary_text = change_summary or "No detailed summary was provided."
+        results: List[Dict[str, Any]] = []
+
+        print(
+            f"\n✏️  Incrementally updating macro docs ({len(doc_types)} files) using edit workflow..."
+        )
+
+        # Create temporary change cache with FULL change details for LLM
+        change_cache_path = self.cache_base_path / "incremental_changes_temp.json"
+        if full_change_info:
+            full_change_info["_metadata"] = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "text_summary": summary_text,
+            }
+            with open(change_cache_path, "w", encoding="utf-8") as f:
+                json.dump(full_change_info, f, indent=2, ensure_ascii=False)
+            print(f"   💾 Change cache saved: {change_cache_path}")
+
+        for doc_type in doc_types:
+            doc_path = self.wiki_base_path / doc_type
+            if not doc_path.exists():
+                print(f"   ⚠️  {doc_type} missing. Generating full document instead.")
+                results.append(self.generate_single_doc(doc_type, repo_info))
+                continue
+
+            diagram_req = self.DIAGRAM_REQUIREMENTS.get(doc_type, "")
+            prompt = f"""
+You must evaluate and potentially UPDATE the existing `{doc_type}` documentation.
+
+## Repository
+- Identifier: {self.repo_identifier}
+- Target file: `{doc_path}`
+
+## Recent Changes - FULL DETAILS AVAILABLE
+A comprehensive change cache has been saved to:
+`{change_cache_path}`
+
+This file contains:
+- Complete list of changed files with status (Modified/Deleted)
+- Full git diffs for each file showing exact code changes
+- Statistics (total changes, lines modified, etc.)
+- Affected modules with detailed change information per module
+- File-level change details including diff content
+
+## Your Task - Two Phase Decision & Action
+
+### Phase 1: Read and Decide
+1. Read `{change_cache_path}` to understand ALL changes in detail
+2. Read the current `{doc_path}` document
+3. Analyze if this specific `{doc_type}` needs updating:
+   - Do the code changes affect content documented here?
+   - Are there bug fixes, new features, or architectural changes relevant to this doc?
+   - Would readers be misled by outdated information?
+   - Even small changes (like bug fixes) may warrant updates if documented
+
+### Phase 2: Take Action
+**If NO UPDATE NEEDED:**
+- Respond with a clear explanation of why no update is necessary
+- Example: "The changes only affect module X's internal implementation, which is not covered in this ARCHITECTURE.md"
+
+**If UPDATE NEEDED:**
+- Use `edit_file_tool` to make surgical edits to affected sections
+- Update or add `mermaid` diagrams if architecture/flows changed
+- Add notes about fixed bugs or new behaviors
+- Preserve existing structure and formatting
+
+## Additional Context Available
+You can also read these files for more context:
+- `.cache/{self.repo_identifier}/repo_info.json` - Repository metadata
+- `.cache/{self.repo_identifier}/module_structure.json` - Module organization
+- `.cache/{self.repo_identifier}/module_analysis/` - Updated static analysis per module
+
+## Documentation Standards
+- Use `edit_file_tool` for targeted updates (preferred)
+- Only use `write_file_tool` if complete document rewrite is needed
+- Keep headings stable for link consistency
+- Document removed functionality or deprecated APIs
+- Highlight security fixes or breaking changes
+
+## Diagram Requirement
+{diagram_req or "Keep diagrams consistent with current system state."}
+"""
+
+            if repo_info:
+                prompt += f"\n### Repo Info Snapshot\n```json\n{json.dumps(repo_info, indent=2)}\n```\n"
+
+            try:
+                initial_state = AgentState(
+                    messages=[HumanMessage(content=prompt)],
+                    repo_path="",
+                    wiki_path=str(self.wiki_base_path),
+                )
+
+                _ = self.app.invoke(
+                    initial_state,
+                    config={
+                        "configurable": {
+                            "thread_id": f"macro-doc-incremental-{self.repo_identifier}-{doc_type}"
+                        },
+                        "recursion_limit": 60,
+                    },
+                )
+
+                results.append(
+                    {
+                        "doc_type": doc_type,
+                        "path": str(doc_path),
+                        "status": "updated",
+                        "size": doc_path.stat().st_size,
+                    }
+                )
+                print(f"   ✅ {doc_type}: incrementally updated")
+            except Exception as e:
+                print(f"   ❌ {doc_type}: Incremental update failed - {e}")
+                results.append(
+                    {
+                        "doc_type": doc_type,
+                        "path": str(doc_path),
+                        "status": "error",
+                        "error": str(e),
+                    }
+                )
+
+        # Cleanup temporary change cache
+        if change_cache_path.exists():
+            try:
+                change_cache_path.unlink()
+                print(f"   🗑️  Cleaned up temporary change cache")
+            except Exception as e:
+                print(f"   ⚠️  Failed to cleanup change cache: {e}")
 
         return results

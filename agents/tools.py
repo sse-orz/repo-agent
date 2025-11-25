@@ -11,7 +11,7 @@ from utils.code_analyzer import (
     format_tree_sitter_analysis_results,
 )
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from langchain.tools import tool
 
 
@@ -52,6 +52,90 @@ def write_file_tool(
     return {
         "file_path": abs_path,
         "success": success,
+    }
+
+
+@tool(description="Edit a file with targeted replace/insert/delete operations.")
+def edit_file_tool(
+    file_path: str,
+    operations: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Apply structured text edits to a file.
+
+    Args:
+        file_path: Target file path (relative or absolute).
+        operations: List of edit operations. Each operation supports:
+            - action: 'replace' (default), 'insert_after', 'insert_before', 'delete'
+            - target: Anchor text to search for (required for all actions above)
+            - replacement: Text to insert/replace with (optional for delete)
+            - count: For replace/delete, number of occurrences to edit (default 1, -1 for all)
+    """
+
+    if not operations:
+        raise ValueError("operations must contain at least one edit instruction")
+
+    abs_path = resolve_path(file_path)
+    original_content = read_file(abs_path)
+    updated_content = original_content
+    applied_ops: List[Dict[str, Any]] = []
+
+    for op in operations:
+        action = (op.get("action") or "replace").lower()
+        target = op.get("target")
+        replacement = op.get("replacement", "")
+
+        if action not in {"replace", "insert_after", "insert_before", "delete"}:
+            raise ValueError(f"Unsupported action: {action}")
+
+        if not target and action in {"replace", "insert_after", "insert_before", "delete"}:
+            raise ValueError(f"Operation {action} requires a 'target' field")
+
+        if action == "replace":
+            count = op.get("count", 1)
+            count = int(count) if isinstance(count, (int, str)) else 1
+            replace_count = count if count > 0 else updated_content.count(target)
+            new_content = updated_content.replace(target, replacement, replace_count)
+            if new_content == updated_content:
+                raise ValueError(f"Target text not found for replace: {target}")
+            updated_content = new_content
+            applied_ops.append({"action": action, "target": target, "count": replace_count})
+            continue
+
+        if action == "delete":
+            count = op.get("count", 1)
+            count = int(count) if isinstance(count, (int, str)) else 1
+            replace_count = count if count > 0 else updated_content.count(target)
+            new_content = updated_content.replace(target, "", replace_count)
+            if new_content == updated_content:
+                raise ValueError(f"Target text not found for delete: {target}")
+            updated_content = new_content
+            applied_ops.append({"action": action, "target": target, "count": replace_count})
+            continue
+
+        index = updated_content.find(target)
+        if index == -1:
+            raise ValueError(f"Target text not found for {action}: {target}")
+
+        if action == "insert_after":
+            insert_pos = index + len(target)
+            updated_content = (
+                updated_content[:insert_pos] + replacement + updated_content[insert_pos:]
+            )
+            applied_ops.append({"action": action, "target": target})
+        elif action == "insert_before":
+            insert_pos = index
+            updated_content = (
+                updated_content[:insert_pos] + replacement + updated_content[insert_pos:]
+            )
+            applied_ops.append({"action": action, "target": target})
+
+    if updated_content != original_content:
+        write_file(abs_path, updated_content)
+
+    return {
+        "file_path": abs_path,
+        "operations_applied": applied_ops,
+        "changed": updated_content != original_content,
     }
 
 
