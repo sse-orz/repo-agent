@@ -13,6 +13,7 @@ from .repo_info_agent import RepoInfoAgent
 from .module_clusterer import ModuleClusterer
 from .module_doc_agent import ModuleDocAgent
 from .macro_doc_agent import MacroDocAgent
+from .incremental_update_agent import IncrementalUpdateAgent
 from .context_tools import save_json_to_context
 
 
@@ -117,76 +118,43 @@ class MoeAgent:
         print(f"Cache: {self.cache_path}")
         print(f"{'='*60}\n")
 
-    def generate(self, max_files: int = 50, max_workers: int = 5) -> Dict[str, Any]:
+    def generate(
+        self, max_files: int = 50, max_workers: int = 5, allow_incremental: bool = True
+    ) -> Dict[str, Any]:
         """Execute the complete documentation generation pipeline.
 
         Args:
             max_files (int): Maximum number of files to analyze
             max_workers (int): Number of parallel workers
+            allow_incremental (bool): Whether to allow incremental update (default: True)
 
         Returns:
             Dict[str, Any]: Complete generation results
         """
-        start_time = time.time()
-        print(f"Starting MoeAgent Documentation Generation Pipeline")
+        # Decide whether to run full generation or incremental update
+        if allow_incremental:
+            incremental_agent = IncrementalUpdateAgent(
+                repo_path=str(self.repo_path),
+                wiki_path=str(self.wiki_path),
+                cache_path=str(self.cache_path),
+                repo_identifier=self.repo_identifier,
+                owner=self.owner,
+                repo_name=self.repo_name,
+                llm=self.llm,
+            )
 
-        try:
-            # Stage 1: Repository Information Collection (Async - Non-blocking)
-            executor = ThreadPoolExecutor(max_workers=1)
-            stage1_future = executor.submit(self._repo_info)
+            can_update, info = incremental_agent.can_update_incrementally()
 
-            # Stage 2: Intelligent File Selection
-            self._file_selection(max_files)
+            if can_update:
+                print("✅ Detected new commits, performing incremental update...")
+                return incremental_agent.update(max_workers)
+            elif info["reason"] == "no_new_commits":
+                print("✅ No new commits, using cached documentation")
+                return self._load_cached_summary()
 
-            # Stage 3: Module Clustering
-            self._module_clustering()
-
-            # Stage 4: Incremental Module Documentation Generation
-            self._module_documentation(max_workers)
-
-            # Wait for Stage 1 to complete before Stage 5
-            print(f"\n{'='*60}")
-            print(f"⏳ Waiting for Stage 1 (repo info collection) to complete...")
-            print(f"{'='*60}")
-            stage1_future.result()  # Block here until Stage 1 completes
-            executor.shutdown(wait=True)
-            print(f"✅ Stage 1 completed, continuing with Stage 5...\n")
-
-            # Stage 5: Macro Documentation Generation
-            self._macro_documentation()
-
-            # Stage 6: Index Generation
-            self._index_generation()
-
-            # Calculate total time
-            total_time = time.time() - start_time
-
-            # Compile final results
-            results = self._compile_results(total_time)
-
-            # Save summary
-            self._save_generation_summary(results)
-
-            # Print summary with stage timings
-            print(f"\n{'='*60}")
-            print(f"✨ Documentation Generation Complete!")
-            print(f"{'='*60}")
-            print(f"⏱️  Total Time: {total_time:.2f}s")
-            print(f"\n📊 Stage Timings:")
-            for stage_name, stage_time in self.stage_timings.items():
-                print(f"   • {stage_name}: {stage_time:.2f}s")
-            print(f"\n📁 Wiki Location: {self.wiki_path}")
-            print(f"💾 Cache Location: {self.cache_path}")
-            print(f"{'='*60}\n")
-
-            return results
-
-        except Exception as e:
-            print(f"\n{'='*60}")
-            print(f"❌ Error in documentation generation pipeline:")
-            print(f"   {str(e)}")
-            print(f"{'='*60}\n")
-            raise
+        # Fallback to full documentation generation
+        print("🚀 Starting full documentation generation...")
+        return self._full_generate(max_files, max_workers)
 
     def _repo_info(self):
         """Stage 1: Repository Information Collection."""
@@ -521,6 +489,113 @@ class MoeAgent:
         self.stage_timings["Stage 6: Index Generation"] = stage_time
         print(f"⏱️  Stage 6 completed in {stage_time:.2f}s")
 
+    def _full_generate(self, max_files: int, max_workers: int) -> Dict[str, Any]:
+        """Run the full multi-stage documentation generation pipeline.
+
+        Args:
+            max_files: Maximum number of files to analyze during selection.
+            max_workers: Maximum number of parallel workers for module docs.
+
+        Returns:
+            Dict[str, Any]: Aggregated results from all pipeline stages.
+        """
+        start_time = time.time()
+        print(f"Starting MoeAgent Documentation Generation Pipeline")
+
+        try:
+            # Stage 1: Repository Information Collection (Async - Non-blocking)
+            executor = ThreadPoolExecutor(max_workers=1)
+            stage1_future = executor.submit(self._repo_info)
+
+            # Stage 2: Intelligent File Selection
+            self._file_selection(max_files)
+
+            # Stage 3: Module Clustering
+            self._module_clustering()
+
+            # Stage 4: Incremental Module Documentation Generation
+            self._module_documentation(max_workers)
+
+            # Wait for Stage 1 to complete before Stage 5
+            print(f"\n{'='*60}")
+            print(f"⏳ Waiting for Stage 1 (repo info collection) to complete...")
+            print(f"{'='*60}")
+            stage1_future.result()  # Block here until Stage 1 completes
+            executor.shutdown(wait=True)
+            print(f"✅ Stage 1 completed, continuing with Stage 5...\n")
+
+            # Stage 5: Macro Documentation Generation
+            self._macro_documentation()
+
+            # Stage 6: Index Generation
+            self._index_generation()
+
+            # Calculate total time
+            total_time = time.time() - start_time
+
+            # Compile final results
+            results = self._compile_results(total_time)
+
+            # Save summary
+            self._save_generation_summary(results)
+
+            # Print summary with stage timings
+            print(f"\n{'='*60}")
+            print(f"✨ Documentation Generation Complete!")
+            print(f"{'='*60}")
+            print(f"⏱️  Total Time: {total_time:.2f}s")
+            print(f"\n📊 Stage Timings:")
+            for stage_name, stage_time in self.stage_timings.items():
+                print(f"   • {stage_name}: {stage_time:.2f}s")
+            print(f"\n📁 Wiki Location: {self.wiki_path}")
+            print(f"💾 Cache Location: {self.cache_path}")
+            print(f"{'='*60}\n")
+
+            return results
+
+        except Exception as e:
+            print(f"\n{'='*60}")
+            print(f"❌ Error in documentation generation pipeline:")
+            print(f"   {str(e)}")
+            print(f"{'='*60}\n")
+            raise
+
+    def _load_cached_summary(self) -> Dict[str, Any]:
+        """Load a cached generation summary from ``generation_summary.json``.
+
+        Returns:
+            Dict[str, Any]: Cached generation summary or an error payload.
+        """
+        summary_path = self.cache_path / "generation_summary.json"
+        
+        if not summary_path.exists():
+            return {
+                "status": "error",
+                "error": "No cached summary found",
+                "cache_path": str(self.cache_path),
+            }
+        
+        try:
+            with open(summary_path, "r", encoding="utf-8") as f:
+                summary = json.load(f)
+            
+            print(f"\n{'='*60}")
+            print(f"📋 Using Cached Documentation")
+            print(f"{'='*60}")
+            print(f"Cache Path: {self.cache_path}")
+            print(f"Wiki Path: {self.wiki_path}")
+            if "total_time" in summary:
+                print(f"Original Generation Time: {summary['total_time']:.2f}s")
+            print(f"{'='*60}\n")
+            
+            return summary
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": f"Failed to load cached summary: {str(e)}",
+                "cache_path": str(self.cache_path),
+            }
+
     def _compile_results(self, total_time: float) -> Dict[str, Any]:
         """Compile final results from all stages.
 
@@ -597,6 +672,13 @@ class MoeAgent:
         Args:
             results (Dict[str, Any]): Complete results
         """
+        # 添加 baseline 信息（从 repo_info 的 commits[0] 获取）
+        if self.repo_info and self.repo_info.get("commits"):
+            commits = self.repo_info["commits"]
+            if commits:
+                results["baseline_sha"] = commits[0].get("sha")
+                results["baseline_date"] = commits[0].get("date")
+        
         summary_path = self.cache_path / "generation_summary.json"
 
         with open(summary_path, "w", encoding="utf-8") as f:
@@ -621,7 +703,7 @@ def test_moe_agent():
     )
 
     # Generate documentation
-    results = agent.generate(max_files=50, max_workers=5)
+    results = agent.generate(max_files=50, max_workers=10)
 
     # Print summary
     print("\n" + "=" * 60)
