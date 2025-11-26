@@ -22,5 +22,5 @@ node_modules/
 _book/
 SUMMARY.md
 node_modules/
-evaluation_results_*.out
+evaluation_results*.out
 .DS_Store
