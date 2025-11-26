@@ -52,6 +52,8 @@ class ParentGraphState(TypedDict):
     max_workers: int
     date: str
     log: bool
+    repo_root_path: str | None
+    wiki_root_path: str | None
     # repo_info_sub_graph inputs
     basic_info_for_repo: dict | None
     # repo_info_sub_graph outputs
@@ -73,11 +75,105 @@ class ParentGraphBuilder:
         self.branch = branch_mode  # "all" or "code" or "repo"
         self.graph = self.build(self.checkpointer)
 
-    def basic_info_node(self, state: ParentGraphState):
-        # log_state(state)
+    @staticmethod
+    def _print_repository_overview(
+        owner: str,
+        repo: str,
+        platform: str,
+        mode: str,
+        max_workers: int,
+        repo_root_path: str,
+        wiki_root_path: str,
+        repo_path: str,
+        wiki_path: str,
+        overview_doc_path: str,
+        commit_doc_path: str,
+        pr_doc_path: str,
+        release_note_doc_path: str,
+        repo_update_log_path: str,
+        code_update_log_path: str,
+    ) -> None:
+        # this func is to print the repository overview
         print("\n" + "=" * 80)
         print("🚀 Starting graph execution...")
         print("=" * 80)
+        print(f"📦 Repository: {owner}/{repo}")
+        print(f"🔗 Platform: {platform}")
+        print(f"⚙️ Mode: {mode}")
+        print(f"👷 Max Workers: {max_workers}")
+        print(f"📁 Repo Root Path: {repo_root_path}")
+        print(f"📁 Repo Path: {repo_path}")
+        print(f"📄 Wiki Root Path: {wiki_root_path}")
+        print(f"📄 Wiki Path: {wiki_path}")
+        print(f"📄 Overview Doc Path: {overview_doc_path}")
+        print(f"📄 Commit Doc Path: {commit_doc_path}")
+        print(f"📄 PR Doc Path: {pr_doc_path}")
+        print(f"📄 Release Note Doc Path: {release_note_doc_path}")
+        print(f"📄 Repo Update Log Path: {repo_update_log_path}")
+        print(f"📄 Code Update Log Path: {code_update_log_path}")
+
+    def _build_basic_info_payloads(
+        self,
+        owner: str,
+        repo: str,
+        platform: str,
+        mode: str,
+        max_workers: int,
+        date: str,
+        log: bool,
+        repo_info: dict | None,
+        repo_structure: dict | None,
+        repo_root_path: str,
+        wiki_root_path: str,
+        repo_path: str,
+        wiki_path: str,
+        overview_doc_path: str,
+        commit_doc_path: str,
+        pr_doc_path: str,
+        release_note_doc_path: str,
+        repo_update_log_path: str,
+        code_update_log_path: str,
+    ) -> tuple[dict, dict]:
+        # this func is to build the basic info payloads for repo and code
+        # return basic_info_for_repo and basic_info_for_code
+        common_payload = {
+            "owner": owner,
+            "repo": repo,
+            "platform": platform,
+            "mode": mode,
+            "max_workers": max_workers,
+            "date": date,
+            "log": log,
+            "repo_root_path": repo_root_path,
+            "wiki_root_path": wiki_root_path,
+            "repo_path": repo_path,
+            "wiki_path": wiki_path,
+            "repo_info": repo_info,
+            "repo_structure": repo_structure,
+        }
+
+        basic_info_for_repo = {
+            **common_payload,
+            "commits_updated": False,
+            "prs_updated": False,
+            "releases_updated": False,
+            "overview_doc_path": overview_doc_path,
+            "commit_doc_path": commit_doc_path,
+            "pr_doc_path": pr_doc_path,
+            "release_note_doc_path": release_note_doc_path,
+            "repo_update_log_path": repo_update_log_path,
+        }
+        basic_info_for_code = {
+            **common_payload,
+            "code_files_updated": False,
+            "code_update_log_path": code_update_log_path,
+        }
+        return basic_info_for_repo, basic_info_for_code
+
+    def basic_info_node(self, state: ParentGraphState):
+        # this node is to initialize the basic information for the repo and code
+        # log_state(state)
+        print("→ [basic_info_node] initializing basic information...")
         owner = state.get("owner")
         repo = state.get("repo")
         platform = state.get("platform", "github")
@@ -85,83 +181,74 @@ class ParentGraphBuilder:
         max_workers = state.get("max_workers", 10)
         date = state.get("date", datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
         log = state.get("log", False)
-        repo_root_path = "./.repos"
-        wiki_root_path = "./.wikis"
-        repo_path = f"{repo_root_path}/{owner}_{repo}"
-        wiki_path = f"{wiki_root_path}/{owner}_{repo}"
+        repo_root_path = state.get("repo_root_path", "./.repos")
+        wiki_root_path = state.get("wiki_root_path", "./.wikis")
+        repo_dirname = f"{owner}_{repo}"
+        repo_path = os.path.join(repo_root_path, repo_dirname)
+        wiki_path = os.path.join(wiki_root_path, repo_dirname)
+        overview_doc_path = os.path.join(wiki_path, "overview_documentation.md")
+        commit_doc_path = os.path.join(wiki_path, "commit_documentation.md")
+        pr_doc_path = os.path.join(wiki_path, "pr_documentation.md")
+        release_note_doc_path = os.path.join(wiki_path, "release_note_documentation.md")
+        repo_update_log_path = os.path.join(wiki_path, "repo_update_log.json")
+        code_update_log_path = os.path.join(wiki_path, "code_update_log.json")
 
-        print(f"📦 Repository: {owner}/{repo}")
-        print(f"🔗 Platform: {platform}")
-        print(f"⚙️ Mode: {mode}")
-        print(f"👷 Max Workers: {max_workers}")
-        print(f"📁 Repo Path: {repo_path}")
-        print(f"📄 Wiki Path: {wiki_path}")
+        self._print_repository_overview(
+            owner,
+            repo,
+            platform,
+            mode,
+            max_workers,
+            repo_root_path,
+            wiki_root_path,
+            repo_path,
+            wiki_path,
+            overview_doc_path,
+            commit_doc_path,
+            pr_doc_path,
+            release_note_doc_path,
+            repo_update_log_path,
+            code_update_log_path,
+        )
 
         repo_info = get_repo_info(owner, repo, platform=platform)
         repo_structure = get_repo_structure(repo_path)
 
-        print(f"✓ Repository initialized")
+        print(f"✓ [basic_info_node] repository initialized")
 
-        basic_info_for_repo = {
-            "owner": owner,
-            "repo": repo,
-            "platform": platform,
-            "mode": mode,
-            "max_workers": max_workers,
-            "date": date,
-            "log": log,
-            "repo_root_path": repo_root_path,
-            "wiki_root_path": wiki_root_path,
-            "repo_path": repo_path,
-            "wiki_path": wiki_path,
-            "repo_info": repo_info,
-            "repo_structure": repo_structure,
-            "commits_updated": False,
-            "prs_updated": False,
-            "releases_updated": False,
-        }
-        basic_info_for_code = {
-            "owner": owner,
-            "repo": repo,
-            "platform": platform,
-            "mode": mode,
-            "max_workers": max_workers,
-            "date": date,
-            "log": log,
-            "repo_root_path": repo_root_path,
-            "wiki_root_path": wiki_root_path,
-            "repo_path": repo_path,
-            "wiki_path": wiki_path,
-            "repo_info": repo_info,
-            "repo_structure": repo_structure,
-            "code_files_updated": False,
-        }
+        basic_info_for_repo, basic_info_for_code = self._build_basic_info_payloads(
+            owner=owner,
+            repo=repo,
+            platform=platform,
+            mode=mode,
+            max_workers=max_workers,
+            date=date,
+            log=log,
+            repo_info=repo_info,
+            repo_structure=repo_structure,
+            repo_root_path=repo_root_path,
+            wiki_root_path=wiki_root_path,
+            repo_path=repo_path,
+            wiki_path=wiki_path,
+            overview_doc_path=overview_doc_path,
+            commit_doc_path=commit_doc_path,
+            pr_doc_path=pr_doc_path,
+            release_note_doc_path=release_note_doc_path,
+            repo_update_log_path=repo_update_log_path,
+            code_update_log_path=code_update_log_path,
+        )
 
         return {
             "basic_info_for_repo": basic_info_for_repo,
             "basic_info_for_code": basic_info_for_code,
         }
 
-    def check_update_node(self, state: ParentGraphState):
-        log_state(state)
-        # this node is to check whether the repo has updates since last doc generation
-        # p.s. the `relevant_code_update` can be determined from file changes of commits
-        print("→ Processing check_update_node...")
-        owner = state.get("basic_info_for_repo", {}).get("owner", "")
-        repo = state.get("basic_info_for_repo", {}).get("repo", "")
-        platform = state.get("basic_info_for_repo", {}).get("platform", "github")
-        repo_path = state.get("basic_info_for_repo", {}).get("repo_path", "./.repos")
-        wiki_root_path = state.get("basic_info_for_repo", {}).get(
-            "wiki_root_path", "./.wikis"
-        )
-        # get log.json path
-        # e.g. f"{wiki_root_path}/{owner}_{repo}/repo_update_log.json"
-        log_path = os.path.join(wiki_root_path, f"{owner}_{repo}/repo_update_log.json")
-
-        # Execute get_updated_commit_info, get_updated_pr_info, and get_updated_release_note_info in parallel
-        print("→ Fetching updates in parallel (commits, PRs, releases)...")
+    def _parallel_fetch_updates(
+        self, owner: str, repo: str, platform: str, repo_path: str, log_path: str
+    ):
+        # this func is to fetch updates in parallel
+        print("   → [check_update_node] fetching updates in parallel...")
         with ThreadPoolExecutor(max_workers=3) as executor:
-            # Submit all three tasks concurrently
             commit_future = executor.submit(
                 get_updated_commit_info, owner, repo, platform, log_path
             )
@@ -171,79 +258,121 @@ class ParentGraphBuilder:
             release_future = executor.submit(
                 get_updated_release_note_info, owner, repo, platform, log_path
             )
-
-            # Wait for all results
             commits_updated, updated_commit_info = commit_future.result()
             prs_updated, updated_pr_info = pr_future.result()
             releases_updated, updated_release_note_info = release_future.result()
-
-        # Report commit update status
         if commits_updated:
             print(
-                f"✓ Detected {updated_commit_info.get('commits_count', 0)} updated commits since last check"
+                f"   → [check_update_node] detected {updated_commit_info.get('commits_count', 0)} updated commits since last check"
             )
         else:
-            print(f"✓ No new commits detected since last check")
-        # print(f"DEBUG: Updated commits: {updated_commit_info.get('commits', [])}")
-
-        # Report PR update status
+            print(f"   → [check_update_node] no new commits detected since last check")
         if prs_updated:
             print(
-                f"✓ Detected {updated_pr_info.get('prs_count', 0)} updated PRs since last check"
+                f"   → [check_update_node] detected {updated_pr_info.get('prs_count', 0)} updated PRs since last check"
             )
         else:
-            print(f"✓ No new PRs detected since last check")
-        # print(f"DEBUG: Updated PRs: {updated_pr_info.get('prs', [])}")
-
-        # Report release update status
+            print(f"   → [check_update_node] no new PRs detected since last check")
         if releases_updated:
             print(
-                f"✓ Detected {updated_release_note_info.get('releases_count', 0)} updated release notes since last check"
+                f"   → [check_update_node] detected {updated_release_note_info.get('releases_count', 0)} updated release notes since last check"
             )
         else:
-            print(f"✓ No new release notes detected since last check")
-        # print(
-        #     f"DEBUG: Updated release notes: {updated_release_note_info.get('releases', [])}"
-        # )
+            print(
+                f"   → [check_update_node] no new release notes detected since last check"
+            )
 
-        # call `get_updated_code_files` which depends on commit info
         code_files_updated, updated_code_files = get_updated_code_files(
             repo_path, updated_commit_info.get("commits", []), commits_updated
         )
         if code_files_updated:
             print(
-                f"✓ Detected {len(updated_code_files)} updated code files from commits"
+                f"   → [check_update_node] detected {len(updated_code_files)} updated code files from commits"
             )
         else:
-            print(f"✓ No updated code files detected from commits")
-        # print(f"DEBUG: Updated code files: {updated_code_files}")
+            print(
+                f"   → [check_update_node] no updated code files detected from commits"
+            )
+        return (
+            commits_updated,
+            prs_updated,
+            releases_updated,
+            code_files_updated,
+            updated_commit_info,
+            updated_pr_info,
+            updated_release_note_info,
+            updated_code_files,
+        )
+
+    def check_update_node(self, state: ParentGraphState):
+        # this node is to check whether the repo has updates since last doc generation
+        log_state(state)
+        print("→ [check_update_node] processing updates...")
+        basic_info_for_repo = state.get("basic_info_for_repo", {})
+        owner = basic_info_for_repo.get("owner", "")
+        repo = basic_info_for_repo.get("repo", "")
+        platform = basic_info_for_repo.get("platform", "github")
+        repo_root_path = basic_info_for_repo.get("repo_root_path", "./.repos")
+        wiki_root_path = basic_info_for_repo.get("wiki_root_path", "./.wikis")
+        repo_dirname = f"{owner}_{repo}"
+        repo_path = basic_info_for_repo.get(
+            "repo_path", os.path.join(repo_root_path, repo_dirname)
+        )
+        wiki_path = basic_info_for_repo.get(
+            "wiki_path", os.path.join(wiki_root_path, repo_dirname)
+        )
+        repo_update_log_path = basic_info_for_repo.get(
+            "repo_update_log_path", os.path.join(wiki_path, "repo_update_log.json")
+        )
+
+        (
+            commits_updated,
+            prs_updated,
+            releases_updated,
+            code_files_updated,
+            updated_commit_info,
+            updated_pr_info,
+            updated_release_note_info,
+            updated_code_files,
+        ) = self._parallel_fetch_updates(
+            owner, repo, platform, repo_path, repo_update_log_path
+        )
 
         updated_basic_info_for_repo = {}
         updated_basic_info_for_code = {}
 
         if commits_updated:
-            print(f"✓ New commits detected since last documentation generation")
+            print(
+                f"   → [check_update_node] new commits detected since last documentation generation"
+            )
             updated_basic_info_for_repo = {
                 "commits_updated": commits_updated,
             }
         if prs_updated:
-            print(f"✓ New PRs detected since last documentation generation")
+            print(
+                f"   → [check_update_node] new PRs detected since last documentation generation"
+            )
             updated_basic_info_for_repo = {
                 **updated_basic_info_for_repo,
                 "prs_updated": prs_updated,
             }
         if releases_updated:
-            print(f"✓ New release notes detected since last documentation generation")
+            print(
+                f"   → [check_update_node] new release notes detected since last documentation generation"
+            )
             updated_basic_info_for_repo = {
                 **updated_basic_info_for_repo,
                 "releases_updated": releases_updated,
             }
         if code_files_updated:
-            print(f"✓ New code files detected from updated commits")
+            print(
+                f"   → [check_update_node] new code files detected from updated commits"
+            )
             updated_basic_info_for_code = {
                 "code_files_updated": code_files_updated,
             }
 
+        print(f"✓ [check_update_node] updates processed successfully")
         return {
             "basic_info_for_repo": {
                 **state.get("basic_info_for_repo", {}),
@@ -302,7 +431,7 @@ class ParentGraphBuilder:
         date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         if config is None:
             config = {"configurable": {"thread_id": f"wiki-generation-{date}"}}
-        print("Running parent graph with inputs:", inputs)
+        print("→ [run] running parent graph with inputs:", inputs)
         start_time = time.time()
         for chunk in self.graph.stream(
             inputs,
@@ -314,10 +443,10 @@ class ParentGraphBuilder:
         end_time = time.time()
         elapsed_time = end_time - start_time
         print("\n" + "=" * 80)
-        print("✅ Graph execution completed successfully!")
+        print("✓ [run] graph execution completed successfully!")
         print("=" * 80)
         if count_time:
-            print(f"Total execution time: {elapsed_time:.2f} seconds")
+            print(f"   → [run] total execution time: {elapsed_time:.2f} seconds")
 
     def stream(
         self,
@@ -329,7 +458,7 @@ class ParentGraphBuilder:
         date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         if config is None:
             config = {"configurable": {"thread_id": f"wiki-generation-{date}"}}
-        print("Running parent graph with inputs:", inputs)
+        print("→ [stream] running parent graph with inputs:", inputs)
 
         progress_callback(
             {
@@ -367,16 +496,16 @@ class ParentGraphBuilder:
                                 }
                             )
                             print(
-                                f"📊 Progress Update: {node_name} - {progress_stages[node_name]}%"
+                                f"   → [stream] progress update: {node_name} - {progress_stages[node_name]}%"
                             )
 
         end_time = time.time()
         elapsed_time = end_time - start_time
         print("\n" + "=" * 80)
-        print("✅ Graph execution completed successfully!")
+        print("✓ [stream] graph execution completed successfully!")
         print("=" * 80)
         if count_time:
-            print(f"Total execution time: {elapsed_time:.2f} seconds")
+            print(f"   → [stream] total execution time: {elapsed_time:.2f} seconds")
 
         progress_callback(
             {
@@ -394,9 +523,9 @@ if __name__ == "__main__":
     date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     parent_graph_builder.run(
         inputs={
-            "owner": "squatting-at-home123",
-            "repo": "back-puppet",
-            "platform": "gitee",
+            "owner": "facebook",
+            "repo": "zstd",
+            "platform": "github",
             "mode": "fast",  # "fast" or "smart"
             "max_workers": 50,  # 20 worker -> 3 - 4 minutes
             "date": date,
