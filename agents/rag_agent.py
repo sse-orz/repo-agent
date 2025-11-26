@@ -52,19 +52,19 @@ class RAGAgent:
         return SystemMessage(
             content=f"""Evaluate if the provided documents contain sufficient information to comprehensively answer the user's question.
 
-User Question: {question}
+                        User Question: {question}
 
-Retrieved Documents:
-{context}
+                        Retrieved Documents:
+                        {context}
 
-Evaluation Criteria:
-- The documents should contain direct or highly relevant information that addresses the core of the question
-- Code snippets, API documentation, or implementation details are considered sufficient
-- General descriptions without specific technical details may be insufficient
-- If documents are mostly empty or generic, they are not sufficient
+                        Evaluation Criteria:
+                        - The documents should contain direct or highly relevant information that addresses the core of the question
+                        - Code snippets, API documentation, or implementation details are considered sufficient
+                        - General descriptions without specific technical details may be insufficient
+                        - If documents are mostly empty or generic, they are not sufficient
 
-Your Response: Answer with ONLY "yes" if documents are sufficient to answer the question, or "no" if more information is needed."""
-        )
+                        Your Response: Answer with ONLY "yes" if documents are sufficient to answer the question, or "no" if more information is needed."""
+            )
 
     @staticmethod
     def _create_intent_check_prompt(question: str, repo_name: str) -> SystemMessage:
@@ -72,28 +72,28 @@ Your Response: Answer with ONLY "yes" if documents are sufficient to answer the 
         return SystemMessage(
             content=f"""Analyze whether the following question is specifically related to the repository "{repo_name}".
 
-User Question: {question}
+                        User Question: {question}
 
-Repository Name: {repo_name}
+                        Repository Name: {repo_name}
 
-Classification Guidelines:
+                        Classification Guidelines:
 
-REPOSITORY-RELATED Questions (Answer "yes"):
-- Asks about the repository's codebase, architecture, or design patterns
-- Requests information about specific files, modules, classes, or functions
-- Seeks to understand algorithms, implementations, or technical workflows
-- Asks about the repository's purpose, features, capabilities, or limitations
-- Requests examples of how to use the code or API
-- Questions the repository's dependencies or configuration
+                        REPOSITORY-RELATED Questions (Answer "yes"):
+                        - Asks about the repository's codebase, architecture, or design patterns
+                        - Requests information about specific files, modules, classes, or functions
+                        - Seeks to understand algorithms, implementations, or technical workflows
+                        - Asks about the repository's purpose, features, capabilities, or limitations
+                        - Requests examples of how to use the code or API
+                        - Questions the repository's dependencies or configuration
 
-NOT Repository-Related Questions (Answer "no"):
-- General programming questions unrelated to this specific repository
-- Asks about the assistant itself or conversation meta-topics
-- Requests information about other projects or general knowledge
-- Suggests improvements or asks for critique of previous answers
+                        NOT Repository-Related Questions (Answer "no"):
+                        - General programming questions unrelated to this specific repository
+                        - Asks about the assistant itself or conversation meta-topics
+                        - Requests information about other projects or general knowledge
+                        - Suggests improvements or asks for critique of previous answers
 
-Your Response: Answer with ONLY "yes" if the question is repository-related, or "no" otherwise."""
-        )
+                        Your Response: Answer with ONLY "yes" if the question is repository-related, or "no" otherwise."""
+                    )
 
     @staticmethod
     def _create_rewrite_prompt(original_question: str, repo_name: str) -> SystemMessage:
@@ -101,18 +101,18 @@ Your Response: Answer with ONLY "yes" if the question is repository-related, or 
         return SystemMessage(
             content=f"""Your task is to refine and improve the user's question about the repository "{repo_name}" to make it more specific, clear, and optimized for document retrieval.
 
-Original Question: {original_question}
+                        Original Question: {original_question}
 
-Refinement Guidelines:
-1. Make the question more specific and detailed if it's too vague
-2. Add technical context if the question lacks clarity
-3. Break down complex questions into focused sub-questions if needed
-4. Rephrase to use repository-specific terminology when applicable
-5. Ensure the refined question targets concrete code artifacts (functions, classes, files, etc.)
-6. Keep the refined question concise but comprehensive
+                        Refinement Guidelines:
+                        1. Make the question more specific and detailed if it's too vague
+                        2. Add technical context if the question lacks clarity
+                        3. Break down complex questions into focused sub-questions if needed
+                        4. Rephrase to use repository-specific terminology when applicable
+                        5. Ensure the refined question targets concrete code artifacts (functions, classes, files, etc.)
+                        6. Keep the refined question concise but comprehensive
 
-Output ONLY the refined question without any explanation or additional text. If the original question is already well-formed, you can return it as-is."""
-        )
+                        Output ONLY the refined question without any explanation or additional text. If the original question is already well-formed, you can return it as-is."""
+                    )
 
     @staticmethod
     def _create_rag_generation_prompt(
@@ -122,54 +122,54 @@ Output ONLY the refined question without any explanation or additional text. If 
         return SystemMessage(
             content=f"""You are a knowledgeable Repository Analysis Assistant specializing in helping users understand and work with codebases.
 
-Your Task: Answer the user's question based EXCLUSIVELY on the provided repository documentation and code context.
+                        Your Task: Answer the user's question based EXCLUSIVELY on the provided repository documentation and code context.
 
-Conversation History:
-{'---' if history else '(No prior conversation)'}
-{history if history else ''}
-{'---' if history else ''}
+                        Conversation History:
+                        {'---' if history else '(No prior conversation)'}
+                        {history if history else ''}
+                        {'---' if history else ''}
 
-Repository Context (Code, Documentation, and Related Files):
----BEGIN CONTEXT---
-{context}
----END CONTEXT---
+                        Repository Context (Code, Documentation, and Related Files):
+                        ---BEGIN CONTEXT---
+                        {context}
+                        ---END CONTEXT---
 
-User Question: {question}
+                        User Question: {question}
 
-Instructions:
-1. Ground your answer entirely in the provided context - do not use external knowledge
-2. If the context doesn't contain relevant information, explicitly state: "The provided documentation does not contain information about this topic"
-3. Be specific and technical - reference actual code, file names, and line numbers when applicable
-4. If there are multiple relevant parts in the context, cite them appropriately
-5. Provide practical examples or code snippets from the documentation when helpful
-6. If the question requires clarification, ask for it before attempting to answer
+                        Instructions:
+                        1. Ground your answer entirely in the provided context - do not use external knowledge
+                        2. If the context doesn't contain relevant information, explicitly state: "The provided documentation does not contain information about this topic"
+                        3. Be specific and technical - reference actual code, file names, and line numbers when applicable
+                        4. If there are multiple relevant parts in the context, cite them appropriately
+                        5. Provide practical examples or code snippets from the documentation when helpful
+                        6. If the question requires clarification, ask for it before attempting to answer
 
-Provide a clear, comprehensive, and well-structured answer:"""
-        )
+                        Provide a clear, comprehensive, and well-structured answer:"""
+                    )
 
     @staticmethod
     def _create_direct_generation_prompt(history: str, question: str) -> SystemMessage:
-        """Create prompt for direct answer generation without RAG."""
+        """Create prompt for direct answer generation to decline unrelated questions."""
         return SystemMessage(
-            content=f"""You are a helpful and knowledgeable AI Assistant ready to answer general questions and provide assistance.
+            content=f"""You are a specialized Repository Analysis Assistant. Your sole purpose is to assist users in understanding, analyzing, and working with the specific code repository loaded into the system.
 
-Conversation History:
-{'---' if history else '(No prior conversation)'}
-{history if history else ''}
-{'---' if history else ''}
+                        Conversation History:
+                        {'---' if history else '(No prior conversation)'}
+                        {history if history else ''}
+                        {'---' if history else ''}
 
-User Question: {question}
+                        User Question: {question}
 
-Instructions:
-1. Provide a helpful, accurate, and comprehensive answer to the question
-2. Use your general knowledge and reasoning capabilities
-3. If the question is unclear, ask for clarification
-4. Provide examples or explanations where appropriate to enhance understanding
-5. Be concise but thorough in your response
+                        Instructions:
+                        1. You have identified that the user's question is NOT related to the repository, codebase, or technical context.
+                        2. Explicitly state that you are a Repository Analysis Agent.
+                        3. Politely decline to answer the question because it falls outside the scope of the repository.
+                        4. Do NOT use your general knowledge to answer the question (e.g., do not answer general world knowledge, math, or history questions).
+                        5. Invite the user to ask questions specifically regarding the codebase, architecture, or implementation details of the current repository.
 
-Please provide a clear and helpful answer:"""
-        )
-
+                        Your Response:"""
+                    )
+        
     def _build_graph(self):
         """Build and compile the LangGraph state graph."""
         graph = StateGraph(RAGState)
