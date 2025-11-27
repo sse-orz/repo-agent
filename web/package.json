@@ -11,7 +11,11 @@
     "lint": "eslint src --ext .ts,.tsx,.js,.jsx,.vue"
   },
   "dependencies": {
-    "vue": "^3.4.0"
+    "axios": "^1.13.2",
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^9.2.0",
+    "vue": "^3.4.0",
+    "vue-router": "^4.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
