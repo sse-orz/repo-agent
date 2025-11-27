@@ -21,7 +21,7 @@ import Header from '../components/Header.vue'
 import InputSection from '../components/InputSection.vue'
 import InfoCard from '../components/InfoCard.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
-import { generateDoc } from '../utils/request'
+import { generateDocStream } from '../utils/request'
 
 const router = useRouter()
 const repoUrl = ref('')
@@ -50,21 +50,15 @@ const handleSubmit = async () => {
       isLoading.value = false
       return
     }
-    const wikiPath = `./.wikis/${owner}_${repo}`
-    const baseURL = import.meta.env.VITE_API_BASE_URL || ''
-    const wikiUrl = `${baseURL}/wikis/${owner}_${repo}`
-    const res = await generateDoc({
-      owner,
-      repo,
-      wiki_path: wikiPath,
-      wiki_url: wikiUrl,
-      files: []
+    
+    // Always start streaming generation and navigate to the RepoDetail page
+    // The RepoDetail page will handle the streaming results and display progress
+    const controller = new AbortController()
+    // Fire-and-forget the stream; RepoDetail will create its own stream when mounted.
+    generateDocStream({ owner, repo }, () => {}, { signal: controller.signal }).catch((e) => {
+      console.error('Stream start error:', e)
     })
-    if (res.success) {
-      router.push({ name: 'RepoDetail', params: { repoId: `${owner}_${repo}` } })
-    } else {
-      alert(res.message || 'Failed to generate doc')
-    }
+    router.push({ name: 'RepoDetail', params: { repoId: `${owner}_${repo}` } })
   } catch (e) {
     console.error(e)
     alert('Error occurred')
