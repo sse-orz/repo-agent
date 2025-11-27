@@ -18,6 +18,14 @@ class AgentService:
     def __init__(self):
         self.wiki_root = "./.wikis"
 
+    def check_existing_wiki(
+        self, request: GenerateRequest
+    ) -> Optional[GenerateResponseData]:
+        # Check for existing wiki documentation based on request
+        if request.need_update:
+            return None
+        return self.get_wiki_info(request.owner, request.repo)
+
     def get_wiki_info(self, owner: str, repo: str) -> Optional[GenerateResponseData]:
         # Get existing wiki information if available
         wiki_dir = f"{owner}_{repo}"

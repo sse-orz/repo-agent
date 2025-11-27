@@ -567,18 +567,18 @@ class MoeAgent:
             Dict[str, Any]: Cached generation summary or an error payload.
         """
         summary_path = self.cache_path / "generation_summary.json"
-        
+
         if not summary_path.exists():
             return {
                 "status": "error",
                 "error": "No cached summary found",
                 "cache_path": str(self.cache_path),
             }
-        
+
         try:
             with open(summary_path, "r", encoding="utf-8") as f:
                 summary = json.load(f)
-            
+
             print(f"\n{'='*60}")
             print(f"📋 Using Cached Documentation")
             print(f"{'='*60}")
@@ -587,7 +587,7 @@ class MoeAgent:
             if "total_time" in summary:
                 print(f"Original Generation Time: {summary['total_time']:.2f}s")
             print(f"{'='*60}\n")
-            
+
             return summary
         except Exception as e:
             return {
@@ -678,7 +678,7 @@ class MoeAgent:
             if commits:
                 results["baseline_sha"] = commits[0].get("sha")
                 results["baseline_date"] = commits[0].get("date")
-        
+
         summary_path = self.cache_path / "generation_summary.json"
 
         with open(summary_path, "w", encoding="utf-8") as f:

@@ -87,7 +87,12 @@ def edit_file_tool(
         if action not in {"replace", "insert_after", "insert_before", "delete"}:
             raise ValueError(f"Unsupported action: {action}")
 
-        if not target and action in {"replace", "insert_after", "insert_before", "delete"}:
+        if not target and action in {
+            "replace",
+            "insert_after",
+            "insert_before",
+            "delete",
+        }:
             raise ValueError(f"Operation {action} requires a 'target' field")
 
         if action == "replace":
@@ -98,7 +103,9 @@ def edit_file_tool(
             if new_content == updated_content:
                 raise ValueError(f"Target text not found for replace: {target}")
             updated_content = new_content
-            applied_ops.append({"action": action, "target": target, "count": replace_count})
+            applied_ops.append(
+                {"action": action, "target": target, "count": replace_count}
+            )
             continue
 
         if action == "delete":
@@ -109,7 +116,9 @@ def edit_file_tool(
             if new_content == updated_content:
                 raise ValueError(f"Target text not found for delete: {target}")
             updated_content = new_content
-            applied_ops.append({"action": action, "target": target, "count": replace_count})
+            applied_ops.append(
+                {"action": action, "target": target, "count": replace_count}
+            )
             continue
 
         index = updated_content.find(target)
@@ -119,13 +128,17 @@ def edit_file_tool(
         if action == "insert_after":
             insert_pos = index + len(target)
             updated_content = (
-                updated_content[:insert_pos] + replacement + updated_content[insert_pos:]
+                updated_content[:insert_pos]
+                + replacement
+                + updated_content[insert_pos:]
             )
             applied_ops.append({"action": action, "target": target})
         elif action == "insert_before":
             insert_pos = index
             updated_content = (
-                updated_content[:insert_pos] + replacement + updated_content[insert_pos:]
+                updated_content[:insert_pos]
+                + replacement
+                + updated_content[insert_pos:]
             )
             applied_ops.append({"action": action, "target": target})
 

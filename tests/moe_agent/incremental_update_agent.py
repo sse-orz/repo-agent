@@ -28,7 +28,7 @@ class IncrementalUpdateAgent:
     3. Coordinate partial updates (via ModuleDocAgent, MacroDocAgent)
     4. Generate an incremental update summary
     """
-    
+
     def __init__(
         self,
         repo_path: str,
@@ -59,7 +59,7 @@ class IncrementalUpdateAgent:
         self.llm = llm or CONFIG.get_llm()
         # Threshold of changed lines below which we prefer incremental updates
         self.incremental_change_threshold = 600
-        
+
         self.module_doc_agent = ModuleDocAgent(
             repo_identifier=repo_identifier,
             repo_root=str(repo_path),
@@ -73,7 +73,7 @@ class IncrementalUpdateAgent:
             cache_path=str(cache_path),
             llm=self.llm,
         )
-    
+
     def can_update_incrementally(self) -> Tuple[bool, Dict[str, Any]]:
         """Check whether incremental update is possible.
 
@@ -85,34 +85,37 @@ class IncrementalUpdateAgent:
         # 1. Check if cache exists
         if not self.cache_path.exists():
             return (False, {"reason": "no_cache"})
-        
+
         # 2. Load baseline commit information from cached repo info
         baseline_info = self._load_baseline()
         if not baseline_info:
             return (False, {"reason": "no_baseline"})
-        
+
         # 3. Fetch latest remote commit
         try:
             current_commits = get_commits(self.owner, self.repo_name, per_page=1)
             if not current_commits:
                 return (False, {"reason": "cannot_fetch_commits"})
-            
+
             current_sha = current_commits[0]["sha"]
         except Exception as e:
             print(f"⚠️  Failed to fetch remote commits: {e}")
             return (False, {"reason": "fetch_error", "error": str(e)})
-        
+
         # 4. 对比
         if baseline_info["sha"] == current_sha:
             return (False, {"reason": "no_new_commits"})
-        
-        return (True, {
-            "old_sha": baseline_info["sha"],
-            "old_date": baseline_info.get("date"),
-            "new_sha": current_sha,
-            "new_date": current_commits[0].get("date"),
-        })
-    
+
+        return (
+            True,
+            {
+                "old_sha": baseline_info["sha"],
+                "old_date": baseline_info.get("date"),
+                "new_sha": current_sha,
+                "new_date": current_commits[0].get("date"),
+            },
+        )
+
     def update(self, max_workers: int = 5) -> Dict[str, Any]:
         """Run the end‑to‑end incremental update workflow.
 
@@ -131,11 +134,11 @@ class IncrementalUpdateAgent:
             Dict[str, Any]: Aggregate incremental update summary.
         """
         start_time = time.time()
-        
+
         print(f"\n{'='*60}")
         print(f"🔄 Starting Incremental Documentation Update")
         print(f"{'='*60}")
-        
+
         # Step 1: Git pull
         print(f"\n📥 Step 1: Updating local repository...")
         success, message = self._git_pull_with_retry()
@@ -146,13 +149,13 @@ class IncrementalUpdateAgent:
                 "total_time": time.time() - start_time,
             }
         print(f"✅ {message}")
-        
+
         # Step 2: Collect changed files between baseline and HEAD
         print(f"\n📊 Step 2: Analyzing file changes...")
         baseline_info = self._load_baseline()
         baseline_sha = baseline_info["sha"]
         changed_files_info = self._get_changed_files(baseline_sha)
-        
+
         if not changed_files_info["changed_files"]:
             print(f"ℹ️  No file changes detected")
             return {
@@ -160,15 +163,15 @@ class IncrementalUpdateAgent:
                 "baseline_sha": baseline_sha,
                 "total_time": time.time() - start_time,
             }
-        
+
         print(f"✅ Found {len(changed_files_info['changed_files'])} changed files")
         print(f"   Modified: {changed_files_info['stats']['modified']}")
         print(f"   Deleted: {changed_files_info['stats']['deleted']}")
-        
+
         # Step 3: Analyze affected modules based on changed files
         print(f"\n🗂️  Step 3: Analyzing affected modules...")
         affected_modules = self._analyze_affected_modules(changed_files_info)
-        
+
         if not affected_modules["dirty_modules"]:
             print(f"ℹ️  No modules affected (changes outside selected files)")
             # Still need to refresh repo_info.json baseline and summary cache
@@ -179,25 +182,29 @@ class IncrementalUpdateAgent:
                 "changed_files": len(changed_files_info["changed_files"]),
                 "total_time": time.time() - start_time,
             }
-        
+
         print(f"✅ {len(affected_modules['dirty_modules'])} modules affected:")
         for mod_info in affected_modules["dirty_modules"][:5]:
-            print(f"   • {mod_info['module_name']} ({len(mod_info['changed_files'])} files)")
+            print(
+                f"   • {mod_info['module_name']} ({len(mod_info['changed_files'])} files)"
+            )
         if len(affected_modules["dirty_modules"]) > 5:
             print(f"   ... and {len(affected_modules['dirty_modules']) - 5} more")
-        
+
         # Step 4: Update module‑level documentation
         print(f"\n📝 Step 4: Updating module documentation...")
-        module_results = self._update_module_docs(affected_modules["dirty_modules"], max_workers)
-        
+        module_results = self._update_module_docs(
+            affected_modules["dirty_modules"], max_workers
+        )
+
         # Step 4.5: Regenerate module structure for future runs
         print(f"\n🔄 Step 4.5: Regenerating module structure...")
         self._regenerate_module_structure()
-        
+
         # Step 5: Update macro docs (LLM decides per document if changes matter)
         print(f"\n📄 Step 5: Updating macro documentation...")
         macro_results = self._update_macro_docs(affected_modules, changed_files_info)
-        
+
         # Step 6: Save incremental update summary to cache
         print(f"\n💾 Step 6: Saving update summary...")
         total_time = time.time() - start_time
@@ -207,13 +214,13 @@ class IncrementalUpdateAgent:
             affected_modules,
             module_results,
             macro_results,
-            total_time
+            total_time,
         )
         self._save_update_summary(summary)
-        
+
         # Update baseline
         self._update_baseline()
-        
+
         print(f"\n{'='*60}")
         print(f"✨ Incremental Update Complete!")
         print(f"{'='*60}")
@@ -222,9 +229,9 @@ class IncrementalUpdateAgent:
         if macro_results:
             print(f"📄 Macro docs: {len(macro_results)} updated")
         print(f"{'='*60}\n")
-        
+
         return summary
-    
+
     def _load_baseline(self) -> Optional[Dict[str, Any]]:
         """Load baseline commit information from ``repo_info.json``.
 
@@ -234,15 +241,15 @@ class IncrementalUpdateAgent:
         repo_info_path = self.cache_path / "repo_info.json"
         if not repo_info_path.exists():
             return None
-        
+
         try:
             with open(repo_info_path, "r", encoding="utf-8") as f:
                 repo_info = json.load(f)
-            
+
             commits = repo_info.get("commits", [])
             if not commits:
                 return None
-            
+
             # 使用 commits[0] 作为 baseline
             return {
                 "sha": commits[0]["sha"],
@@ -252,7 +259,7 @@ class IncrementalUpdateAgent:
         except Exception as e:
             print(f"⚠️  Failed to load baseline: {e}")
             return None
-    
+
     def _git_pull_with_retry(self) -> Tuple[bool, str]:
         """Run ``git pull`` with automatic retry handling."""
         try:
@@ -260,7 +267,7 @@ class IncrementalUpdateAgent:
             return (success, message)
         except Exception as e:
             return (False, str(e))
-    
+
     def _get_changed_files(self, baseline_sha: str) -> Dict[str, Any]:
         """Collect file changes between a baseline commit and HEAD.
 
@@ -272,7 +279,7 @@ class IncrementalUpdateAgent:
         """
         # First, get raw change list for all files
         all_changes = git_diff_name_status(str(self.repo_path), baseline_sha)
-        
+
         # Load ``selected_files.json`` so we only process files in the selected set
         selected_files_path = self.cache_path / "selected_files.json"
         if selected_files_path.exists():
@@ -281,34 +288,32 @@ class IncrementalUpdateAgent:
                 selected_files = set(selected_data.get("files", []))
         else:
             selected_files = set()
-        
+
         # Filter: only handle modified (M) and deleted (D) files, skip additions (A) for now
         filtered_changes = []
         for change in all_changes:
             status = change["status"]
             filename = change["filename"]
-            
+
             # Only consider files that were selected during initial scan
             if filename not in selected_files:
                 continue
-            
+
             # Skip newly added files for this incremental path
             if status == "A":
                 continue
-            
+
             if status in ["M", "D"]:
                 filtered_changes.append(change)
-        
+
         # Compute detailed diff only for modified files
         modified_files = [c["filename"] for c in filtered_changes if c["status"] == "M"]
         file_diffs = {}
         if modified_files:
             file_diffs = git_diff_multiple_files(
-                str(self.repo_path),
-                baseline_sha,
-                modified_files
+                str(self.repo_path), baseline_sha, modified_files
             )
-        
+
         # Basic statistics about filtering results
         stats = {
             "total": len(all_changes),
@@ -316,13 +321,13 @@ class IncrementalUpdateAgent:
             "modified": sum(1 for c in filtered_changes if c["status"] == "M"),
             "deleted": sum(1 for c in filtered_changes if c["status"] == "D"),
         }
-        
+
         return {
             "changed_files": filtered_changes,
             "file_diffs": file_diffs,
             "stats": stats,
         }
-    
+
     def _analyze_affected_modules(
         self, changed_files_info: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -342,10 +347,10 @@ class IncrementalUpdateAgent:
                 "clean_modules": [],
                 "total_modules": 0,
             }
-        
+
         with open(module_structure_path, "r", encoding="utf-8") as f:
             module_structure = json.load(f)
-        
+
         modules = module_structure.get("modules", [])
         changed_filenames = {c["filename"] for c in changed_files_info["changed_files"]}
         file_diffs = changed_files_info["file_diffs"]
@@ -353,15 +358,15 @@ class IncrementalUpdateAgent:
             c["filename"]: c.get("status", "M")
             for c in changed_files_info["changed_files"]
         }
-        
+
         dirty_modules = []
         clean_modules = []
-        
+
         for module in modules:
             module_files = set(module.get("files", []))
             # Check intersection between module files and changed files
             affected_files = module_files & changed_filenames
-            
+
             if affected_files:
                 changed_details = []
                 total_changes = 0
@@ -377,7 +382,7 @@ class IncrementalUpdateAgent:
                             "diff": diff_info.get("diff", ""),
                         }
                     )
-                
+
                 # Decide priority based on whether module is core and total change size
                 is_core = module.get("is_core", False)
                 if is_core or total_changes > 500:
@@ -386,28 +391,30 @@ class IncrementalUpdateAgent:
                     priority = "medium"
                 else:
                     priority = "low"
-                
-                dirty_modules.append({
-                    "module_name": module["name"],
-                    "module": module,
-                    "changed_files": list(affected_files),
-                    "changed_details": changed_details,
-                    "total_changes": total_changes,
-                    "priority": priority,
-                })
+
+                dirty_modules.append(
+                    {
+                        "module_name": module["name"],
+                        "module": module,
+                        "changed_files": list(affected_files),
+                        "changed_details": changed_details,
+                        "total_changes": total_changes,
+                        "priority": priority,
+                    }
+                )
             else:
                 clean_modules.append(module["name"])
-        
+
         # Sort dirty modules by priority (high → low)
         priority_order = {"high": 0, "medium": 1, "low": 2}
         dirty_modules.sort(key=lambda x: priority_order.get(x["priority"], 3))
-        
+
         return {
             "dirty_modules": dirty_modules,
             "clean_modules": clean_modules,
             "total_modules": len(modules),
         }
-    
+
     def _update_module_docs(
         self, dirty_modules: List[Dict[str, Any]], max_workers: int
     ) -> List[Dict[str, Any]]:
@@ -423,7 +430,7 @@ class IncrementalUpdateAgent:
         results = []
         total = len(dirty_modules)
         completed_count = 0
-        
+
         # Refresh analysis cache for each dirty module before updating docs
         print(f"   Pre-refreshing {total} module analyses...")
         for mod_info in dirty_modules:
@@ -433,9 +440,9 @@ class IncrementalUpdateAgent:
                 module_name, module.get("files", []), force=True
             )
         print(f"   ✅ All {total} analyses refreshed\n")
-        
+
         print(f"   Updating {total} modules with max_workers={max_workers}...")
-        
+
         def process_module(mod_info: Dict[str, Any]) -> Dict[str, Any]:
             module = mod_info["module"]
             module_name = mod_info["module_name"]
@@ -446,7 +453,8 @@ class IncrementalUpdateAgent:
             prefer_incremental = (
                 doc_exists
                 and changed_details
-                and mod_info.get("total_changes", 0) <= self.incremental_change_threshold
+                and mod_info.get("total_changes", 0)
+                <= self.incremental_change_threshold
             )
 
             if prefer_incremental:
@@ -470,28 +478,34 @@ class IncrementalUpdateAgent:
                 executor.submit(process_module, mod_info): (i + 1, mod_info)
                 for i, mod_info in enumerate(dirty_modules)
             }
-            
+
             # Consume futures as they complete to report progress
             for future in as_completed(future_to_module):
                 module_idx, mod_info = future_to_module[future]
                 completed_count += 1
-                
+
                 try:
                     result = future.result()
                     results.append(result)
-                    
+
                     status_icon = "✅" if result["status"] == "success" else "⚠️"
-                    print(f"   [{completed_count}/{total}] {status_icon} {mod_info['module_name']}")
+                    print(
+                        f"   [{completed_count}/{total}] {status_icon} {mod_info['module_name']}"
+                    )
                 except Exception as e:
-                    print(f"   [{completed_count}/{total}] ❌ {mod_info['module_name']}: {e}")
-                    results.append({
-                        "module_name": mod_info["module_name"],
-                        "status": "error",
-                        "error": str(e),
-                    })
-        
+                    print(
+                        f"   [{completed_count}/{total}] ❌ {mod_info['module_name']}: {e}"
+                    )
+                    results.append(
+                        {
+                            "module_name": mod_info["module_name"],
+                            "status": "error",
+                            "error": str(e),
+                        }
+                    )
+
         return results
-    
+
     def _update_macro_docs(
         self,
         affected_modules: Dict[str, Any],
@@ -508,12 +522,12 @@ class IncrementalUpdateAgent:
         if repo_info_path.exists():
             with open(repo_info_path, "r", encoding="utf-8") as f:
                 repo_info = json.load(f)
-        
+
         # Build text summary for display
         change_summary = self._build_macro_change_summary(
             affected_modules, changed_files_info
         )
-        
+
         # Prepare FULL change info for LLM cache
         full_change_info = {
             "changed_files": changed_files_info.get("changed_files", []),
@@ -536,7 +550,7 @@ class IncrementalUpdateAgent:
         return self.macro_doc_agent.update_docs_incremental(
             change_summary=change_summary,
             repo_info=repo_info,
-            full_change_info=full_change_info, 
+            full_change_info=full_change_info,
         )
 
     def _build_macro_change_summary(
@@ -580,7 +594,7 @@ class IncrementalUpdateAgent:
             lines.append("  • ... additional modules omitted")
 
         return "\n".join(lines)
-    
+
     def _compile_update_summary(
         self,
         baseline_info: Dict[str, Any],
@@ -600,17 +614,17 @@ class IncrementalUpdateAgent:
         for mod_result in module_results:
             # Rough estimate: ~5000 tokens per module doc
             total_tokens += 5000
-        
+
         for macro_result in macro_results:
             # Rough estimate: ~8000 tokens per macro‑level doc
             total_tokens += 8000
-        
+
         # Fetch current local HEAD SHA to record new baseline
         try:
             new_head_sha = git_get_current_head_sha(str(self.repo_path))
         except:
             new_head_sha = "unknown"
-        
+
         return {
             "repo_name": self.repo_name,
             "repo_path": str(self.repo_path),
@@ -630,7 +644,9 @@ class IncrementalUpdateAgent:
                 "total_llm_calls": len(module_results) + len(macro_results),
                 "total_tokens_used_estimate": total_tokens,
                 "modules_updated": {
-                    "success": sum(1 for r in module_results if r["status"] == "success"),
+                    "success": sum(
+                        1 for r in module_results if r["status"] == "success"
+                    ),
                     "failed": sum(1 for r in module_results if r["status"] == "error"),
                     "total": len(module_results),
                 },
@@ -639,7 +655,7 @@ class IncrementalUpdateAgent:
             "module_results": module_results,
             "macro_results": macro_results,
         }
-    
+
     def _save_update_summary(self, summary: Dict[str, Any]):
         """Persist incremental update summary to ``generation_summary.json``.
 
@@ -650,30 +666,30 @@ class IncrementalUpdateAgent:
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
         print(f"✅ Summary saved to: {summary_path}")
-    
+
     def _update_baseline(self):
         """Refresh baseline commits in ``repo_info.json`` by refetching latest history."""
         try:
             # 重新获取最新的 commits
             commits = get_commits(self.owner, self.repo_name, per_page=10)
-            
+
             # 加载现有的 repo_info.json
             repo_info_path = self.cache_path / "repo_info.json"
             if repo_info_path.exists():
                 with open(repo_info_path, "r", encoding="utf-8") as f:
                     repo_info = json.load(f)
-                
+
                 # 更新 commits
                 repo_info["commits"] = commits
-                
+
                 # 保存回去
                 with open(repo_info_path, "w", encoding="utf-8") as f:
                     json.dump(repo_info, f, indent=2, ensure_ascii=False)
-                
+
                 print(f"✅ Baseline updated in repo_info.json")
         except Exception as e:
             print(f"⚠️  Failed to update baseline: {e}")
-    
+
     def _regenerate_module_structure(self):
         """Regenerate ``module_structure.json`` using ``ModuleClusterer``.
 

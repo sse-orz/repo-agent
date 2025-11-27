@@ -654,7 +654,7 @@ class GoAnalyzer(LanguageAnalyzer):
 
     def analyze(self):
         """Runs the AST traversal to collect structural statistics for Go files.
-        
+
         Returns:
             Dict[str, Any]: Stats with structs, interfaces and functions (no classes).
         """
@@ -966,7 +966,7 @@ class GoAnalyzer(LanguageAnalyzer):
         name = None
         params = []
         return_type = ""
-        
+
         for child in method_node.children:
             if child.type == "field_identifier":
                 name = child.text.decode("utf-8")
@@ -975,7 +975,7 @@ class GoAnalyzer(LanguageAnalyzer):
             elif child.type not in {"field_identifier", "parameter_list", "comment"}:
                 # This is likely the return type
                 return_type = child.text.decode("utf-8")
-        
+
         if name:
             return {
                 "name": name,
@@ -2061,7 +2061,7 @@ def format_tree_sitter_analysis_results(stats: Dict[str, Any]) -> Dict[str, Any]
 
     # Build summary.classes from classes field, or from structs+interfaces for Go
     classes_summary = []
-    
+
     # If there's a classes field, use it (Python, JS, etc.)
     if stats.get("classes"):
         classes_summary = [
@@ -2072,16 +2072,17 @@ def format_tree_sitter_analysis_results(stats: Dict[str, Any]) -> Dict[str, Any]
     else:
         # Add structs to summary
         for struct in stats.get("structs", []):
-            classes_summary.append({
-                "name": struct["name"],
-                "description": struct.get("docstring", "")
-            })
+            classes_summary.append(
+                {"name": struct["name"], "description": struct.get("docstring", "")}
+            )
         # Add interfaces to summary
         for interface in stats.get("interfaces", []):
-            classes_summary.append({
-                "name": interface["name"],
-                "description": interface.get("docstring", "")
-            })
+            classes_summary.append(
+                {
+                    "name": interface["name"],
+                    "description": interface.get("docstring", ""),
+                }
+            )
 
     summary = {
         "classes": classes_summary,

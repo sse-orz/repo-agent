@@ -15,13 +15,6 @@ def get_agent_service() -> AgentService:
     return AgentService()
 
 
-def check_existing_wiki(agent_service: AgentService, request: GenerateRequest):
-    # Check for existing wiki documentation
-    if request.need_update:
-        return None
-    return agent_service.get_wiki_info(request.owner, request.repo)
-
-
 # curl -X POST http://localhost:8000/api/v1/agents/generate
 # -H "Content-Type: application/json" -d '{"owner": "octocat", "repo": "Hello-World"}'
 @router.post("/generate")
@@ -30,7 +23,7 @@ async def generate_agent_documentation(
     agent_service: AgentService = Depends(get_agent_service),
 ) -> BaseResponse:
     # Generate or update documentation normally
-    if existing_wiki := check_existing_wiki(agent_service, request):
+    if existing_wiki := agent_service.check_existing_wiki(request):
         return BaseResponse(
             message="Existing documentation found.", code=200, data=existing_wiki
         )
@@ -49,7 +42,7 @@ async def generate_agent_documentation_stream(
     agent_service: AgentService = Depends(get_agent_service),
 ):
     # Generate or update documentation in streaming mode
-    if existing_wiki := check_existing_wiki(agent_service, request):
+    if existing_wiki := agent_service.check_existing_wiki(request):
         return BaseResponse(
             message="Existing documentation found.", code=200, data=existing_wiki
         )
@@ -75,6 +68,8 @@ async def generate_agent_documentation_stream(
 
             if not progress_queue.empty():
                 progress_data = progress_queue.get()
+                wiki_info = agent_service.get_wiki_info(request.owner, request.repo)
+                progress_data["wiki_info"] = wiki_info
                 yield f"data: {BaseResponse(message=progress_data.get('message', ''), code=200, data=progress_data).model_dump_json()}\n\n"
 
                 if progress_data.get("stage") == "done":

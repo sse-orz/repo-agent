@@ -64,7 +64,7 @@ class RAGAgent:
                         - If documents are mostly empty or generic, they are not sufficient
 
                         Your Response: Answer with ONLY "yes" if documents are sufficient to answer the question, or "no" if more information is needed."""
-            )
+        )
 
     @staticmethod
     def _create_intent_check_prompt(question: str, repo_name: str) -> SystemMessage:
@@ -93,7 +93,7 @@ class RAGAgent:
                         - Suggests improvements or asks for critique of previous answers
 
                         Your Response: Answer with ONLY "yes" if the question is repository-related, or "no" otherwise."""
-                    )
+        )
 
     @staticmethod
     def _create_rewrite_prompt(original_question: str, repo_name: str) -> SystemMessage:
@@ -112,7 +112,7 @@ class RAGAgent:
                         6. Keep the refined question concise but comprehensive
 
                         Output ONLY the refined question without any explanation or additional text. If the original question is already well-formed, you can return it as-is."""
-                    )
+        )
 
     @staticmethod
     def _create_rag_generation_prompt(
@@ -145,7 +145,7 @@ class RAGAgent:
                         6. If the question requires clarification, ask for it before attempting to answer
 
                         Provide a clear, comprehensive, and well-structured answer:"""
-                    )
+        )
 
     @staticmethod
     def _create_direct_generation_prompt(history: str, question: str) -> SystemMessage:
@@ -168,8 +168,8 @@ class RAGAgent:
                         5. Invite the user to ask questions specifically regarding the codebase, architecture, or implementation details of the current repository.
 
                         Your Response:"""
-                    )
-        
+        )
+
     def _build_graph(self):
         """Build and compile the LangGraph state graph."""
         graph = StateGraph(RAGState)
@@ -325,7 +325,11 @@ class RAGAgent:
 
         return {
             "answer": answer,
-            "messages": state["messages"] + [AIMessage(content=answer)],
+            "messages": state["messages"]
+            + [
+                AIMessage(content=answer),
+                SystemMessage(content="[Generate]: Generated RAG answer"),
+            ],
         }
 
     def generate_direct_node(self, state: RAGState) -> RAGState:
@@ -339,7 +343,11 @@ class RAGAgent:
 
         return {
             "answer": answer,
-            "messages": state["messages"] + [AIMessage(content=answer)],
+            "messages": state["messages"]
+            + [
+                AIMessage(content=answer),
+                SystemMessage(content="[Generate]: Generated direct answer"),
+            ],
         }
 
     def _get_history(self, state: RAGState) -> str:
