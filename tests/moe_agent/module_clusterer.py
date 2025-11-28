@@ -320,40 +320,52 @@ class ModuleClusterer:
                 for path, summary in file_summaries.items()
             ]
 
-        instructions = f"""
-You are validating a three-step module clustering workflow for a codebase:
-1) Directory heuristic grouping (already provided).
-2) Tree-sitter based dependency/call graph (already provided).
-3) LLM confirmation: you decide final module boundaries and meaningful names.
+        system_content = """You are a code organization expert specializing in module boundary detection and codebase architecture.
 
-Initial data snapshot:
-{json.dumps(payload, ensure_ascii=False, indent=2)}
+## Workflow Context
+You are the final validation step in a three-phase module clustering pipeline:
+1. **Directory Heuristic** — Initial grouping by file path structure (already completed)
+2. **Dependency Analysis** — Tree-sitter based call graph and import analysis (already completed)
+3. **LLM Validation** — Your task: refine boundaries, assign meaningful names, ensure coherence
 
-Requirements:
-- Reference the dependency graph to keep collaborating files together even if directories differ.
-- You may keep, merge, or split initial modules. Provide clear, human-friendly names.
-- Every file must appear in exactly one module.
-- Include a short description summarizing the module responsibilities.
+## Core Principles
+- **Dependency Cohesion**: Files with strong mutual dependencies belong together
+- **Single Responsibility**: Each module should have a clear, focused purpose
+- **Complete Coverage**: Every file must appear in exactly one module
+- **Meaningful Naming**: Use clear, human-friendly module names that reflect functionality
 
-Return ONLY valid JSON in this exact format:
-{{
+## Output Format
+Return ONLY valid JSON (no markdown, no explanation):
+```
+{
   "modules": [
-    {{
+    {
       "name": "module_name",
       "files": ["file1.py", "file2.py"],
       "description": "One sentence summary"
-    }}
+    }
   ]
-}}
+}
+```
 """
 
+        instructions = f"""# Task: Validate and Refine Module Clustering
+
+## Input Data
+```json
+{json.dumps(payload, ensure_ascii=False, indent=2)}
+```
+
+## Actions
+- Review initial modules and dependency graph
+- Keep, merge, or split modules based on dependency cohesion
+- Assign clear, descriptive module names
+- Ensure every file is assigned to exactly one module
+
+Return the final module structure as JSON."""
+
         try:
-            system_message = SystemMessage(
-                content=(
-                    "You are a code organization expert. Analyze code structures and "
-                    "group files into logical modules."
-                )
-            )
+            system_message = SystemMessage(content=system_content)
 
             response = self.llm.invoke(
                 [
