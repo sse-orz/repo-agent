@@ -14,30 +14,45 @@
       <aside class="toc">
         <nav>
           <div v-for="(section, si) in tocSections" :key="`sec-${si}`" class="toc-section">
-            <div v-for="(item, ii) in section.items || []" :key="`item-${si}-${ii}`">
+            <div
+              v-for="(item, ii) in displayItems(section)"
+              :key="`item-${si}-${ii}-${item.fullPath || item.name}`"
+            >
               <div
                 class="toc-item"
-                @click="selectItem(si, ii)"
-                :aria-current="selected.section === si && selected.item === ii ? 'true' : undefined"
+                @click="handleItemClick(item)"
+                :aria-current="item.url && item.url === selectedUrl ? 'true' : undefined"
                 :style="{ paddingLeft: 8 + (item.depth || 0) * 12 + 'px' }"
               >
-                <span class="toc-item-name">{{ item.name }}</span>
+                <span class="toc-item-name">
+                  <span v-if="item.depth > 0" class="toc-pipes">
+                    <span v-for="n in item.depth" :key="n" class="toc-pipe">|</span>
+                    <span class="toc-pipe-connector">─</span>
+                  </span>
+                  <span class="toc-label">
+                    {{ item.isDir ? item.name + '/' : item.name }}
+                  </span>
+                </span>
                 <button
+                  v-if="item.isDir || (item.headings || []).length"
                   class="toc-toggle"
-                  @click.stop="toggleExpand(si, ii)"
-                  aria-label="Toggle headings"
+                  @click.stop="toggleItemExpand(item)"
+                  aria-label="Toggle"
                 >
                   {{ item.expanded ? '▾' : '▸' }}
                 </button>
               </div>
 
               <!-- headings for the file (expandable) -->
-              <div v-if="(item.headings || []).length && item.expanded" class="toc-headings">
+              <div
+                v-if="!item.isDir && (item.headings || []).length && item.expanded"
+                class="toc-headings"
+              >
                 <div
                   v-for="(h, hi) in item.headings"
                   :key="`heading-${si}-${ii}-${hi}`"
                   class="toc-heading"
-                  @click.stop="scrollToHeading(h.id)"
+                  @click.stop="handleHeadingClick(item, h.id)"
                 >
                   {{ h.title }}
                 </div>
@@ -95,10 +110,13 @@ interface HeadingItem {
 
 interface FileItem {
   name: string
-  url: string
+  url?: string
   headings?: HeadingItem[]
   expanded?: boolean
-  depth?: number
+  depth: number
+  isDir: boolean
+  children?: FileItem[]
+  fullPath: string
 }
 
 interface TocSection {
@@ -130,6 +148,7 @@ const docContent = ref('<p>Select a repository to view documentation.</p>')
 const tocSections = ref<TocSection[]>([])
 const query = ref('')
 const selected = ref<{ section: number | null; item: number | null }>({ section: null, item: null })
+const selectedUrl = ref<string | null>(null)
 const isStreaming = ref(false)
 const progressLogs = ref<string[]>([])
 const streamController = ref<AbortController | null>(null)
@@ -170,7 +189,29 @@ const buildTocItems = (
   files: unknown[],
   options: { resolvedUrlWithHeadings?: { url: string; headings?: HeadingItem[] } } = {}
 ): FileItem[] => {
-  const result: FileItem[] = []
+  const rootChildren: FileItem[] = []
+
+  const ensureDir = (
+    children: FileItem[],
+    name: string,
+    depth: number,
+    parentPath: string
+  ): FileItem => {
+    let node = children.find((it) => it.isDir && it.name === name)
+    if (!node) {
+      node = {
+        name,
+        isDir: true,
+        depth,
+        expanded: true,
+        children: [],
+        fullPath: parentPath ? `${parentPath}/${name}` : name,
+      }
+      children.push(node)
+    }
+    return node
+  }
+
   for (const f of files as Record<string, unknown>[]) {
     const rec = f || {}
     const rawPath = String(rec.path ?? rec.name ?? rec.url ?? '').trim()
@@ -182,7 +223,21 @@ const buildTocItems = (
     if (!isMd) continue
 
     const segments = (rawPath || rawUrl).split('/').filter(Boolean)
-    const depth = Math.max(0, segments.length - 1)
+    if (!segments.length) continue
+
+    let children = rootChildren
+    let depth = 0
+    let parentPath = ''
+
+    // 中间段作为目录节点
+    for (let i = 0; i < segments.length - 1; i++) {
+      const seg = segments[i]
+      const dir = ensureDir(children, seg, depth, parentPath || '')
+      children = dir.children || (dir.children = [])
+      parentPath = dir.fullPath ?? seg
+      depth += 1
+    }
+
     const baseName = segments[segments.length - 1] || rawPath || rawUrl
     // 统一处理形如 "xxxxxx.ext_doc.md" 的文件名，只显示 "xxxxxx.ext"
     let displayName = baseName.replace(/\.md$/i, '')
@@ -193,23 +248,54 @@ const buildTocItems = (
       name: displayName,
       url,
       depth,
+      isDir: false,
+      expanded: false,
+      fullPath: rawPath || rawUrl,
     }
 
-    if (options.resolvedUrlWithHeadings && url === options.resolvedUrlWithHeadings.url) {
-      const hds = options.resolvedUrlWithHeadings.headings
-      if (hds?.length) {
-        item.headings = hds.map((h) => ({
-          level: h.level,
-          title: h.title,
-          id: h.id,
-        }))
+    children.push(item)
+  }
+
+  // 附加标题信息到指定 URL 的文件节点
+  if (options.resolvedUrlWithHeadings) {
+    const { url, headings } = options.resolvedUrlWithHeadings
+    const attach = (nodes: FileItem[]) => {
+      for (const node of nodes) {
+        if (!node.isDir && node.url === url && headings?.length) {
+          node.headings = headings.map((h) => ({
+            level: h.level,
+            title: h.title,
+            id: h.id,
+          }))
+          return true
+        }
+        if (node.children && node.children.length && attach(node.children)) return true
+      }
+      return false
+    }
+    attach(rootChildren)
+  }
+
+  return rootChildren
+}
+
+const flattenItems = (items?: FileItem[]): FileItem[] => {
+  const result: FileItem[] = []
+  const walk = (nodes: FileItem[]) => {
+    for (const n of nodes) {
+      result.push(n)
+      if (n.isDir && n.expanded && n.children?.length) {
+        walk(n.children)
       }
     }
-
-    result.push(item)
+  }
+  if (items?.length) {
+    walk(items)
   }
   return result
 }
+
+const displayItems = (section: TocSection) => flattenItems(section.items)
 
 const escapeHtml = (value: string) =>
   String(value)
@@ -673,12 +759,9 @@ onUnmounted(() => {
   }
 })
 
-const selectItem = async (si: number, ii: number) => {
-  selected.value = { section: si, item: ii }
-  const section = tocSections.value[si]
-  if (!section || !section.items) return
-  const item = section.items[ii]
-  if (!item || !item.url) return
+const selectItemByNode = async (item: FileItem) => {
+  if (!item || item.isDir || !item.url) return
+  selectedUrl.value = item.url
 
   try {
     const resolved = resolveBackendStaticUrl(item.url)
@@ -727,12 +810,25 @@ const selectItem = async (si: number, ii: number) => {
   }
 }
 
-const toggleExpand = (si: number, ii: number) => {
-  const section = tocSections.value[si]
-  if (!section || !section.items) return
-  const item = section.items[ii]
-  if (!item) return
+const toggleItemExpand = (item: FileItem) => {
   item.expanded = !item.expanded
+}
+
+const handleHeadingClick = async (item: FileItem, headingId: string) => {
+  if (item.isDir || !headingId) return
+  const needSwitchFile = item.url && item.url !== selectedUrl.value
+  if (needSwitchFile) {
+    await selectItemByNode(item)
+  }
+  await scrollToHeading(headingId)
+}
+
+const handleItemClick = (item: FileItem) => {
+  if (item.isDir) {
+    toggleItemExpand(item)
+  } else {
+    void selectItemByNode(item)
+  }
 }
 
 const selectTitle = (si: number) => {
@@ -899,6 +995,28 @@ const openRepoInNewTab = () => {
   text-overflow: ellipsis;
   word-break: break-word;
   padding-right: 8px;
+}
+
+.toc-pipes {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  color: var(--muted-text-color, var(--text-color));
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+.toc-pipe {
+  margin-right: 1px;
+}
+
+.toc-pipe-connector {
+  margin-right: 3px;
+}
+
+.toc-label {
+  display: inline-block;
+  max-width: 100%;
 }
 
 .toc-headings {
