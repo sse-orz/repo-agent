@@ -110,62 +110,31 @@ class MacroDocAgent(BaseAgent):
         self.wiki_base_path.mkdir(parents=True, exist_ok=True)
 
         system_prompt = SystemMessage(
-            content="""You are a technical documentation expert specializing in high-level project documentation
-(README, ARCHITECTURE, DEVELOPMENT, API, etc.) for software repositories.
+            content="""You are a technical documentation expert specializing in macro-level project documentation (README, ARCHITECTURE, DEVELOPMENT, API) for software repositories.
 
-## Your Workflow
-1. **Explore**: Use `ls_context_file_tool` to discover available context files
-2. **Gather**: Use `read_file_tool` to collect necessary information from context files
-3. **Generate**: Create comprehensive documentation based on the gathered information
-4. **Write Once**: Call `write_file_tool` EXACTLY ONCE with the specified file path and complete content
-5. **Stop**: After writing the file, your task is complete - do NOT call any more tools
+## Available Tools
+- `ls_context_file_tool`: Discover available context files in a directory
+- `read_file_tool`: Read context files (JSON analysis data)
+- `write_file_tool`: Write final documentation (call EXACTLY ONCE per task)
+- `edit_file_tool`: Edit existing documentation files
 
-## Critical Constraints
-- You MUST write to ONLY the specific file path provided in the task
-- You MUST call `write_file_tool` EXACTLY ONE TIME with complete, final content
-- After calling `write_file_tool`, STOP immediately - do not call any other tools
-- DO NOT write to any other file paths beyond what is explicitly specified
-- DO NOT make multiple write_file_tool calls - gather all information first, then write once
+## Directory Convention
+| Directory | Purpose | Action |
+|-----------|---------|--------|
+| `.cache/{repo}/` | Pre-analyzed JSON context (repo_info, module_analysis) | READ |
+| `.repos/{repo}/` | Original source code | DO NOT READ (use .cache instead) |
+| `.wikis/{repo}/` | Output documentation | WRITE (your target) |
 
-## CRITICAL PATH RULES - READ CAREFULLY
-**UNDERSTAND THE THREE DIRECTORY TYPES:**
-
-1. **`.cache/` directory** = Context files (JSON format, analysis results)
-   - Purpose: Read-only context and analysis data
-   - Format: JSON files containing code analysis, module info, repo structure
-   - Example: `.cache/cloudwego_eino/repo_info.json`, `.cache/cloudwego_eino/module_analysis/root.json`
-   - Action: READ these files to gather information
-
-2. **`.repos/` directory** = Source code repository files  
-   - Purpose: Original source code files (Go, Python, JavaScript, etc.)
-   - Format: Actual code files (.go, .py, .js, etc.)
-   - Example: `.repos/cloudwego_eino/adk/interface.go`, `.repos/cloudwego_eino/doc.go`
-   - Action: You generally should NOT read these directly (use context files instead)
-   - IMPORTANT: These files are referenced in context but you read the JSON summaries in .cache/
-
-3. **`.wikis/` directory** = Output documentation (YOUR TARGET)
-   - Purpose: Where you write generated documentation
-   - Format: Markdown files (.md)
-   - Example: `.wikis/cloudwego_eino/README.md`, `.wikis/cloudwego_eino/API.md`
-   - Action: WRITE your documentation here using the EXACT path provided
-
-**PATH VERIFICATION BEFORE WRITING:**
-- ✅ CORRECT: `.wikis/cloudwego_eino/README.md` (writing documentation)
-- ❌ WRONG: `.cache/cloudwego_eino/README.md` (cache is for reading context only!)
-- ❌ WRONG: `.repos/cloudwego_eino/README.md` (repos is source code only!)
-- ❌ WRONG: `README.md` (missing directory!)
-
-**REMEMBER:**
-- READ from `.cache/` (JSON context files)
-- DO NOT try to read from `.repos/` (source code - use context instead)
-- WRITE to `.wikis/` (output documentation) using the EXACT path in your task
+## Core Principles
+1. **Gather First, Write Once**: Collect all needed information before writing; call `write_file_tool` exactly once with complete content
+2. **Path Discipline**: Always verify write path starts with `.wikis/` and matches the assigned filename
+3. **Stop After Write**: After successful write, task is complete—no further tool calls
 
 ## Quality Standards
-Produce clear, professional, and comprehensive documentation that:
-- Follows Markdown best practices
-- Is well-structured with proper headings and sections
-- Includes concrete examples where appropriate
-- Is tailored to the specified target audience
+- Follow Markdown best practices with proper heading hierarchy
+- Include concrete examples and code snippets where appropriate
+- Tailor content to the specified target audience
+- Use mermaid diagrams for architecture visualization
 """
         )
 
@@ -230,100 +199,32 @@ Produce clear, professional, and comprehensive documentation that:
         # Build prompt (doc-type specific instructions moved here)
         target_file_path = str(self.wiki_base_path / doc_type)
 
-        prompt = f"""
-# Task: Generate {doc_type} ONLY
+        prompt = f"""# Task: Generate {doc_type}
 
-**CURRENT TASK**: Generate {doc_type} ({spec['title']})
 **Repository**: {self.repo_identifier}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- YOUR SINGLE OUTPUT FILE - USE THIS EXACT PATH
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-✅ WRITE TO THIS PATH (and ONLY this path):
-   `{target_file_path}`
-
-This is a {doc_type} file. Do NOT write to any other filename!
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- DIRECTORY STRUCTURE - UNDERSTAND BEFORE PROCEEDING
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-**Three types of directories in this system:**
-
-1.  `.cache/{self.repo_identifier}/` - READ context files from here
-   - Contains: JSON analysis files (repo_info.json, module_analysis/*.json, etc.)
-   - Purpose: Pre-analyzed repository information for your reference
-   - Action: READ these JSON files to gather information
-   - Examples you can read:
-     * `.cache/{self.repo_identifier}/repo_info.json`
-     * `.cache/{self.repo_identifier}/module_analysis/root.json`
-     * `.cache/{self.repo_identifier}/module_structure.json`
-
-2.  `.repos/{self.repo_identifier}/` - Source code (DO NOT READ)
-   - Contains: Actual source code files (.go, .py, .js, etc.)
-   - Purpose: Original repository code
-   - Action: DO NOT try to read these - use context JSON files instead
-   - Note: These paths may appear in context files as references
-
-3.  `.wikis/{self.repo_identifier}/` - WRITE documentation here (YOUR TARGET)
-   - Contains: Generated documentation (README.md, API.md, etc.)
-   - Purpose: Your output destination
-   - Action: WRITE your {doc_type} here
-   - Your exact target: `{target_file_path}`
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-❌ WRONG PATHS - DO NOT USE THESE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-❌ `.cache/{self.repo_identifier}/{doc_type}` (Cache is for reading, not writing!)
-❌ `.repos/{self.repo_identifier}/{doc_type}` (Repos is source code, not docs!)
-❌ `{doc_type}` (Missing directory path!)
-❌ `.wikis/{self.repo_identifier}/README.md` (Only if task is NOT README.md!)
-   
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-## Target Audience
-{spec['audience']}
+**Output Path**: `{target_file_path}`
+**Target Audience**: {spec['audience']}
 
 ## Required Sections
-{chr(10).join(f"{i+1}. {section}" for i, section in enumerate(spec['sections']))}
+{chr(10).join(f"- {section}" for section in spec['sections'])}
 
-## Available Context
-Explore these context directories to gather information:
-- `ls_context_file_tool('.cache/{self.repo_identifier}/')`
-- `ls_context_file_tool('.cache/{self.repo_identifier}/module_analysis/')`
+## Context Resources
+Start by exploring available context:
+```
+ls_context_file_tool('.cache/{self.repo_identifier}/')
+```
 
-Context files contain:
-- Repository structure and metadata (repo_info.json)
-- Static code analysis results (module_analysis/*.json)
-- Code components and dependencies (module_structure.json)
+Key context files:
+- `repo_info.json` — Repository metadata and structure
+- `module_structure.json` — Module organization and dependencies
+- `module_analysis/*.json` — Static analysis per module
 
-## Your Process
-1. **Explore**: Use ls_context_file_tool('.cache/{self.repo_identifier}/') to discover available context
-2. **Read**: Use read_file_tool to gather information from `.cache/{self.repo_identifier}/` directory (read as many as needed)
-3. **Generate**: Create a complete, comprehensive {doc_type} with all required sections
-4. **Write ONCE**: Call write_file_tool EXACTLY ONCE with:
-   - file_path = `{target_file_path}` (EXACT PATH - this is your {doc_type} file)
-   - content = your complete markdown documentation for {doc_type}
-5. **STOP**: After write_file_tool returns success - do NOT call any more tools
-
-## Completion Criteria - Verify Before Writing
-✅ You have called `write_file_tool` with:
-   - file_path argument = `{target_file_path}` (MUST match exactly)
-   - content argument = complete markdown content for {doc_type}
-✅ The path contains `.wikis/{self.repo_identifier}/` (NOT `.cache/` or `.repos/`)
-✅ The filename is `{doc_type}` (not another document name!)
-✅ After successful write, you STOP immediately - no more tool calls
-
-## Final Path Verification Checklist
-Before calling write_file_tool, triple-check:
-- file_path = `{target_file_path}` (exact match)
-- Path does NOT contain `.cache/` (that's for reading!)
-- Path does NOT contain `.repos/` (that's source code!)
-- Path DOES contain `.wikis/{self.repo_identifier}/`
-- Filename ends with `{doc_type}` (your assigned document)
-- Content is complete and ready to write
+## Execution Steps
+1. **Explore**: List context files in `.cache/{self.repo_identifier}/`
+2. **Gather**: Read relevant JSON context files to understand the project
+3. **Generate**: Create comprehensive {spec['title']} documentation covering all required sections
+4. **Write**: Call `write_file_tool` with path `{target_file_path}` and complete content
+5. **Stop**: Task complete after successful write
 
 """
 
@@ -508,61 +409,41 @@ Before calling write_file_tool, triple-check:
                 continue
 
             diagram_req = self.DIAGRAM_REQUIREMENTS.get(doc_type, "")
-            prompt = f"""
-You must evaluate and potentially UPDATE the existing `{doc_type}` documentation.
+            prompt = f"""# Task: Evaluate and Update {doc_type}
 
-## Repository
-- Identifier: {self.repo_identifier}
-- Target file: `{doc_path}`
+**Repository**: {self.repo_identifier}
+**Target Document**: `{doc_path}`
+**Change Details**: `{change_cache_path}`
 
-## Recent Changes - FULL DETAILS AVAILABLE
-A comprehensive change cache has been saved to:
-`{change_cache_path}`
-
-This file contains:
-- Complete list of changed files with status (Modified/Deleted)
-- Full git diffs for each file showing exact code changes
-- Statistics (total changes, lines modified, etc.)
-- Affected modules with detailed change information per module
-- File-level change details including diff content
-
-## Your Task - Two Phase Decision & Action
-
-### Phase 1: Read and Decide
-1. Read `{change_cache_path}` to understand ALL changes in detail
+## Phase 1: Analyze Changes
+1. Read `{change_cache_path}` to understand all code changes (files, diffs, statistics)
 2. Read the current `{doc_path}` document
-3. Analyze if this specific `{doc_type}` needs updating:
-   - Do the code changes affect content documented here?
-   - Are there bug fixes, new features, or architectural changes relevant to this doc?
-   - Would readers be misled by outdated information?
-   - Even small changes (like bug fixes) may warrant updates if documented
+3. Determine if updates are needed:
+   - Do changes affect documented content?
+   - Are there new features, bug fixes, or architectural changes?
+   - Would current documentation mislead readers?
 
-### Phase 2: Take Action
-**If NO UPDATE NEEDED:**
-- Respond with a clear explanation of why no update is necessary
-- Example: "The changes only affect module X's internal implementation, which is not covered in this ARCHITECTURE.md"
+## Phase 2: Take Action
 
-**If UPDATE NEEDED:**
-- Use `edit_file_tool` to make surgical edits to affected sections
-- Update or add `mermaid` diagrams if architecture/flows changed
-- Add notes about fixed bugs or new behaviors
-- Preserve existing structure and formatting
+**If NO update needed:**
+- Explain why (e.g., "Changes only affect internal implementation not covered in {doc_type}")
 
-## Additional Context Available
-You can also read these files for more context:
-- `.cache/{self.repo_identifier}/repo_info.json` - Repository metadata
-- `.cache/{self.repo_identifier}/module_structure.json` - Module organization
-- `.cache/{self.repo_identifier}/module_analysis/` - Updated static analysis per module
+**If UPDATE needed:**
+- Use `edit_file_tool` for surgical edits to affected sections
+- Update mermaid diagrams if architecture/flows changed
+- Document new behaviors, fixed bugs, or deprecated APIs
+- Preserve existing structure and headings
 
-## Documentation Standards
-- Use `edit_file_tool` for targeted updates (preferred)
-- Only use `write_file_tool` if complete document rewrite is needed
+## Additional Context
+- `.cache/{self.repo_identifier}/repo_info.json` — Repository metadata
+- `.cache/{self.repo_identifier}/module_structure.json` — Module organization
+- `.cache/{self.repo_identifier}/module_analysis/` — Per-module static analysis
+
+## Standards
+- Prefer `edit_file_tool` over full rewrites
 - Keep headings stable for link consistency
-- Document removed functionality or deprecated APIs
-- Highlight security fixes or breaking changes
-
-## Diagram Requirement
-{diagram_req or "Keep diagrams consistent with current system state."}
+- Highlight breaking changes and security fixes
+- {diagram_req or "Keep diagrams consistent with current system state"}
 """
 
             if repo_info:

@@ -170,13 +170,23 @@ Open the URL printed in the terminal to access the `repo-agent` web interface.
 
 ![Agent Structure Detail](assets/agent_structure.png)
 
-### Repo Agent sub‑graph
+### Repo Agent
+#### Sub‑graph
 
-![Sub Graph](assets/sub-graph.png)
+![Sub Graph](assets/sub-graph2.png)
+
+#### Moe-Agent
+
+![Moe-Agent](assets/moe-agent.png)
 
 ### Prompt design
+#### Sub-graph prompt
 
-![Prompt](assets/prompt-template.png)
+![Sub-graph Prompt](assets/prompt-template.png)
+
+#### Moe-Agent prompt
+
+![Moe-Agent Prompt](assets/moe-agent-prompt.png)
 
 ### Backend
 
