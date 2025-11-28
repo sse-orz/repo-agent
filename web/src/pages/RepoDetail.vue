@@ -19,6 +19,7 @@
                 class="toc-item"
                 @click="selectItem(si, ii)"
                 :aria-current="selected.section === si && selected.item === ii ? 'true' : undefined"
+                :style="{ paddingLeft: 8 + (item.depth || 0) * 12 + 'px' }"
               >
                 <span class="toc-item-name">{{ item.name }}</span>
                 <button
@@ -97,6 +98,7 @@ interface FileItem {
   url: string
   headings?: HeadingItem[]
   expanded?: boolean
+  depth?: number
 }
 
 interface TocSection {
@@ -163,6 +165,51 @@ const externalRepoUrl = computed(() => {
   // 默认 GitHub
   return `https://github.com/${owner.value}/${repoName.value}`
 })
+
+const buildTocItems = (
+  files: unknown[],
+  options: { resolvedUrlWithHeadings?: { url: string; headings?: HeadingItem[] } } = {}
+): FileItem[] => {
+  const result: FileItem[] = []
+  for (const f of files as Record<string, unknown>[]) {
+    const rec = f || {}
+    const rawPath = String(rec.path ?? rec.name ?? rec.url ?? '').trim()
+    const rawUrl = String(rec.url ?? '').trim()
+    if (!rawPath && !rawUrl) continue
+
+    // 只保留 markdown 文件
+    const isMd = /\.md$/i.test(rawPath || rawUrl)
+    if (!isMd) continue
+
+    const segments = (rawPath || rawUrl).split('/').filter(Boolean)
+    const depth = Math.max(0, segments.length - 1)
+    const baseName = segments[segments.length - 1] || rawPath || rawUrl
+    // 统一处理形如 "xxxxxx.ext_doc.md" 的文件名，只显示 "xxxxxx.ext"
+    let displayName = baseName.replace(/\.md$/i, '')
+    displayName = displayName.replace(/_doc$/i, '')
+    const url = resolveBackendStaticUrl(rawUrl || rawPath)
+
+    const item: FileItem = {
+      name: displayName,
+      url,
+      depth,
+    }
+
+    if (options.resolvedUrlWithHeadings && url === options.resolvedUrlWithHeadings.url) {
+      const hds = options.resolvedUrlWithHeadings.headings
+      if (hds?.length) {
+        item.headings = hds.map((h) => ({
+          level: h.level,
+          title: h.title,
+          id: h.id,
+        }))
+      }
+    }
+
+    result.push(item)
+  }
+  return result
+}
 
 const escapeHtml = (value: string) =>
   String(value)
@@ -392,16 +439,14 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
                 docContent.value = `<p>Error loading document: ${String(error)}</p>`
               }
             }
-            // Populate TOC with the single file (resolve to backend full URL)
-            section.items = (files as unknown[]).map((f) => {
-              const rec = f as Record<string, unknown>
-              const urlVal = typeof rec.url === 'string' ? rec.url : String(rec.url ?? '')
-              const u = resolveBackendStaticUrl(String(urlVal))
-              return {
-                name: String(rec.path ?? rec.name ?? rec.url ?? 'file'),
-                url: u,
-                headings: u === resolvedUrl ? fileHeadings : undefined,
-              }
+            // Populate TOC with the single file (only markdown, with optional headings)
+            section.items = buildTocItems(files as unknown[], {
+              resolvedUrlWithHeadings: resolvedUrl
+                ? {
+                    url: resolvedUrl,
+                    headings: fileHeadings,
+                  }
+                : undefined,
             })
           } else if (files.length > 1) {
             const listHtml = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
@@ -413,14 +458,8 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
               })
               .join('')}</ul>`
             docContent.value = listHtml
-            // Update TOC with files (resolve to backend full URL immediately)
-            section.items = (files as unknown[]).map((f) => {
-              const rec = f as Record<string, unknown>
-              return {
-                name: String(rec.path ?? rec.name ?? rec.url ?? 'file'),
-                url: resolveBackendStaticUrl(String(rec.url ?? '')),
-              }
-            })
+            // Update TOC with markdown files only
+            section.items = buildTocItems(files as unknown[])
           } else {
             docContent.value = `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`
           }
@@ -488,16 +527,11 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
                 if (title) section.title = title
                 else section.title = section.repo
               }
-              // populate TOC linking and attach headings if present
-              section.items = (files as unknown[]).map((f) => {
-                const rec = f as Record<string, unknown>
-                const urlVal = typeof rec.url === 'string' ? rec.url : String(rec.url ?? '')
-                const u = resolveBackendStaticUrl(String(urlVal))
-                return {
-                  name: String(rec.path ?? rec.name ?? rec.url ?? 'file'),
-                  url: u,
-                  headings: u === resolvedUrl ? fileHeadings : undefined,
-                }
+              // populate TOC linking and attach headings if present (markdown only)
+              section.items = buildTocItems(files as unknown[], {
+                resolvedUrlWithHeadings: resolvedUrl
+                  ? { url: resolvedUrl, headings: fileHeadings }
+                  : undefined,
               })
             } else {
               docContent.value = `<p>Failed to load document: ${response.status}</p>`
@@ -506,14 +540,8 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
             docContent.value = `<p>Error loading document: ${String(error)}</p>`
           }
         }
-        // Populate TOC with the single file (resolve to backend full URL)
-        section.items = (files as unknown[]).map((f) => {
-          const rec = f as Record<string, unknown>
-          return {
-            name: String(rec.path ?? rec.name ?? rec.url ?? 'file'),
-            url: resolveBackendStaticUrl(String(rec.url ?? '')),
-          }
-        })
+        // Populate TOC with markdown files only
+        section.items = buildTocItems(files as unknown[])
       } else if (Array.isArray(files) && files.length > 1) {
         docContent.value = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
           .map((f) => {
@@ -521,14 +549,8 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
             return `<li>${escapeHtml(String(rec.path ?? rec.name ?? rec.url ?? 'file'))}</li>`
           })
           .join('')}</ul>`
-        // Update TOC with files (resolve to backend full URL immediately)
-        section.items = (files as unknown[]).map((f) => {
-          const rec = f as Record<string, unknown>
-          return {
-            name: String(rec.path ?? rec.name ?? rec.url ?? 'file'),
-            url: resolveBackendStaticUrl(String(rec.url ?? '')),
-          }
-        })
+        // Update TOC with markdown files only
+        section.items = buildTocItems(files as unknown[])
       } else {
         docContent.value = `<pre>${escapeHtml(JSON.stringify(data || lastEvent, null, 2))}</pre>`
       }
@@ -760,6 +782,13 @@ const openRepoInNewTab = () => {
   align-items: stretch;
   flex: 1 1 auto;
   overflow: hidden;
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
+  margin-top: 8px;
+  /* 固定整体内容区域宽度并居中 */
+  max-width: 1340px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .repo-header {
@@ -796,11 +825,22 @@ const openRepoInNewTab = () => {
 }
 
 .toc {
-  min-width: 100px;
-  padding: 24px 24px;
+  /* 固定目录列宽度 */
+  flex: 0 0 300px;
+  max-width: 300px;
+  min-width: 300px;
+  padding: 24px 16px;
   margin-bottom: 100px;
   overflow: auto;
-  flex: 0 0 200px;
+}
+
+/* 隐藏左侧导航滚动条但保持可滚动 */
+.toc {
+  scrollbar-width: none; /* Firefox */
+}
+.toc::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .toc nav {
@@ -894,10 +934,12 @@ const openRepoInNewTab = () => {
 }
 
 .doc {
-  flex: 1 1 auto;
+  /* 固定文档列宽度（包含左右 margin 和内边距） */
+  flex: 0 0 900px;
+  max-width: 900px;
   border-left: 1px solid var(--border-color);
   min-height: 0;
-  margin: 20px 100px 100px 0;
+  margin: 20px 40px 100px 0;
   position: relative;
 }
 
@@ -906,13 +948,58 @@ const openRepoInNewTab = () => {
   height: 100%;
   overflow-y: auto;
   overflow-x: auto;
+  /* 左右内边距形成 markdown 内容与文档列边界之间的 margin */
   padding: 0 40px;
   background: transparent;
-  line-height: 1.7;
+  line-height: 1.3;
   /* preserve newlines inside v-html content and allow long words to wrap */
   white-space: pre-wrap;
   overflow-wrap: break-word;
   word-break: break-word;
+}
+
+/* 限制 Markdown 实际内容宽度并居中显示 */
+.doc-inner > * {
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* 收紧 markdown 元素的上下间距，使版面更紧凑 */
+.doc-inner h1,
+.doc-inner h2,
+.doc-inner h3,
+.doc-inner h4,
+.doc-inner h5,
+.doc-inner h6 {
+  margin-top: 1.2em;
+  margin-bottom: 0.4em;
+}
+
+.doc-inner p {
+  margin-top: 0.15em;
+  margin-bottom: 0.35em;
+}
+
+.doc-inner ul,
+.doc-inner ol {
+  margin-top: 0.25em;
+  margin-bottom: 0.5em;
+  padding-left: 1.5em;
+}
+
+.doc-inner li {
+  margin-top: 0.05em;
+  margin-bottom: 0.05em;
+}
+
+/* 隐藏正文区域滚动条但保持可滚动 */
+.doc-inner {
+  scrollbar-width: none; /* Firefox */
+}
+.doc-inner::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .stream-log {
