@@ -1,6 +1,7 @@
 <template>
   <div class="home-page">
     <ThemeToggle />
+    <HistoryButton />
     <div class="container">
       <Header />
       <InputSection
@@ -21,6 +22,7 @@ import Header from '../components/Header.vue'
 import InputSection from '../components/InputSection.vue'
 import InfoCard from '../components/InfoCard.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
+import HistoryButton from '../components/HistoryButton.vue'
 import { generateDocStream } from '../utils/request'
 
 const router = useRouter()

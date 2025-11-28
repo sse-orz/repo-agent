@@ -1,33 +1,58 @@
 <template>
   <div class="repo-detail">
     <ThemeToggle />
+    <HistoryButton />
+
+    <div v-if="currentRepoName" class="repo-header">
+      <div class="repo-link" @click="openRepoInNewTab">
+        <i :class="repoPlatform === 'github' ? 'fab fa-github' : 'fab fa-git-alt'"></i>
+        <span class="repo-link-text">{{ currentRepoName }}</span>
+        <i class="fas fa-external-link-alt small-icon"></i>
+      </div>
+    </div>
     <div class="content-wrapper">
       <aside class="toc">
         <nav>
           <div v-for="(section, si) in tocSections" :key="`sec-${si}`" class="toc-section">
-            <div v-for="(item, ii) in section.items || []" :key="`item-${si}-${ii}`">
+            <div
+              v-for="(item, ii) in displayItems(section)"
+              :key="`item-${si}-${ii}-${item.fullPath || item.name}`"
+            >
               <div
                 class="toc-item"
-                @click="selectItem(si, ii)"
-                :aria-current="selected.section === si && selected.item === ii ? 'true' : undefined"
+                @click="handleItemClick(item)"
+                :aria-current="item.url && item.url === selectedUrl ? 'true' : undefined"
+                :style="{ paddingLeft: 8 + (item.depth || 0) * 12 + 'px' }"
               >
-                <span class="toc-item-name">{{ item.name }}</span>
+                <span class="toc-item-name">
+                  <span v-if="item.depth > 0" class="toc-pipes">
+                    <span v-for="n in item.depth" :key="n" class="toc-pipe">|</span>
+                    <span class="toc-pipe-connector">─</span>
+                  </span>
+                  <span class="toc-label">
+                    {{ item.isDir ? item.name + '/' : item.name }}
+                  </span>
+                </span>
                 <button
+                  v-if="item.isDir || (item.headings || []).length"
                   class="toc-toggle"
-                  @click.stop="toggleExpand(si, ii)"
-                  aria-label="Toggle headings"
+                  @click.stop="toggleItemExpand(item)"
+                  aria-label="Toggle"
                 >
                   {{ item.expanded ? '▾' : '▸' }}
                 </button>
               </div>
 
               <!-- headings for the file (expandable) -->
-              <div v-if="(item.headings || []).length && item.expanded" class="toc-headings">
+              <div
+                v-if="!item.isDir && (item.headings || []).length && item.expanded"
+                class="toc-headings"
+              >
                 <div
                   v-for="(h, hi) in item.headings"
                   :key="`heading-${si}-${ii}-${hi}`"
                   class="toc-heading"
-                  @click.stop="scrollToHeading(h.id)"
+                  @click.stop="handleHeadingClick(item, h.id)"
                 >
                   {{ h.title }}
                 </div>
@@ -45,28 +70,34 @@
     </div>
 
     <div class="ask-row">
-      <div class="ask-box">
-        <textarea
-          v-model="query"
-          class="ask-input"
-          :placeholder="placeholder"
-          @keydown.enter.prevent="handleSend"
-          rows="3"
-        ></textarea>
-        <button class="send-btn" @click="handleSend">Send-&gt;</button>
-      </div>
-
       <button class="new-repo" @click="router.push('/')" aria-label="New repo">
         <span class="plus">+</span>
       </button>
+
+      <div class="ask-box">
+        <div class="ask-icon-wrapper">
+          <i class="fas fa-comment-dots"></i>
+        </div>
+        <input
+          v-model="query"
+          class="ask-input"
+          type="text"
+          :placeholder="placeholder"
+          @keyup.enter="handleSend"
+        />
+        <button class="send-btn" @click="handleSend" title="Send question">
+          <i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ThemeToggle from '../components/ThemeToggle.vue'
+import HistoryButton from '../components/HistoryButton.vue'
 import { generateDocStream, resolveBackendStaticUrl, type BaseResponse } from '../utils/request'
 import MarkdownIt from 'markdown-it'
 import anchor from 'markdown-it-anchor'
@@ -79,9 +110,13 @@ interface HeadingItem {
 
 interface FileItem {
   name: string
-  url: string
+  url?: string
   headings?: HeadingItem[]
   expanded?: boolean
+  depth: number
+  isDir: boolean
+  children?: FileItem[]
+  fullPath: string
 }
 
 interface TocSection {
@@ -113,9 +148,154 @@ const docContent = ref('<p>Select a repository to view documentation.</p>')
 const tocSections = ref<TocSection[]>([])
 const query = ref('')
 const selected = ref<{ section: number | null; item: number | null }>({ section: null, item: null })
+const selectedUrl = ref<string | null>(null)
 const isStreaming = ref(false)
 const progressLogs = ref<string[]>([])
 const streamController = ref<AbortController | null>(null)
+
+const repoPlatform = computed(() => {
+  const platform = route.query.platform
+  if (typeof platform === 'string') return platform
+  return 'github'
+})
+
+const owner = computed(() => {
+  if (!repoId.value) return ''
+  const parts = String(repoId.value).split('_')
+  return parts[0] || ''
+})
+
+const repoName = computed(() => {
+  if (!repoId.value) return ''
+  const parts = String(repoId.value).split('_')
+  return parts[1] || ''
+})
+
+const currentRepoName = computed(() => {
+  if (!owner.value || !repoName.value) return ''
+  return `${owner.value} / ${repoName.value}`
+})
+
+const externalRepoUrl = computed(() => {
+  if (!owner.value || !repoName.value) return ''
+  if (repoPlatform.value === 'gitee') {
+    return `https://gitee.com/${owner.value}/${repoName.value}`
+  }
+  // 默认 GitHub
+  return `https://github.com/${owner.value}/${repoName.value}`
+})
+
+const buildTocItems = (
+  files: unknown[],
+  options: { resolvedUrlWithHeadings?: { url: string; headings?: HeadingItem[] } } = {}
+): FileItem[] => {
+  const rootChildren: FileItem[] = []
+
+  const ensureDir = (
+    children: FileItem[],
+    name: string,
+    depth: number,
+    parentPath: string
+  ): FileItem => {
+    let node = children.find((it) => it.isDir && it.name === name)
+    if (!node) {
+      node = {
+        name,
+        isDir: true,
+        depth,
+        expanded: true,
+        children: [],
+        fullPath: parentPath ? `${parentPath}/${name}` : name,
+      }
+      children.push(node)
+    }
+    return node
+  }
+
+  for (const f of files as Record<string, unknown>[]) {
+    const rec = f || {}
+    const rawPath = String(rec.path ?? rec.name ?? rec.url ?? '').trim()
+    const rawUrl = String(rec.url ?? '').trim()
+    if (!rawPath && !rawUrl) continue
+
+    // 只保留 markdown 文件
+    const isMd = /\.md$/i.test(rawPath || rawUrl)
+    if (!isMd) continue
+
+    const segments = (rawPath || rawUrl).split('/').filter(Boolean)
+    if (!segments.length) continue
+
+    let children = rootChildren
+    let depth = 0
+    let parentPath = ''
+
+    // 中间段作为目录节点
+    for (let i = 0; i < segments.length - 1; i++) {
+      const seg = segments[i]
+      const dir = ensureDir(children, seg, depth, parentPath || '')
+      children = dir.children || (dir.children = [])
+      parentPath = dir.fullPath ?? seg
+      depth += 1
+    }
+
+    const baseName = segments[segments.length - 1] || rawPath || rawUrl
+    // 统一处理形如 "xxxxxx.ext_doc.md" 的文件名，只显示 "xxxxxx.ext"
+    let displayName = baseName.replace(/\.md$/i, '')
+    displayName = displayName.replace(/_doc$/i, '')
+    const url = resolveBackendStaticUrl(rawUrl || rawPath)
+
+    const item: FileItem = {
+      name: displayName,
+      url,
+      depth,
+      isDir: false,
+      expanded: false,
+      fullPath: rawPath || rawUrl,
+    }
+
+    children.push(item)
+  }
+
+  // 附加标题信息到指定 URL 的文件节点
+  if (options.resolvedUrlWithHeadings) {
+    const { url, headings } = options.resolvedUrlWithHeadings
+    const attach = (nodes: FileItem[]) => {
+      for (const node of nodes) {
+        if (!node.isDir && node.url === url && headings?.length) {
+          node.headings = headings.map((h) => ({
+            level: h.level,
+            title: h.title,
+            id: h.id,
+          }))
+          return true
+        }
+        if (node.children && node.children.length && attach(node.children)) return true
+      }
+      return false
+    }
+    attach(rootChildren)
+  }
+
+  return rootChildren
+}
+
+const flattenItems = (items?: FileItem[]): FileItem[] => {
+  const result: FileItem[] = []
+  const walk = (nodes: FileItem[]) => {
+    for (const n of nodes) {
+      result.push(n)
+      if (n.isDir && n.expanded && n.children?.length) {
+        walk(n.children)
+      }
+    }
+  }
+  if (items?.length) {
+    walk(items)
+  }
+  return result
+}
+
+const displayItems = (section: TocSection) => flattenItems(section.items)
 
 const escapeHtml = (value: string) =>
   String(value)
@@ -345,16 +525,14 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
                 docContent.value = `<p>Error loading document: ${String(error)}</p>`
               }
             }
-            // Populate TOC with the single file (resolve to backend full URL)
-            section.items = (files as unknown[]).map((f) => {
-              const rec = f as Record<string, unknown>
-              const urlVal = typeof rec.url === 'string' ? rec.url : String(rec.url ?? '')
-              const u = resolveBackendStaticUrl(String(urlVal))
-              return {
-                name: String(rec.path ?? rec.name ?? rec.url ?? 'file'),
-                url: u,
-                headings: u === resolvedUrl ? fileHeadings : undefined,
-              }
+            // Populate TOC with the single file (only markdown, with optional headings)
+            section.items = buildTocItems(files as unknown[], {
+              resolvedUrlWithHeadings: resolvedUrl
+                ? {
+                    url: resolvedUrl,
+                    headings: fileHeadings,
+                  }
+                : undefined,
             })
           } else if (files.length > 1) {
             const listHtml = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
@@ -366,14 +544,8 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
               })
               .join('')}</ul>`
             docContent.value = listHtml
-            // Update TOC with files (resolve to backend full URL immediately)
-            section.items = (files as unknown[]).map((f) => {
-              const rec = f as Record<string, unknown>
-              return {
-                name: String(rec.path ?? rec.name ?? rec.url ?? 'file'),
-                url: resolveBackendStaticUrl(String(rec.url ?? '')),
-              }
-            })
+            // Update TOC with markdown files only
+            section.items = buildTocItems(files as unknown[])
           } else {
             docContent.value = `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`
           }
@@ -441,16 +613,11 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
                 if (title) section.title = title
                 else section.title = section.repo
               }
-              // populate TOC linking and attach headings if present
-              section.items = (files as unknown[]).map((f) => {
-                const rec = f as Record<string, unknown>
-                const urlVal = typeof rec.url === 'string' ? rec.url : String(rec.url ?? '')
-                const u = resolveBackendStaticUrl(String(urlVal))
-                return {
-                  name: String(rec.path ?? rec.name ?? rec.url ?? 'file'),
-                  url: u,
-                  headings: u === resolvedUrl ? fileHeadings : undefined,
-                }
+              // populate TOC linking and attach headings if present (markdown only)
+              section.items = buildTocItems(files as unknown[], {
+                resolvedUrlWithHeadings: resolvedUrl
+                  ? { url: resolvedUrl, headings: fileHeadings }
+                  : undefined,
               })
             } else {
               docContent.value = `<p>Failed to load document: ${response.status}</p>`
@@ -459,14 +626,8 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
             docContent.value = `<p>Error loading document: ${String(error)}</p>`
           }
         }
-        // Populate TOC with the single file (resolve to backend full URL)
-        section.items = (files as unknown[]).map((f) => {
-          const rec = f as Record<string, unknown>
-          return {
-            name: String(rec.path ?? rec.name ?? rec.url ?? 'file'),
-            url: resolveBackendStaticUrl(String(rec.url ?? '')),
-          }
-        })
+        // Populate TOC with markdown files only
+        section.items = buildTocItems(files as unknown[])
       } else if (Array.isArray(files) && files.length > 1) {
         docContent.value = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
           .map((f) => {
@@ -474,14 +635,8 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
             return `<li>${escapeHtml(String(rec.path ?? rec.name ?? rec.url ?? 'file'))}</li>`
           })
           .join('')}</ul>`
-        // Update TOC with files (resolve to backend full URL immediately)
-        section.items = (files as unknown[]).map((f) => {
-          const rec = f as Record<string, unknown>
-          return {
-            name: String(rec.path ?? rec.name ?? rec.url ?? 'file'),
-            url: resolveBackendStaticUrl(String(rec.url ?? '')),
-          }
-        })
+        // Update TOC with markdown files only
+        section.items = buildTocItems(files as unknown[])
       } else {
         docContent.value = `<pre>${escapeHtml(JSON.stringify(data || lastEvent, null, 2))}</pre>`
       }
@@ -604,12 +759,9 @@ onUnmounted(() => {
   }
 })
 
-const selectItem = async (si: number, ii: number) => {
-  selected.value = { section: si, item: ii }
-  const section = tocSections.value[si]
-  if (!section || !section.items) return
-  const item = section.items[ii]
-  if (!item || !item.url) return
+const selectItemByNode = async (item: FileItem) => {
+  if (!item || item.isDir || !item.url) return
+  selectedUrl.value = item.url
 
   try {
     const resolved = resolveBackendStaticUrl(item.url)
@@ -658,12 +810,25 @@ const selectItem = async (si: number, ii: number) => {
   }
 }
 
-const toggleExpand = (si: number, ii: number) => {
-  const section = tocSections.value[si]
-  if (!section || !section.items) return
-  const item = section.items[ii]
-  if (!item) return
+const toggleItemExpand = (item: FileItem) => {
   item.expanded = !item.expanded
+}
+
+const handleHeadingClick = async (item: FileItem, headingId: string) => {
+  if (item.isDir || !headingId) return
+  const needSwitchFile = item.url && item.url !== selectedUrl.value
+  if (needSwitchFile) {
+    await selectItemByNode(item)
+  }
+  await scrollToHeading(headingId)
+}
+
+const handleItemClick = (item: FileItem) => {
+  if (item.isDir) {
+    toggleItemExpand(item)
+  } else {
+    void selectItemByNode(item)
+  }
 }
 
 const selectTitle = (si: number) => {
@@ -687,11 +852,16 @@ const handleSend = () => {
   emit('send', query.value)
   query.value = ''
 }
+
+const openRepoInNewTab = () => {
+  if (!externalRepoUrl.value) return
+  window.open(externalRepoUrl.value, '_blank', 'noopener')
+}
 </script>
 
 <style scoped>
 .repo-detail {
-  padding: 20px;
+  padding: 72px 20px 20px;
   box-sizing: border-box;
   height: 100vh;
   overflow: hidden;
@@ -708,14 +878,65 @@ const handleSend = () => {
   align-items: stretch;
   flex: 1 1 auto;
   overflow: hidden;
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
+  margin-top: 8px;
+  /* 固定整体内容区域宽度并居中 */
+  max-width: 1340px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.repo-header {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 950;
+}
+
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  transition: color 0.2s ease;
+}
+
+.repo-link:hover {
+  color: var(--title-color);
+}
+
+.repo-link-text {
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.small-icon {
+  font-size: 13px;
 }
 
 .toc {
-  min-width: 100px;
-  padding: 24px 24px;
+  /* 固定目录列宽度 */
+  flex: 0 0 300px;
+  max-width: 300px;
+  min-width: 300px;
+  padding: 24px 16px;
   margin-bottom: 100px;
   overflow: auto;
-  flex: 0 0 200px;
+}
+
+/* 隐藏左侧导航滚动条但保持可滚动 */
+.toc {
+  scrollbar-width: none; /* Firefox */
+}
+.toc::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .toc nav {
@@ -776,6 +997,28 @@ const handleSend = () => {
   padding-right: 8px;
 }
 
+.toc-pipes {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  color: var(--muted-text-color, var(--text-color));
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+.toc-pipe {
+  margin-right: 1px;
+}
+
+.toc-pipe-connector {
+  margin-right: 3px;
+}
+
+.toc-label {
+  display: inline-block;
+  max-width: 100%;
+}
+
 .toc-headings {
   padding-left: 12px;
   display: flex;
@@ -809,10 +1052,12 @@ const handleSend = () => {
 }
 
 .doc {
-  flex: 1 1 auto;
+  /* 固定文档列宽度（包含左右 margin 和内边距） */
+  flex: 0 0 900px;
+  max-width: 900px;
   border-left: 1px solid var(--border-color);
   min-height: 0;
-  margin: 20px 100px 100px 0;
+  margin: 20px 40px 100px 0;
   position: relative;
 }
 
@@ -821,13 +1066,58 @@ const handleSend = () => {
   height: 100%;
   overflow-y: auto;
   overflow-x: auto;
+  /* 左右内边距形成 markdown 内容与文档列边界之间的 margin */
   padding: 0 40px;
   background: transparent;
-  line-height: 1.7;
+  line-height: 1.3;
   /* preserve newlines inside v-html content and allow long words to wrap */
   white-space: pre-wrap;
   overflow-wrap: break-word;
   word-break: break-word;
+}
+
+/* 限制 Markdown 实际内容宽度并居中显示 */
+.doc-inner > * {
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* 收紧 markdown 元素的上下间距，使版面更紧凑 */
+.doc-inner h1,
+.doc-inner h2,
+.doc-inner h3,
+.doc-inner h4,
+.doc-inner h5,
+.doc-inner h6 {
+  margin-top: 1.2em;
+  margin-bottom: 0.4em;
+}
+
+.doc-inner p {
+  margin-top: 0.15em;
+  margin-bottom: 0.35em;
+}
+
+.doc-inner ul,
+.doc-inner ol {
+  margin-top: 0.25em;
+  margin-bottom: 0.5em;
+  padding-left: 1.5em;
+}
+
+.doc-inner li {
+  margin-top: 0.05em;
+  margin-bottom: 0.05em;
+}
+
+/* 隐藏正文区域滚动条但保持可滚动 */
+.doc-inner {
+  scrollbar-width: none; /* Firefox */
+}
+.doc-inner::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .stream-log {
@@ -865,23 +1155,39 @@ const handleSend = () => {
   left: 50%;
   transform: translateX(-50%);
   bottom: 24px;
-  width: min(960px, 90%);
+  width: min(720px, 90%);
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
   z-index: 1200;
 }
 
 .ask-box {
   flex: 1 1 auto;
   display: flex;
-  min-height: 80px;
-  align-items: flex-start;
-  background: var(--card-bg);
-  border: 2px solid var(--border-color);
-  border-radius: 20px;
-  padding: 12px 18px;
-  box-shadow: 0 2px 8px var(--shadow-color);
+  align-items: center;
+  background: var(--input-bg, #ffffff);
+  border: 1px solid var(--border-color, #e8e8e8);
+  border-radius: 12px;
+  padding: 0 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+  height: 44px;
+}
+
+.ask-box:focus-within {
+  border-color: var(--border-color);
+  box-shadow: 0 4px 16px var(--focus-color);
+}
+
+.ask-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  color: var(--icon-color, #999);
+  font-size: 16px;
+  flex-shrink: 0;
 }
 
 .ask-input {
@@ -890,25 +1196,45 @@ const handleSend = () => {
   outline: none;
   background: transparent;
   font-family: inherit;
-  font-size: 16px;
+  font-size: 14px;
   color: var(--text-color);
-  max-height: 200px;
-  resize: none;
-  overflow-y: auto;
+  padding: 0 6px;
+  height: 100%;
+  line-height: 44px;
+}
+
+.ask-input::placeholder {
+  color: var(--placeholder-color, #bbb);
 }
 
 .send-btn {
+  padding: 10px 14px;
   background: transparent;
   border: none;
-  color: var(--text-color);
+  border-left: 1px solid var(--border-color, #f0f0f0);
+  font-size: 16px;
   cursor: pointer;
-  font-weight: 600;
-  align-self: center;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--secondary-text, #666);
+}
+
+.send-btn i {
+  font-size: 18px;
+}
+
+.send-btn:hover {
+  color: var(--text-color);
+  background: var(--hover-bg);
 }
 
 .new-repo {
-  width: 56px;
-  height: 56px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: var(--card-bg);
   border: 2px solid var(--border-color);
@@ -920,7 +1246,7 @@ const handleSend = () => {
 }
 
 .new-repo .plus {
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1;
 }
 </style>
