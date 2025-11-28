@@ -1,6 +1,15 @@
 <template>
   <div class="repo-detail">
     <ThemeToggle />
+    <HistoryButton />
+
+    <div v-if="currentRepoName" class="repo-header">
+      <div class="repo-link" @click="openRepoInNewTab">
+        <i :class="repoPlatform === 'github' ? 'fab fa-github' : 'fab fa-git-alt'"></i>
+        <span class="repo-link-text">{{ currentRepoName }}</span>
+        <i class="fas fa-external-link-alt small-icon"></i>
+      </div>
+    </div>
     <div class="content-wrapper">
       <aside class="toc">
         <nav>
@@ -69,9 +78,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ThemeToggle from '../components/ThemeToggle.vue'
+import HistoryButton from '../components/HistoryButton.vue'
 import { generateDocStream, resolveBackendStaticUrl, type BaseResponse } from '../utils/request'
 import MarkdownIt from 'markdown-it'
 import anchor from 'markdown-it-anchor'
@@ -121,6 +131,38 @@ const selected = ref<{ section: number | null; item: number | null }>({ section:
 const isStreaming = ref(false)
 const progressLogs = ref<string[]>([])
 const streamController = ref<AbortController | null>(null)
+
+const repoPlatform = computed(() => {
+  const platform = route.query.platform
+  if (typeof platform === 'string') return platform
+  return 'github'
+})
+
+const owner = computed(() => {
+  if (!repoId.value) return ''
+  const parts = String(repoId.value).split('_')
+  return parts[0] || ''
+})
+
+const repoName = computed(() => {
+  if (!repoId.value) return ''
+  const parts = String(repoId.value).split('_')
+  return parts[1] || ''
+})
+
+const currentRepoName = computed(() => {
+  if (!owner.value || !repoName.value) return ''
+  return `${owner.value} / ${repoName.value}`
+})
+
+const externalRepoUrl = computed(() => {
+  if (!owner.value || !repoName.value) return ''
+  if (repoPlatform.value === 'gitee') {
+    return `https://gitee.com/${owner.value}/${repoName.value}`
+  }
+  // 默认 GitHub
+  return `https://github.com/${owner.value}/${repoName.value}`
+})
 
 const escapeHtml = (value: string) =>
   String(value)
@@ -692,11 +734,16 @@ const handleSend = () => {
   emit('send', query.value)
   query.value = ''
 }
+
+const openRepoInNewTab = () => {
+  if (!externalRepoUrl.value) return
+  window.open(externalRepoUrl.value, '_blank', 'noopener')
+}
 </script>
 
 <style scoped>
 .repo-detail {
-  padding: 20px;
+  padding: 72px 20px 20px;
   box-sizing: border-box;
   height: 100vh;
   overflow: hidden;
@@ -713,6 +760,39 @@ const handleSend = () => {
   align-items: stretch;
   flex: 1 1 auto;
   overflow: hidden;
+}
+
+.repo-header {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 950;
+}
+
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  transition: color 0.2s ease;
+}
+
+.repo-link:hover {
+  color: var(--title-color);
+}
+
+.repo-link-text {
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.small-icon {
+  font-size: 13px;
 }
 
 .toc {
