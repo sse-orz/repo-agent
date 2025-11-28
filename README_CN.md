@@ -172,13 +172,23 @@ pnpm dev
 
 ![Agent Structure Detail](assets/agent_structure.png)
 
-### Repo Agent 子图
+### Repo Agent
+#### Sub-graph
 
-![Sub Graph](assets/sub-graph.png)
+![Sub Graph](assets/sub-graph2.png)
+
+#### Moe-Agent
+
+![Moe-Agent](assets/moe-agent.png)
 
 ### Prompt 设计
+#### Sub-graph Prompt
 
-![Prompt](assets/prompt-template.png)
+![Sub-graph Prompt](assets/prompt-template.png)
+
+#### Moe-Agent Prompt
+
+![Moe-Agent Prompt](assets/moe-agent-prompt.png)
 
 ### 后端
 

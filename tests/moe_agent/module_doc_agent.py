@@ -63,43 +63,29 @@ class ModuleDocAgent(BaseAgent):
         # System prompt for module documentation
         self.system_prompt = """You are a technical documentation expert specializing in module-level code analysis and documentation.
 
-Your task is to:
-1. Analyze the provided module files in depth
-2. Generate comprehensive module documentation in Markdown format
-
 ## Available Tools
-- `read_file_tool`: Read source code files (supports line ranges for large files)
-- `write_file_tool`: Save generated documentation
-- `ls_context_file_tool`: List available context files from previous analysis
-- `edit_file_tool`: Apply precise edits to existing documentation with replace/insert/delete operations
+- `read_file_tool`: Read files (supports `start_line`/`end_line` for large files)
+- `write_file_tool`: Write complete documentation (use for new docs or full rewrites)
+- `edit_file_tool`: Apply surgical edits to existing documentation
+- `ls_context_file_tool`: List available context files
 
-## Local Analysis Cache
-- Before reading source files, load the pre-generated static analysis JSON stored under `.cache/{repo_identifier}/module_analysis/`.
-- Use that summarized data to understand structure and only open source files when additional detail is required.
+## Directory Convention
+| Directory | Purpose | Action |
+|-----------|---------|--------|
+| `.cache/{repo}/module_analysis/` | Pre-generated static analysis (JSON) | READ FIRST |
+| Source files (listed in task) | Original code | READ selectively |
+| `.wikis/{repo}/modules/` | Output documentation | WRITE |
 
-## Documentation Requirements
-Your documentation should include:
-1. **Module Overview**: Purpose and responsibilities
-2. **File List**: All files in this module
-3. **Core Components**: 
-   - Classes with their methods and attributes
-   - Important functions with parameters and return values
-   - Key constants and configurations
-4. **Usage Examples**: How to use the module
-5. **Dependencies**: What other modules/libraries this depends on
-6. **Notes**: Important considerations, best practices, or warnings
-7. **Architecture & Diagrams**:
-   - Generate at least one diagram showing the internal structure of the module or interactions with other modules (using mermaid)
-   - Use `graph TD` to show module interfaces and dependencies
-   - Optionally add a `sequenceDiagram` for key call chains
-   - Place the diagrams in the `## Architecture & Diagrams` section
+## Core Principles
+1. **Analysis First**: Always read the static analysis JSON before source files; it contains pre-parsed structure
+2. **Selective Reading**: Only read source files when analysis JSON lacks needed detail; use line ranges for large files
+3. **Fail Gracefully**: If a file read fails, do not retry—continue with available information
+4. **Quality Focus**: Generate clear, professional documentation that helps developers understand quickly
 
-## Important Guidelines
-- Read files incrementally if they are large (use start_line/end_line parameters)
-- Use context files from previous stages if available
-- Generate clear, professional technical documentation
-- Focus on helping developers understand the module quickly
-- You may only read files explicitly listed for the module or the permitted cache files. If a file read fails, do not attempt to read it again. It is acceptable to focus on a subset of files you deem most important.
+## Diagram Standards
+Use mermaid code blocks for architecture visualization:
+- `graph TD/LR` for module structure and dependencies
+- `sequenceDiagram` for key call chains (optional)
 """
 
         tools = [
@@ -338,34 +324,39 @@ Your documentation should include:
             else "[]"
         )
 
-        prompt = f"""
-Please generate documentation for the module based on the following information:
+        prompt = f"""# Task: Generate Module Documentation
 
-**Module Name**: {module_name}
-**All Declared Files**: {json.dumps(files, indent=2, ensure_ascii=False)}
-**Estimated Size**: {module.get('estimated_size', 'unknown')}
-**Priority**: {module.get('priority', 'unknown')}
+**Module**: {module_name}
+**Output Path**: `{self.wiki_base_path / doc_filename}`
+**Priority**: {module.get('priority', 'unknown')} | **Estimated Size**: {module.get('estimated_size', 'unknown')}
+
+## Module Files
+```json
+{json.dumps(files, indent=2, ensure_ascii=False)}
+```
 
 ## Static Analysis
-- Pre-generated Tree-sitter analysis file: `{analysis_path}`
-- Readable files (limited to the following list): {confirmed_files_text}
+- **Analysis JSON**: `{analysis_path}` (read this first)
+- **Readable source files**: {confirmed_files_text}
 
-## Tasks
-1. First use `read_file_tool` to read the above static analysis JSON to understand the module overview.
-2. Based on the analysis results, selectively read a small number of key source files (not required to read all), use `start_line`/`end_line` to control range when necessary.
-3. Generate complete Markdown module documentation and save to `{self.wiki_base_path / doc_filename}`.
-4. Add a `## Architecture & Diagrams` section to the documentation, which includes:
-   - A module architecture diagram (using a ```mermaid code block with either graph TD or graph LR)
-   - Optionally: key call chain sequence diagrams (sequenceDiagram)
-   - Ensure that all node names are consistent with the code/module names
+## Required Documentation Sections
+1. **Module Overview** — Purpose and responsibilities
+2. **File List** — All files with brief descriptions
+3. **Core Components** — Classes, functions, constants with signatures
+4. **Usage Examples** — How to use this module
+5. **Dependencies** — External and internal dependencies
+6. **Architecture & Diagrams** — Mermaid diagram(s) showing structure/interactions
+7. **Notes** — Important considerations or warnings
 
-## Strict Constraints
-- Only read source files in the "readable files" list or the above static analysis JSON and context cache files.
-- After a path read fails, do not attempt the same path again, record the failure reason and continue with other work.
-- Any files not in the list are forbidden to access.
-- If static analysis already provides sufficient information, you can directly reference the content within it.
+## Execution Steps
+1. Read the static analysis JSON at `{analysis_path}`
+2. Selectively read key source files if more detail needed (use line ranges for large files)
+3. Generate comprehensive documentation covering all required sections
+4. Write to `{self.wiki_base_path / doc_filename}`
 
-Please complete the analysis and documentation writing while adhering to the above restrictions.
+## Constraints
+- Only read files from the "Readable source files" list or cache JSONs
+- Do not retry failed file reads—continue with available information
 """
 
         try:
@@ -442,15 +433,13 @@ Please complete the analysis and documentation writing while adhering to the abo
             for detail in changed_details
         ]
 
-        prompt = f"""
-You must UPDATE (not rewrite from scratch) the existing module documentation located at `{doc_path}`.
+        prompt = f"""# Task: Incrementally Update Module Documentation
 
-## Module
-- Name: {module_name}
-- Files ({len(files)}): {json.dumps(files, ensure_ascii=False)}
-- Static analysis cache: `{analysis_path}`
+**Module**: {module_name}
+**Target Document**: `{doc_path}`
+**Static Analysis**: `{analysis_path}` (freshly rebuilt)
 
-## Recent Code Changes
+## Changed Files
 ```json
 {json.dumps(changed_files_meta, indent=2, ensure_ascii=False)}
 ```
@@ -458,20 +447,20 @@ You must UPDATE (not rewrite from scratch) the existing module documentation loc
 ## Diff Snippets
 {diff_context}
 
-## Tasks
-1. Read the latest static analysis JSON and any necessary source snippets.
-2. Read the current documentation file at `{doc_path}`.
-3. Identify the sections impacted by the above code changes (Overview, Core Components, Usage, Dependencies, Architecture & Diagrams, Notes).
-4. Use `edit_file_tool` for precise edits inside the Markdown file (add/replace sections, insert new diagrams, update bullet lists, etc.).
-5. Update or add `mermaid` diagrams to reflect the new structure/flows introduced by the changes.
-6. Mention removed files or deprecated APIs if applicable.
-7. Only call `write_file_tool` if the document requires a near-total rewrite; otherwise prefer edit operations.
+## Execution Steps
+1. Read the updated static analysis JSON at `{analysis_path}`
+2. Read the current documentation at `{doc_path}`
+3. Identify sections affected by the changes (Overview, Core Components, Usage, Dependencies, Architecture, Notes)
+4. Apply targeted edits using `edit_file_tool`:
+   - Update affected descriptions and signatures
+   - Add/update mermaid diagrams if structure changed
+   - Document removed files or deprecated APIs
+5. Only use `write_file_tool` if a near-total rewrite is necessary
 
 ## Constraints
-- Preserve existing headings and formatting whenever possible.
-- Keep terminology consistent with the rest of the wiki.
-- Summaries must reflect the new behavior introduced by the diffs above.
-- When inserting new sections, follow the Markdown hierarchy already in use.
+- Preserve existing headings and formatting
+- Maintain terminology consistency with other wiki pages
+- Ensure summaries reflect the new behavior from the diffs
 """
 
         try:
