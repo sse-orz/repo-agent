@@ -63,7 +63,14 @@
       </aside>
 
       <main class="doc">
-        <div class="doc-inner" ref="docInnerRef" v-html="docContent"></div>
+        <div class="doc-inner" ref="docInnerRef">
+          <ProgressBar
+            v-if="isStreaming && progressLogs.length > 0"
+            :progress="currentProgress"
+            :logs="progressLogs"
+          />
+          <div v-html="docContent"></div>
+        </div>
         <div v-if="showTop" class="fade fade-top" aria-hidden="true"></div>
         <div v-if="showBottom" class="fade fade-bottom" aria-hidden="true"></div>
       </main>
@@ -98,6 +105,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import HistoryButton from '../components/HistoryButton.vue'
+import ProgressBar from '../components/ProgressBar.vue'
 import { generateDocStream, resolveBackendStaticUrl, type BaseResponse } from '../utils/request'
 import MarkdownIt from 'markdown-it'
 import anchor from 'markdown-it-anchor'
@@ -152,6 +160,7 @@ const selectedUrl = ref<string | null>(null)
 const isStreaming = ref(false)
 const progressLogs = ref<string[]>([])
 const streamController = ref<AbortController | null>(null)
+const currentProgress = ref<number>(0)
 
 const repoPlatform = computed(() => {
   const platform = route.query.platform
@@ -396,15 +405,7 @@ const scrollToHeading = async (id: string) => {
   }
 }
 
-const renderProgress = () => {
-  if (!progressLogs.value.length) {
-    docContent.value = '<p>Waiting for updates...</p>'
-    return
-  }
-  docContent.value = `<div class="stream-log">${progressLogs.value
-    .map((msg) => `<p>${escapeHtml(msg)}</p>`)
-    .join('')}</div>`
-}
+// 进度条现在由 ProgressBar 组件处理，无需手动渲染
 
 const updateFades = () => {
   const el = docInnerRef.value
@@ -443,8 +444,9 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
   const controller = new AbortController()
   streamController.value = controller
   isStreaming.value = true
+  currentProgress.value = 5
   progressLogs.value = ['Connecting to documentation stream...']
-  renderProgress()
+  docContent.value = ''
 
   let loadedFromStream = false
 
@@ -469,7 +471,6 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
           if (errorDetail) {
             progressLogs.value.push(errorDetail)
           }
-          renderProgress()
           return
         }
 
@@ -478,7 +479,10 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
         if (data?.stage) {
           const message = data.message || event.message || `Processing ${data.stage}`
           progressLogs.value.push(message)
-          renderProgress()
+          // 更新进度值
+          if (typeof data.progress === 'number') {
+            currentProgress.value = data.progress
+          }
           await nextTick()
           if (docInnerRef.value) {
             docInnerRef.value.scrollTop = docInnerRef.value.scrollHeight
@@ -488,13 +492,12 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
 
         if (data?.error) {
           progressLogs.value.push(data.error)
-          renderProgress()
           return
         }
 
         if (data?.wiki_url) {
+          currentProgress.value = 100
           progressLogs.value.push('Documentation ready.')
-          renderProgress()
           // Render generated file list (do not fetch from /wikis)
           const files = (data.files as unknown[]) || []
           if (files.length === 1) {
@@ -508,7 +511,6 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
                 const resolved = resolveBackendStaticUrl(url)
                 resolvedUrl = resolved
                 progressLogs.value.push(`Loading file from ${resolved}`)
-                renderProgress()
                 const response = await fetch(resolved)
                 if (response.ok) {
                   const content = await response.text()
@@ -690,7 +692,6 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
     }
     const message = error instanceof Error ? error.message : 'Failed to stream documentation.'
     progressLogs.value.push(message)
-    renderProgress()
     console.error('Failed to stream documentation:', error)
   } finally {
     if (!controller.signal.aborted) {
@@ -735,6 +736,7 @@ watch(
 
     if (!id) {
       progressLogs.value = []
+      currentProgress.value = 0
       docContent.value = '<p>Select a repository to view documentation.</p>'
       lastHandledRepoId = id
       return
@@ -781,7 +783,6 @@ const selectItemByNode = async (item: FileItem) => {
   try {
     const resolved = resolveBackendStaticUrl(item.url)
     progressLogs.value.push(`Loading file from ${resolved}`)
-    renderProgress()
     const response = await fetch(resolved)
     if (response.ok) {
       const content = await response.text()
@@ -1135,17 +1136,6 @@ const openRepoInNewTab = () => {
 .doc-inner::-webkit-scrollbar {
   width: 0;
   height: 0;
-}
-
-.stream-log {
-  font-family: var(--font-mono, monospace);
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--text-color);
-}
-
-.stream-log p {
-  margin: 0 0 8px;
 }
 
 .fade {
