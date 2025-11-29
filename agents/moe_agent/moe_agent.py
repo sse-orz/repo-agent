@@ -18,7 +18,6 @@ from .utils import save_json_to_context
 from utils.repo import clone_repo
 
 
-
 class MoeAgent:
     """
     Main controller for MoeAgent documentation generation system.
@@ -36,12 +35,14 @@ class MoeAgent:
         self,
         owner: str = None,
         repo_name: str = None,
+        wiki_path: str = None,
     ):
         """Initialize MoeAgent.
 
         Args:
             owner (str): Repository owner (required for path management)
             repo_name (str): Repository name (optional, inferred from path if not provided)
+            wiki_path (str): Custom wiki path (optional, defaults to .wikis/{owner}_{repo_name})
         """
         self.repo_name = repo_name
         self.owner = owner
@@ -52,7 +53,10 @@ class MoeAgent:
 
         # Setup paths using repo_identifier
         self.repo_path = Path(f".repos/{self.repo_identifier}").absolute()
-        self.wiki_path = Path(f".wikis/{self.repo_identifier}").absolute()
+        if wiki_path:
+            self.wiki_path = Path(wiki_path).absolute()
+        else:
+            self.wiki_path = Path(f".wikis/{self.repo_identifier}").absolute()
         self.cache_path = Path(f".cache/{self.repo_identifier}").absolute()
 
         # Create directories
@@ -72,11 +76,13 @@ class MoeAgent:
             owner=self.owner,
             repo_name=self.repo_name,
             llm=self.llm,
+            wiki_base_path=str(self.wiki_path),
         )
         self.macro_doc_agent = MacroDocAgent(
             owner=self.owner,
             repo_name=self.repo_name,
             llm=self.llm,
+            wiki_base_path=str(self.wiki_path),
         )
         self.summary_agent = SummaryAgent(
             repo_path=str(self.repo_path), wiki_path=str(self.wiki_path)
@@ -117,7 +123,9 @@ Guidelines:
 - Prioritize files in src/, lib/, core/, api/, pkg/, internal/ directories"""
 
     @staticmethod
-    def _get_file_filter_prompt(repo_name: str, file_list: List[str], max_files: int) -> str:
+    def _get_file_filter_prompt(
+        repo_name: str, file_list: List[str], max_files: int
+    ) -> str:
         """Generate user prompt for file filtering.
 
         Args:
@@ -161,6 +169,7 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                 owner=self.owner,
                 repo_name=self.repo_name,
                 llm=self.llm,
+                wiki_path=str(self.wiki_path),
             )
 
             can_update, info = incremental_agent.can_update_incrementally()
@@ -196,11 +205,13 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         """
         # Send initial progress
         if progress_callback:
-            progress_callback({
-                "stage": "started",
-                "message": "Starting MoeAgent documentation generation",
-                "progress": 0,
-            })
+            progress_callback(
+                {
+                    "stage": "started",
+                    "message": "Starting MoeAgent documentation generation",
+                    "progress": 0,
+                }
+            )
 
         # Decide whether to run full generation or incremental update
         if allow_incremental:
@@ -208,6 +219,7 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                 owner=self.owner,
                 repo_name=self.repo_name,
                 llm=self.llm,
+                wiki_path=str(self.wiki_path),
             )
 
             can_update, info = incremental_agent.can_update_incrementally()
@@ -215,27 +227,33 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
             if can_update:
                 print("✅ Detected new commits, performing incremental update...")
                 if progress_callback:
-                    progress_callback({
-                        "stage": "incremental_update",
-                        "message": "Performing incremental update",
-                        "progress": 50,
-                    })
+                    progress_callback(
+                        {
+                            "stage": "incremental_update",
+                            "message": "Performing incremental update",
+                            "progress": 50,
+                        }
+                    )
                 result = incremental_agent.update(max_workers)
                 if progress_callback:
-                    progress_callback({
-                        "stage": "completed",
-                        "message": "Incremental update completed",
-                        "progress": 100,
-                    })
+                    progress_callback(
+                        {
+                            "stage": "completed",
+                            "message": "Incremental update completed",
+                            "progress": 100,
+                        }
+                    )
                 return result
             elif info["reason"] == "no_new_commits":
                 print("✅ No new commits, using cached documentation")
                 if progress_callback:
-                    progress_callback({
-                        "stage": "cached",
-                        "message": "Using cached documentation",
-                        "progress": 100,
-                    })
+                    progress_callback(
+                        {
+                            "stage": "cached",
+                            "message": "Using cached documentation",
+                            "progress": 100,
+                        }
+                    )
                 return self._load_cached_summary()
 
         # Fallback to full documentation generation with streaming
@@ -357,11 +375,11 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                 if any(file.endswith(ext) for ext in code_extensions):
                     file_path = Path(root) / file
                     filename_lower = file.lower()
-                    
+
                     # Skip files with 'test' or 'mock' in filename
-                    if 'test' in filename_lower or 'mock' in filename_lower:
+                    if "test" in filename_lower or "mock" in filename_lower:
                         continue
-                    
+
                     try:
                         rel_path = file_path.relative_to(self.repo_path)
                         # Normalize path separators to forward slashes
@@ -375,12 +393,16 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         # Decide whether to use LLM filtering
         if len(all_files) <= max_files:
             # File count is within limit, use all files directly
-            print(f"File count ({len(all_files)}) <= max_files ({max_files}), skipping LLM filtering")
+            print(
+                f"File count ({len(all_files)}) <= max_files ({max_files}), skipping LLM filtering"
+            )
             self.selected_files = all_files
             selection_method = "direct"
         else:
             # Use LLM to filter files
-            print(f"File count ({len(all_files)}) > max_files ({max_files}), using LLM filtering...")
+            print(
+                f"File count ({len(all_files)}) > max_files ({max_files}), using LLM filtering..."
+            )
             self.selected_files = self._llm_filter_files(all_files, max_files)
             selection_method = "llm_filtered"
 
@@ -419,10 +441,12 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         user_prompt = self._get_file_filter_prompt(self.repo_name, all_files, max_files)
 
         try:
-            response = self.llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt),
-            ])
+            response = self.llm.invoke(
+                [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_prompt),
+                ]
+            )
 
             # Parse response - each line should be a file path
             selected_files = []
@@ -440,7 +464,9 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
 
             # Ensure we don't exceed max_files
             if len(selected_files) > max_files:
-                print(f"   LLM returned {len(selected_files)} files, limiting to {max_files}")
+                print(
+                    f"   LLM returned {len(selected_files)} files, limiting to {max_files}"
+                )
                 selected_files = selected_files[:max_files]
 
             # If LLM returned too few files, fill with remaining files
@@ -448,7 +474,9 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                 remaining = [f for f in all_files if f not in selected_files]
                 needed = max_files - len(selected_files)
                 selected_files.extend(remaining[:needed])
-                print(f"   LLM returned {len(selected_files) - needed} files, filled to {len(selected_files)}")
+                print(
+                    f"   LLM returned {len(selected_files) - needed} files, filled to {len(selected_files)}"
+                )
 
             print(f"   LLM selected {len(selected_files)} files")
             return selected_files
@@ -603,21 +631,35 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
 
         # Progress stages mapping
         progress_stages = {
-            "repo_info": {"progress": 10, "message": "Collecting repository information"},
+            "repo_info": {
+                "progress": 10,
+                "message": "Collecting repository information",
+            },
             "file_selection": {"progress": 25, "message": "Selecting important files"},
-            "module_clustering": {"progress": 40, "message": "Clustering files into modules"},
-            "module_docs": {"progress": 70, "message": "Generating module documentation"},
+            "module_clustering": {
+                "progress": 40,
+                "message": "Clustering files into modules",
+            },
+            "module_docs": {
+                "progress": 70,
+                "message": "Generating module documentation",
+            },
             "macro_docs": {"progress": 85, "message": "Generating macro documentation"},
-            "index_generation": {"progress": 95, "message": "Generating index and summary"},
+            "index_generation": {
+                "progress": 95,
+                "message": "Generating index and summary",
+            },
         }
 
         def _notify(stage: str):
             if progress_callback and stage in progress_stages:
-                progress_callback({
-                    "stage": stage,
-                    "message": progress_stages[stage]["message"],
-                    "progress": progress_stages[stage]["progress"],
-                })
+                progress_callback(
+                    {
+                        "stage": stage,
+                        "message": progress_stages[stage]["message"],
+                        "progress": progress_stages[stage]["progress"],
+                    }
+                )
 
         try:
             # Stage 1: Repository Information Collection (Async - Non-blocking)
@@ -676,12 +718,14 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
 
             # Send completion progress
             if progress_callback:
-                progress_callback({
-                    "stage": "completed",
-                    "message": "Documentation generation completed successfully",
-                    "progress": 100,
-                    "elapsed_time": total_time,
-                })
+                progress_callback(
+                    {
+                        "stage": "completed",
+                        "message": "Documentation generation completed successfully",
+                        "progress": 100,
+                        "elapsed_time": total_time,
+                    }
+                )
 
             return results
 
@@ -693,11 +737,13 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
 
             # Send error progress
             if progress_callback:
-                progress_callback({
-                    "stage": "error",
-                    "message": f"Error: {str(e)}",
-                    "progress": -1,
-                })
+                progress_callback(
+                    {
+                        "stage": "error",
+                        "message": f"Error: {str(e)}",
+                        "progress": -1,
+                    }
+                )
             raise
 
     def _load_cached_summary(self) -> Dict[str, Any]:

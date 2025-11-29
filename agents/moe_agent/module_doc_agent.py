@@ -24,6 +24,7 @@ class ModuleDocAgent(BaseAgent):
         owner: str,
         repo_name: str,
         llm=None,
+        wiki_base_path: str = None,
     ):
         """Initialize the ModuleDocAgent.
 
@@ -31,18 +32,24 @@ class ModuleDocAgent(BaseAgent):
             owner (str): Repository owner
             repo_name (str): Repository name
             llm: Language model instance. If None, uses CONFIG.get_llm()
+            wiki_base_path (str): Base wiki path (optional, defaults to .wikis/{owner}_{repo_name})
         """
         self.owner = owner
         self.repo_name = repo_name
         self.llm = llm if llm else CONFIG.get_llm()
-        
+
         # Derive paths from owner and repo_name
         self.repo_identifier = f"{owner}_{repo_name}"
         self.repo_root = Path(f".repos/{self.repo_identifier}").absolute()
-        
+
         # Set up wiki and cache paths
-        self.wiki_base_path = Path(f".wikis/{self.repo_identifier}/modules")
-        self.module_analysis_base_path = Path(f".cache/{self.repo_identifier}/module_analysis")
+        if wiki_base_path:
+            self.wiki_base_path = Path(wiki_base_path) / "modules"
+        else:
+            self.wiki_base_path = Path(f".wikis/{self.repo_identifier}/modules")
+        self.module_analysis_base_path = Path(
+            f".cache/{self.repo_identifier}/module_analysis"
+        )
 
         # Ensure directories exist
         self.wiki_base_path.mkdir(parents=True, exist_ok=True)
@@ -542,9 +549,11 @@ This module contains {len(files)} file(s).
         """
         # Handle empty modules list
         if not modules:
-            print("⚠️  No modules to generate documentation for, skipping module documentation")
+            print(
+                "⚠️  No modules to generate documentation for, skipping module documentation"
+            )
             return []
-        
+
         print(
             f"\n🚀 Starting parallel module documentation generation for {len(modules)} modules..."
         )

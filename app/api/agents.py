@@ -23,7 +23,9 @@ async def generate_agent_documentation(
     agent_service: AgentService = Depends(get_agent_service),
 ) -> BaseResponse:
     # Generate or update documentation normally
-    if existing_wiki := agent_service.check_existing_wiki(wrapper.request):
+    if existing_wiki := agent_service.check_existing_wiki(
+        wrapper.request, wrapper.mode
+    ):
         return BaseResponse(
             message="Existing documentation found.", code=200, data=existing_wiki
         )
@@ -48,7 +50,9 @@ async def generate_agent_documentation_stream(
     agent_service: AgentService = Depends(get_agent_service),
 ):
     # Generate or update documentation in streaming mode
-    if existing_wiki := agent_service.check_existing_wiki(wrapper.request):
+    if existing_wiki := agent_service.check_existing_wiki(
+        wrapper.request, wrapper.mode
+    ):
         return BaseResponse(
             message="Existing documentation found.", code=200, data=existing_wiki
         )
@@ -79,7 +83,9 @@ async def generate_agent_documentation_stream(
 
             if not progress_queue.empty():
                 progress_data = progress_queue.get()
-                wiki_info = agent_service.get_wiki_info(wrapper.request.owner, wrapper.request.repo)
+                wiki_info = agent_service.get_wiki_info(
+                    wrapper.request.owner, wrapper.request.repo, wrapper.mode
+                )
                 progress_data["wiki_info"] = wiki_info
                 yield f"data: {BaseResponse(message=progress_data.get('message', ''), code=200, data=progress_data).model_dump_json()}\n\n"
 

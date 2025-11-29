@@ -6,7 +6,7 @@
       <Header />
       <InputSection
         v-model:url="repoUrl"
-        v-model:speed="speed"
+        v-model:mode="mode"
         :loading="isLoading"
         @submit="handleSubmit"
       />
@@ -27,7 +27,7 @@ import { generateDocStream } from '../utils/request'
 
 const router = useRouter()
 const repoUrl = ref('')
-const speed = ref('fast')
+const mode = ref<'sub' | 'moe'>('sub')
 const isLoading = ref(false)
 
 const handleSubmit = async () => {
@@ -57,10 +57,16 @@ const handleSubmit = async () => {
     // The RepoDetail page will handle the streaming results and display progress
     const controller = new AbortController()
     // Fire-and-forget the stream; RepoDetail will create its own stream when mounted.
-    generateDocStream({ owner, repo }, () => {}, { signal: controller.signal }).catch((e) => {
+    generateDocStream({ mode: mode.value, request: { owner, repo } }, () => {}, {
+      signal: controller.signal,
+    }).catch((e) => {
       console.error('Stream start error:', e)
     })
-    router.push({ name: 'RepoDetail', params: { repoId: `${owner}_${repo}` } })
+    router.push({
+      name: 'RepoDetail',
+      params: { repoId: `${owner}_${repo}` },
+      query: { mode: mode.value },
+    })
   } catch (e) {
     console.error(e)
     alert('Error occurred')

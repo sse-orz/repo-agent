@@ -79,6 +79,7 @@ class MacroDocAgent(BaseAgent):
         repo_name: str,
         llm=None,
         max_workers: int = 5,
+        wiki_base_path: str = None,
     ):
         """Initialize the MacroDocAgent.
 
@@ -87,6 +88,7 @@ class MacroDocAgent(BaseAgent):
             repo_name (str): Repository name
             llm: Language model instance. If None, uses CONFIG.get_llm()
             max_workers (int): Maximum number of parallel workers for doc generation
+            wiki_base_path (str): Base wiki path (optional, defaults to .wikis/{owner}_{repo_name})
         """
         self.owner = owner
         self.repo_name = repo_name
@@ -95,7 +97,10 @@ class MacroDocAgent(BaseAgent):
 
         # Derive paths from owner and repo_name
         self.repo_identifier = f"{owner}_{repo_name}"
-        self.wiki_base_path = Path(f".wikis/{self.repo_identifier}")
+        if wiki_base_path:
+            self.wiki_base_path = Path(wiki_base_path)
+        else:
+            self.wiki_base_path = Path(f".wikis/{self.repo_identifier}")
         self.cache_base_path = Path(f".cache/{self.repo_identifier}")
 
         # Ensure directories exist

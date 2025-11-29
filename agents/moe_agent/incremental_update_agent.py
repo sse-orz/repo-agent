@@ -34,6 +34,7 @@ class IncrementalUpdateAgent:
         owner: str,
         repo_name: str,
         llm=None,
+        wiki_path: str = None,
     ):
         """Initialize the incremental update agent.
 
@@ -45,13 +46,16 @@ class IncrementalUpdateAgent:
         self.owner = owner
         self.repo_name = repo_name
         self.llm = llm or CONFIG.get_llm()
-        
+
         # Derive paths from owner and repo_name
         self.repo_identifier = f"{owner}_{repo_name}"
         self.repo_path = Path(f".repos/{self.repo_identifier}").absolute()
-        self.wiki_path = Path(f".wikis/{self.repo_identifier}").absolute()
+        if wiki_path:
+            self.wiki_path = Path(wiki_path).absolute()
+        else:
+            self.wiki_path = Path(f".wikis/{self.repo_identifier}").absolute()
         self.cache_path = Path(f".cache/{self.repo_identifier}").absolute()
-        
+
         # Threshold of changed lines below which we prefer incremental updates
         self.incremental_change_threshold = 600
 
@@ -59,11 +63,13 @@ class IncrementalUpdateAgent:
             owner=owner,
             repo_name=repo_name,
             llm=self.llm,
+            wiki_base_path=str(self.wiki_path),
         )
         self.macro_doc_agent = MacroDocAgent(
             owner=owner,
             repo_name=repo_name,
             llm=self.llm,
+            wiki_base_path=str(self.wiki_path),
         )
 
     def can_update_incrementally(self) -> Tuple[bool, Dict[str, Any]]:

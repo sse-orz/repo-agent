@@ -472,7 +472,11 @@ Return the final module structure as JSON."""
                 "total_modules": 0,
                 "total_files": 0,
                 "initial_module_snapshot": {},
-                "dependency_graph": {"files": [], "edges": [], "module_dependency_summary": {}},
+                "dependency_graph": {
+                    "files": [],
+                    "edges": [],
+                    "module_dependency_summary": {},
+                },
             }
 
         initial_modules = self.cluster_by_directory(file_list)

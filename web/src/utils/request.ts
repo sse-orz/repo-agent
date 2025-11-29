@@ -1,15 +1,20 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 
 // Define API response types
-export interface GenerateRequest {
+export interface GenerateRequestParams {
   owner: string
   repo: string
   platform?: string
   need_update?: boolean
   branch_mode?: string
-  mode?: string
+  mode?: string // Generation mode: "fast" or "smart"
   max_workers?: number
   log?: boolean
+}
+
+export interface GenerateRequest {
+  mode: 'sub' | 'moe' // Generation agent: "sub" or "moe"
+  request: GenerateRequestParams
 }
 
 export interface BaseResponse<T = unknown> {
@@ -25,6 +30,7 @@ interface WikiInfo {
   wiki_url: string
   total_files: number
   generated_at: string
+  mode: string
 }
 
 export interface FileInfo {
@@ -46,6 +52,19 @@ export interface GenerateResponseData {
 interface ListResponse {
   wikis: WikiInfo[]
   total_wikis: number
+}
+
+// RAG request and response types
+export interface RagAskRequest {
+  owner: string
+  repo: string
+  platform?: string
+  question: string
+}
+
+export interface RagAskResponseData {
+  answer: string
+  node?: string // Current node name, e.g. "Intent" / "Rewrite" / "Retrieve" / "Judge" / "Generate"
 }
 
 // Create axios instance
@@ -170,6 +189,109 @@ export const generateDocStream = async (
           await onMessage(parsed)
         } catch (err) {
           console.error('Failed to parse trailing stream payload:', err)
+        }
+      }
+    }
+  } catch (err) {
+    if (options.signal?.aborted) {
+      const abortError = err as { name?: string }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return lastEvent
+      }
+      if (abortError?.name === 'AbortError') {
+        return lastEvent
+      }
+    }
+    throw err
+  } finally {
+    reader.releaseLock()
+  }
+
+  return lastEvent
+}
+
+// RAG API call functions
+export const askRag = async (data: RagAskRequest): Promise<BaseResponse<RagAskResponseData>> => {
+  return request<RagAskResponseData>({ method: 'POST', url: '/rag/ask', data })
+}
+
+export const askRagStream = async (
+  data: RagAskRequest,
+  onMessage: (event: BaseResponse<RagAskResponseData>) => void | Promise<void>,
+  options: { signal?: AbortSignal } = {}
+): Promise<BaseResponse<RagAskResponseData> | undefined> => {
+  const baseURL = instance.defaults.baseURL || ''
+  const response = await fetch(`${baseURL}/rag/ask-stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    },
+    body: JSON.stringify(data),
+    signal: options.signal,
+  })
+
+  if (!response.ok) {
+    throw new Error(`RAG stream request failed with status ${response.status}`)
+  }
+
+  const contentType = response.headers.get('content-type') || ''
+  let lastEvent: BaseResponse<RagAskResponseData> | undefined
+
+  if (contentType.includes('application/json')) {
+    lastEvent = (await response.json()) as BaseResponse<RagAskResponseData>
+    await onMessage(lastEvent)
+    return lastEvent
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    return undefined
+  }
+
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      let boundary = buffer.indexOf('\n\n')
+      while (boundary !== -1) {
+        const rawEvent = buffer.slice(0, boundary).trim()
+        buffer = buffer.slice(boundary + 2)
+
+        if (rawEvent.startsWith('data:')) {
+          const payload = rawEvent.replace(/^data:\s*/, '')
+          if (payload) {
+            try {
+              const parsed = JSON.parse(payload) as BaseResponse<RagAskResponseData>
+              lastEvent = parsed
+              await onMessage(parsed)
+            } catch (err) {
+              console.error('Failed to parse RAG stream payload:', err)
+            }
+          }
+        }
+
+        boundary = buffer.indexOf('\n\n')
+      }
+    }
+
+    buffer += decoder.decode()
+
+    const remaining = buffer.trim()
+    if (remaining.startsWith('data:')) {
+      const payload = remaining.replace(/^data:\s*/, '')
+      if (payload) {
+        try {
+          const parsed = JSON.parse(payload) as BaseResponse<RagAskResponseData>
+          lastEvent = parsed
+          await onMessage(parsed)
+        } catch (err) {
+          console.error('Failed to parse trailing RAG stream payload:', err)
         }
       }
     }

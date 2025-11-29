@@ -8,17 +8,27 @@ defineProps<{
 const emit = defineEmits(['submit'])
 
 const modelUrl = defineModel('url', { type: String })
-const modelSpeed = defineModel('speed', { type: String })
+const modelMode = defineModel('mode', { type: String })
 
-const showSpeedMenu = ref(false)
-const selectedMode = ref('Smart')
+const showModeMenu = ref(false)
+const selectedMode = ref<'sub' | 'moe'>(
+  modelMode.value === 'sub' || modelMode.value === 'moe' ? modelMode.value : 'sub'
+)
 
-const speedOptions = ['Smart', 'Fast', 'Detailed', 'Custom']
+const modeOptions = [
+  { value: 'sub' as const, label: 'Sub' },
+  { value: 'moe' as const, label: 'Moe' },
+]
 
-const selectMode = (mode: string) => {
+// Initialize modelMode if not set
+if (!modelMode.value || (modelMode.value !== 'sub' && modelMode.value !== 'moe')) {
+  modelMode.value = 'sub'
+}
+
+const selectMode = (mode: 'sub' | 'moe') => {
   selectedMode.value = mode
-  modelSpeed.value = mode
-  showSpeedMenu.value = false
+  modelMode.value = mode
+  showModeMenu.value = false
 }
 </script>
 
@@ -39,25 +49,27 @@ const selectMode = (mode: string) => {
         @keyup.enter="emit('submit')"
       />
 
-      <!-- Speed Selector -->
-      <div class="speed-selector">
+      <!-- Mode Selector -->
+      <div class="mode-selector">
         <button
-          class="speed-button"
-          @click="showSpeedMenu = !showSpeedMenu"
-          title="Select analysis speed"
+          class="mode-button"
+          @click="showModeMenu = !showModeMenu"
+          title="Select generation mode"
         >
-          <span class="speed-label">{{ selectedMode }}</span>
+          <span class="mode-label">{{
+            modeOptions.find((opt) => opt.value === selectedMode)?.label || selectedMode
+          }}</span>
           <i class="fas fa-chevron-down"></i>
         </button>
-        <div v-if="showSpeedMenu" class="speed-menu">
+        <div v-if="showModeMenu" class="mode-menu">
           <div
-            v-for="option in speedOptions"
-            :key="option"
-            class="speed-option"
-            :class="{ active: option === selectedMode }"
-            @click="selectMode(option)"
+            v-for="option in modeOptions"
+            :key="option.value"
+            class="mode-option"
+            :class="{ active: option.value === selectedMode }"
+            @click="selectMode(option.value)"
           >
-            {{ option }}
+            {{ option.label }}
           </div>
         </div>
       </div>
@@ -124,14 +136,14 @@ const selectMode = (mode: string) => {
   outline: none;
 }
 
-.speed-selector {
+.mode-selector {
   position: relative;
   border-left: 1px solid var(--border-color, #f0f0f0);
   padding: 0 12px;
   flex-shrink: 0;
 }
 
-.speed-button {
+.mode-button {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -146,18 +158,18 @@ const selectMode = (mode: string) => {
   white-space: nowrap;
 }
 
-.speed-button:hover {
+.mode-button:hover {
   color: var(--text-color);
   background: var(--hover-bg);
   border-radius: 6px;
 }
 
-.speed-button i {
+.mode-button i {
   font-size: 11px;
   transition: transform 0.2s ease;
 }
 
-.speed-menu {
+.mode-menu {
   position: absolute;
   top: 100%;
   right: 0;
@@ -171,7 +183,7 @@ const selectMode = (mode: string) => {
   overflow: hidden;
 }
 
-.speed-option {
+.mode-option {
   padding: 10px 16px;
   cursor: pointer;
   font-size: 13px;
@@ -180,16 +192,16 @@ const selectMode = (mode: string) => {
   border-bottom: 1px solid var(--border-color, #f5f5f5);
 }
 
-.speed-option:last-child {
+.mode-option:last-child {
   border-bottom: none;
 }
 
-.speed-option:hover {
+.mode-option:hover {
   background: var(--hover-bg);
   color: var(--text-color);
 }
 
-.speed-option.active {
+.mode-option.active {
   background: var(--hover-bg);
   color: var(--text-color);
   font-weight: 600;

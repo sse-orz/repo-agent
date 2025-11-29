@@ -22,9 +22,23 @@ app.add_middleware(
 )
 
 # Mount static files for generated wikis
+# Create separate directories for sub and moe modes
 wikis_path = os.path.join(os.path.dirname(__file__), ".wikis")
 os.makedirs(wikis_path, exist_ok=True)
-app.mount("/wikis", StaticFiles(directory=wikis_path), name="wikis")
+os.makedirs(os.path.join(wikis_path, "sub"), exist_ok=True)
+os.makedirs(os.path.join(wikis_path, "moe"), exist_ok=True)
+
+# Mount sub and moe wiki directories separately
+app.mount(
+    "/wikis/sub",
+    StaticFiles(directory=os.path.join(wikis_path, "sub")),
+    name="wikis-sub",
+)
+app.mount(
+    "/wikis/moe",
+    StaticFiles(directory=os.path.join(wikis_path, "moe")),
+    name="wikis-moe",
+)
 
 # Include API routes
 app.include_router(api_router, prefix=settings.API_PREFIX)

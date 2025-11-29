@@ -61,6 +61,7 @@ class WikiItem(BaseModel):
     wiki_url: str = Field(..., description="URL to access wiki files")
     total_files: int = Field(0, description="Total number of files")
     generated_at: str = Field(..., description="Last modification time")
+    mode: str = Field(..., description="Generation mode: sub or moe")
 
 
 class ListWikisResponseData(BaseModel):

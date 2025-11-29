@@ -159,6 +159,12 @@ const repoPlatform = computed(() => {
   return 'github'
 })
 
+const generationMode = computed<'sub' | 'moe'>(() => {
+  const mode = route.query.mode
+  if (mode === 'sub' || mode === 'moe') return mode
+  return 'sub'
+})
+
 const owner = computed(() => {
   if (!repoId.value) return ''
   const parts = String(repoId.value).split('_')
@@ -232,6 +238,7 @@ const buildTocItems = (
     // 中间段作为目录节点
     for (let i = 0; i < segments.length - 1; i++) {
       const seg = segments[i]
+      if (!seg) continue
       const dir = ensureDir(children, seg, depth, parentPath || '')
       children = dir.children || (dir.children = [])
       parentPath = dir.fullPath ?? seg
@@ -443,7 +450,14 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
 
   try {
     const lastEvent = await generateDocStream(
-      { owner: section.owner, repo: section.repo, need_update: needUpdate },
+      {
+        mode: generationMode.value,
+        request: {
+          owner: section.owner,
+          repo: section.repo,
+          need_update: needUpdate,
+        },
+      },
       async (event: BaseResponse<unknown>) => {
         if (!event) return
 

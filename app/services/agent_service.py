@@ -20,25 +20,31 @@ class AgentService:
 
     def __init__(self):
         self.wiki_root = "./.wikis"
+        # Create subdirectories for different modes
+        os.makedirs(os.path.join(self.wiki_root, "sub"), exist_ok=True)
+        os.makedirs(os.path.join(self.wiki_root, "moe"), exist_ok=True)
 
     def check_existing_wiki(
-        self, request: GenerateRequest
+        self, request: GenerateRequest, mode: AgentMode
     ) -> Optional[GenerateResponseData]:
-        # Check for existing wiki documentation based on request
+        # Check for existing wiki documentation based on request and mode
         if request.need_update:
             return None
-        return self.get_wiki_info(request.owner, request.repo)
+        return self.get_wiki_info(request.owner, request.repo, mode)
 
-    def get_wiki_info(self, owner: str, repo: str) -> Optional[GenerateResponseData]:
-        # Get existing wiki information if available
+    def get_wiki_info(
+        self, owner: str, repo: str, mode: AgentMode
+    ) -> Optional[GenerateResponseData]:
+        # Get existing wiki information if available, based on mode
+        mode_str = mode.value  # "sub" or "moe"
         wiki_dir = f"{owner}_{repo}"
-        wiki_path = os.path.join(self.wiki_root, wiki_dir)
+        wiki_path = os.path.join(self.wiki_root, mode_str, wiki_dir)
 
         if not os.path.exists(wiki_path):
             return None
 
-        wiki_url = f"/wikis/{wiki_dir}"
-        files = self.get_wiki_files(wiki_path, owner, repo)
+        wiki_url = f"/wikis/{mode_str}/{wiki_dir}"
+        files = self.get_wiki_files(wiki_path, owner, repo, mode_str)
 
         return GenerateResponseData(
             owner=owner,
@@ -49,7 +55,9 @@ class AgentService:
             total_files=len(files),
         )
 
-    def get_wiki_files(self, wiki_path: str, owner: str, repo: str) -> List[FileInfo]:
+    def get_wiki_files(
+        self, wiki_path: str, owner: str, repo: str, mode_str: str = ""
+    ) -> List[FileInfo]:
         # Retrieve list of files in the wiki directory
         files = []
         if not os.path.exists(wiki_path):
@@ -61,8 +69,11 @@ class AgentService:
                 rel_path = os.path.relpath(file_path, wiki_path)
                 file_size = os.path.getsize(file_path)
 
-                # Generate URL path
-                url_path = f"/wikis/{owner}_{repo}/{rel_path}"
+                # Generate URL path with mode prefix
+                if mode_str:
+                    url_path = f"/wikis/{mode_str}/{owner}_{repo}/{rel_path}"
+                else:
+                    url_path = f"/wikis/{owner}_{repo}/{rel_path}"
 
                 files.append(
                     FileInfo(name=filename, path=rel_path, url=url_path, size=file_size)
@@ -124,10 +135,11 @@ class AgentService:
             raise ValueError(f"Unknown agent mode: {mode}")
 
         # Unified response generation
+        mode_str = mode.value  # "sub" or "moe"
         wiki_dir = f"{request.owner}_{request.repo}"
-        wiki_path = os.path.join(self.wiki_root, wiki_dir)
-        wiki_url = f"/wikis/{wiki_dir}"
-        files = self.get_wiki_files(wiki_path, request.owner, request.repo)
+        wiki_path = os.path.join(self.wiki_root, mode_str, wiki_dir)
+        wiki_url = f"/wikis/{mode_str}/{wiki_dir}"
+        files = self.get_wiki_files(wiki_path, request.owner, request.repo, mode_str)
 
         return GenerateResponseData(
             owner=request.owner,
@@ -144,6 +156,9 @@ class AgentService:
         """Generate documentation using ParentGraphBuilder (sub_graph)."""
         date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
+        # Set wiki_root_path to include mode subdirectory
+        wiki_root_path = os.path.join(self.wiki_root, "sub")
+
         inputs = {
             "owner": request.owner,
             "repo": request.repo,
@@ -152,6 +167,7 @@ class AgentService:
             "max_workers": request.max_workers,
             "date": date,
             "log": request.log,
+            "wiki_root_path": wiki_root_path,
         }
         config = {"configurable": {"thread_id": f"wiki-generation-{date}"}}
 
@@ -171,7 +187,13 @@ class AgentService:
         self, request: GenerateRequest, progress_callback=None
     ) -> None:
         """Generate documentation using MoeAgent."""
-        moe_agent = MoeAgent(owner=request.owner, repo_name=request.repo)
+        # Set wiki_path to include mode subdirectory
+        wiki_path = os.path.join(
+            self.wiki_root, "moe", f"{request.owner}_{request.repo}"
+        )
+        moe_agent = MoeAgent(
+            owner=request.owner, repo_name=request.repo, wiki_path=wiki_path
+        )
 
         max_files = 100 if request.mode == "smart" else 30
 
@@ -190,46 +212,55 @@ class AgentService:
             )
 
     def list_wikis(self) -> ListWikisResponseData:
-        # List all generated wikis
+        # List all generated wikis from both sub and moe directories
         wikis = []
 
         if not os.path.exists(self.wiki_root):
             return ListWikisResponseData(wikis=[], total_wikis=0)
 
-        # Scan wiki root directory for owner_repo folders
-        for item in os.listdir(self.wiki_root):
-            item_path = os.path.join(self.wiki_root, item)
-
-            # Skip files, only process directories
-            if not os.path.isdir(item_path):
+        # Scan both mode subdirectories
+        for mode_str in ["sub", "moe"]:
+            mode_path = os.path.join(self.wiki_root, mode_str)
+            if not os.path.exists(mode_path):
                 continue
 
-            # Parse owner and repo from directory name (format: owner_repo)
-            parts = item.split("_", 1)
-            if len(parts) != 2:
-                continue
+            # Scan wiki mode directory for owner_repo folders
+            for item in os.listdir(mode_path):
+                item_path = os.path.join(mode_path, item)
 
-            owner, repo = parts
+                # Skip files, only process directories
+                if not os.path.isdir(item_path):
+                    continue
 
-            # Get last modification time
-            mtime = os.path.getmtime(item_path)
-            generated_at = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+                # Parse owner and repo from directory name (format: owner_repo)
+                parts = item.split("_", 1)
+                if len(parts) != 2:
+                    continue
 
-            # Count files in the directory
-            total_files = sum(len(files) for _, _, files in os.walk(item_path))
+                owner, repo = parts
 
-            wiki_url = f"/wikis/{item}"
-
-            wikis.append(
-                WikiItem(
-                    owner=owner,
-                    repo=repo,
-                    wiki_path=item_path,
-                    wiki_url=wiki_url,
-                    total_files=total_files,
-                    generated_at=generated_at,
+                # Get last modification time
+                mtime = os.path.getmtime(item_path)
+                generated_at = datetime.fromtimestamp(mtime).strftime(
+                    "%Y-%m-%d %H:%M:%S"
                 )
-            )
+
+                # Count files in the directory
+                total_files = sum(len(files) for _, _, files in os.walk(item_path))
+
+                wiki_url = f"/wikis/{mode_str}/{item}"
+
+                wikis.append(
+                    WikiItem(
+                        owner=owner,
+                        repo=repo,
+                        wiki_path=item_path,
+                        wiki_url=wiki_url,
+                        total_files=total_files,
+                        generated_at=generated_at,
+                        mode=mode_str,
+                    )
+                )
 
         # Sort by generated_at (most recent first)
         wikis.sort(key=lambda x: x.generated_at, reverse=True)
