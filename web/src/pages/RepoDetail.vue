@@ -455,6 +455,7 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
         request: {
           owner: section.owner,
           repo: section.repo,
+          platform: repoPlatform.value,
           need_update: needUpdate,
         },
       },
@@ -904,7 +905,7 @@ const openRepoInNewTab = () => {
 .repo-header {
   position: fixed;
   top: 20px;
-  left: 20px;
+  left: 60px;
   z-index: 950;
 }
 
@@ -917,6 +918,8 @@ const openRepoInNewTab = () => {
   font-size: 16px;
   font-weight: 600;
   transition: color 0.2s ease;
+  height: 40px;
+  line-height: 40px;
 }
 
 .repo-link:hover {
@@ -924,7 +927,7 @@ const openRepoInNewTab = () => {
 }
 
 .repo-link-text {
-  max-width: 260px;
+  max-width: 320px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1257,10 +1260,19 @@ const openRepoInNewTab = () => {
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 2px 8px var(--shadow-color);
+  transition: all 0.2s ease;
+  color: var(--text-color);
+}
+
+.new-repo:hover {
+  background: var(--hover-bg);
+  border-color: var(--border-color);
+  transform: scale(1.05);
 }
 
 .new-repo .plus {
   font-size: 20px;
   line-height: 1;
+  color: var(--text-color);
 }
 </style>
