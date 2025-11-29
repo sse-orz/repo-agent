@@ -8,8 +8,10 @@ from app.models.agents import (
     FileInfo,
     WikiItem,
     ListWikisResponseData,
+    AgentMode,
 )
 from agents.sub_graph.parent import ParentGraphBuilder
+from agents.moe_agent.moe_agent import MoeAgent
 from config import CONFIG
 from utils.repo import clone_repo, pull_repo
 
@@ -108,10 +110,38 @@ class AgentService:
         return True
 
     def generate_documentation(
-        self, request: GenerateRequest, progress_callback=None
+        self, mode: AgentMode, request: GenerateRequest, progress_callback=None
     ) -> GenerateResponseData:
-        # Generate or update documentation for a repository.
+        """Generate documentation using the specified agent mode."""
         CONFIG.display()
+
+        # Dispatch to specific agent method based on mode
+        if mode == AgentMode.SUB:
+            self._generate_with_sub(request, progress_callback)
+        elif mode == AgentMode.MOE:
+            self._generate_with_moe(request, progress_callback)
+        else:
+            raise ValueError(f"Unknown agent mode: {mode}")
+
+        # Unified response generation
+        wiki_dir = f"{request.owner}_{request.repo}"
+        wiki_path = os.path.join(self.wiki_root, wiki_dir)
+        wiki_url = f"/wikis/{wiki_dir}"
+        files = self.get_wiki_files(wiki_path, request.owner, request.repo)
+
+        return GenerateResponseData(
+            owner=request.owner,
+            repo=request.repo,
+            wiki_path=wiki_path,
+            wiki_url=wiki_url,
+            files=files,
+            total_files=len(files),
+        )
+
+    def _generate_with_sub(
+        self, request: GenerateRequest, progress_callback=None
+    ) -> None:
+        """Generate documentation using ParentGraphBuilder (sub_graph)."""
         date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
         inputs = {
@@ -137,20 +167,27 @@ class AgentService:
         else:
             parent_graph_builder.run(inputs=inputs, config=config, count_time=True)
 
-        wiki_dir = f"{request.owner}_{request.repo}"
-        wiki_path = os.path.join(self.wiki_root, wiki_dir)
-        wiki_url = f"/wikis/{wiki_dir}"
+    def _generate_with_moe(
+        self, request: GenerateRequest, progress_callback=None
+    ) -> None:
+        """Generate documentation using MoeAgent."""
+        moe_agent = MoeAgent(owner=request.owner, repo_name=request.repo)
 
-        files = self.get_wiki_files(wiki_path, request.owner, request.repo)
+        max_files = 100 if request.mode == "smart" else 30
 
-        return GenerateResponseData(
-            owner=request.owner,
-            repo=request.repo,
-            wiki_path=wiki_path,
-            wiki_url=wiki_url,
-            files=files,
-            total_files=len(files),
-        )
+        if progress_callback:
+            moe_agent.stream(
+                max_files=max_files,
+                max_workers=request.max_workers,
+                allow_incremental=not request.need_update,
+                progress_callback=progress_callback,
+            )
+        else:
+            moe_agent.generate(
+                max_files=max_files,
+                max_workers=request.max_workers,
+                allow_incremental=not request.need_update,
+            )
 
     def list_wikis(self) -> ListWikisResponseData:
         # List all generated wikis

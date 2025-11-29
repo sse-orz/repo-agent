@@ -28,16 +28,23 @@ Generate or update the agent documentation for a repository.
 
 ```json
 {
-  "owner": "string", // Repository owner (required)
-  "repo": "string", // Repository name (required)
-  "platform": "github", // Platform (optional, default: "github")
-  "need_update": false, // Whether to update existing documentation (optional, default: false)
-  "branch_mode": "all", // Branch mode: "all", "code", "repo", "check" (optional, default: "all")
-  "mode": "fast", // Generation mode: "fast" or "smart" (optional, default: "fast")
-  "max_workers": 50, // Maximum number of workers (optional, default: 50)
-  "log": false // Enable logging (optional, default: false)
+  "mode": "sub", // generation agent: "sub" or "moe"
+  "request": {
+    "owner": "string", // Repository owner (required)
+    "repo": "string", // Repository name (required)
+    "platform": "github", // Platform (optional, default: "github")
+    "need_update": false, // Whether to update existing documentation (optional, default: false)
+    "branch_mode": "all", // Branch mode: "all", "code", "repo", "check" (optional, default: "all")
+    "mode": "fast", // Generation mode: "fast" or "smart" (optional, default: "fast")
+    "max_workers": 50, // Maximum number of workers (optional, default: 50)
+    "log": false // Enable logging (optional, default: false)
+  }
 }
 ```
+
+**Mode Parameter:**
+- `"sub"`: Use ParentGraphBuilder
+- `"moe"`: Use MoeAgent
 
 #### Response
 
@@ -82,6 +89,26 @@ Event format:
 ```
 data: {"message": "string", "code": 200, "data": {...}}
 ```
+
+**Progress Stages by Mode:**
+
+*Sub mode (`"mode": "sub"`):*
+- `started` (0%): Starting documentation generation
+- `basic_info_node` (15%): Processing basic information
+- `check_update_node` (35%): Checking for updates
+- `repo_info_graph` (65%): Processing repository information
+- `code_analysis_graph` (85%): Analyzing code
+- `completed` (100%): Documentation generation completed
+
+*Moe mode (`"mode": "moe"`):*
+- `started` (0%): Starting MoeAgent documentation generation
+- `repo_info` (10%): Collecting repository information
+- `file_selection` (25%): Selecting important files
+- `module_clustering` (40%): Clustering files into modules
+- `module_docs` (70%): Generating module documentation
+- `macro_docs` (85%): Generating macro documentation
+- `index_generation` (95%): Generating index and summary
+- `completed` (100%): Documentation generation completed successfully
 
 ### 3. List Generated Documentation
 

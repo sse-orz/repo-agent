@@ -10,6 +10,11 @@ class BranchMode(str, Enum):
     CHECK = "check"
 
 
+class AgentMode(str, Enum):
+    SUB = "sub"
+    MOE = "moe"
+
+
 class GenerateRequest(BaseModel):
     owner: str = Field(..., description="Repository owner")
     repo: str = Field(..., description="Repository name")
@@ -24,6 +29,11 @@ class GenerateRequest(BaseModel):
     mode: str = Field("fast", description="Generation mode (fast or smart)")
     max_workers: int = Field(50, description="Maximum number of workers")
     log: bool = Field(False, description="Enable logging")
+
+
+class GenerateRequestWrapper(BaseModel):
+    mode: AgentMode = Field(AgentMode.SUB, description="Agent mode: sub or moe")
+    request: GenerateRequest = Field(..., description="Generation request parameters")
 
 
 class FileInfo(BaseModel):

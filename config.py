@@ -11,6 +11,7 @@ load_dotenv()
 
 class GlobalConfig:
     TOKEN: Dict[str, str]
+    GIT_PLATFORM: str
     LLM_PLATFORM: str
     LLM_MODEL: str
     GOOGLE_API_KEY: Optional[str] = None
@@ -27,6 +28,7 @@ class GlobalConfig:
             "github": os.getenv("GITHUB_TOKEN"),
             "gitee": os.getenv("GITEE_TOKEN"),
         }
+        self.GIT_PLATFORM = os.getenv("GIT_PLATFORM", "github").lower()
         self.LLM_PLATFORM = os.getenv("LLM_PLATFORM", "ollama").lower()
         self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
         self.DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -52,6 +54,7 @@ class GlobalConfig:
 
     def display(self) -> None:
         print("Current Configuration:")
+        print(f"GIT_PLATFORM: {self.GIT_PLATFORM}")
         print(f"LLM_MODEL: {self.LLM_MODEL}")
         print(f"GITHUB_TOKEN: {'Set' if self.TOKEN['github'] else 'Not Set'}")
         print(f"GITEE_TOKEN: {'Set' if self.TOKEN['gitee'] else 'Not Set'}")

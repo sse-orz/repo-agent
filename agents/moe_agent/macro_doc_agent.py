@@ -75,36 +75,28 @@ class MacroDocAgent(BaseAgent):
 
     def __init__(
         self,
-        repo_identifier: str,
-        wiki_path: Optional[str] = None,
-        cache_path: Optional[str] = None,
+        owner: str,
+        repo_name: str,
         llm=None,
         max_workers: int = 5,
     ):
         """Initialize the MacroDocAgent.
 
         Args:
-            repo_identifier (str): Unified repository identifier (format: owner_repo_name)
-            wiki_path (Optional[str]): Base wiki path. If provided, macro docs will be saved directly to this path
-            cache_path (Optional[str]): Base cache path for reading context files
+            owner (str): Repository owner
+            repo_name (str): Repository name
             llm: Language model instance. If None, uses CONFIG.get_llm()
             max_workers (int): Maximum number of parallel workers for doc generation
         """
-        self.repo_identifier = repo_identifier
+        self.owner = owner
+        self.repo_name = repo_name
         self.llm = llm if llm else CONFIG.get_llm()
         self.max_workers = max_workers
 
-        # Use provided wiki_path or default to .wikis/{repo_identifier}
-        if wiki_path:
-            self.wiki_base_path = Path(wiki_path)
-        else:
-            self.wiki_base_path = Path(f".wikis/{repo_identifier}")
-
-        # Use provided cache_path or default to .cache/{repo_identifier}
-        if cache_path:
-            self.cache_base_path = Path(cache_path)
-        else:
-            self.cache_base_path = Path(f".cache/{repo_identifier}")
+        # Derive paths from owner and repo_name
+        self.repo_identifier = f"{owner}_{repo_name}"
+        self.wiki_base_path = Path(f".wikis/{self.repo_identifier}")
+        self.cache_base_path = Path(f".cache/{self.repo_identifier}")
 
         # Ensure directories exist
         self.wiki_base_path.mkdir(parents=True, exist_ok=True)

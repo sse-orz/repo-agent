@@ -15,6 +15,7 @@ from .module_doc_agent import ModuleDocAgent
 from .macro_doc_agent import MacroDocAgent
 from .incremental_update_agent import IncrementalUpdateAgent
 from .utils import save_json_to_context
+from utils.repo import clone_repo
 
 
 
@@ -33,25 +34,15 @@ class MoeAgent:
 
     def __init__(
         self,
-        repo_path: str,
-        wiki_path: str = None,
         owner: str = None,
         repo_name: str = None,
     ):
         """Initialize MoeAgent.
 
         Args:
-            repo_path (str): Local path to the repository
-            wiki_path (str): Path to save wiki files (default: .wikis/{owner}_{repo_name})
             owner (str): Repository owner (required for path management)
             repo_name (str): Repository name (optional, inferred from path if not provided)
         """
-        self.repo_path = Path(repo_path).absolute()
-
-        # Infer repo_name from path if not provided
-        if not repo_name:
-            repo_name = self.repo_path.name
-
         self.repo_name = repo_name
         self.owner = owner
         self.llm = CONFIG.get_llm()
@@ -60,16 +51,16 @@ class MoeAgent:
         self.repo_identifier = f"{owner}_{repo_name}"
 
         # Setup paths using repo_identifier
-        if wiki_path:
-            self.wiki_path = Path(wiki_path).absolute()
-        else:
-            self.wiki_path = Path(f".wikis/{self.repo_identifier}").absolute()
-
+        self.repo_path = Path(f".repos/{self.repo_identifier}").absolute()
+        self.wiki_path = Path(f".wikis/{self.repo_identifier}").absolute()
         self.cache_path = Path(f".cache/{self.repo_identifier}").absolute()
 
         # Create directories
         self.wiki_path.mkdir(parents=True, exist_ok=True)
         self.cache_path.mkdir(parents=True, exist_ok=True)
+
+        # Clone repository if it does not exist
+        self._ensure_repo_cloned()
 
         # Initialize components
         repo_llm = ChatOpenAI(
@@ -83,16 +74,13 @@ class MoeAgent:
 
         self.clusterer = ModuleClusterer(llm=self.llm, repo_root=str(self.repo_path))
         self.module_doc_agent = ModuleDocAgent(
-            repo_identifier=self.repo_identifier,
-            repo_root=str(self.repo_path),
-            wiki_path=str(self.wiki_path),
-            cache_path=str(self.cache_path),
+            owner=self.owner,
+            repo_name=self.repo_name,
             llm=self.llm,
         )
         self.macro_doc_agent = MacroDocAgent(
-            repo_identifier=self.repo_identifier,
-            wiki_path=str(self.wiki_path),
-            cache_path=str(self.cache_path),
+            owner=self.owner,
+            repo_name=self.repo_name,
             llm=self.llm,
         )
         self.summary_agent = SummaryAgent(
@@ -175,10 +163,6 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         # Decide whether to run full generation or incremental update
         if allow_incremental:
             incremental_agent = IncrementalUpdateAgent(
-                repo_path=str(self.repo_path),
-                wiki_path=str(self.wiki_path),
-                cache_path=str(self.cache_path),
-                repo_identifier=self.repo_identifier,
                 owner=self.owner,
                 repo_name=self.repo_name,
                 llm=self.llm,
@@ -196,6 +180,84 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         # Fallback to full documentation generation
         print("🚀 Starting full documentation generation...")
         return self._full_generate(max_files, max_workers)
+
+    def stream(
+        self,
+        max_files: int = 50,
+        max_workers: int = 5,
+        allow_incremental: bool = True,
+        progress_callback=None,
+    ) -> Dict[str, Any]:
+        """Execute documentation generation pipeline with streaming progress updates.
+
+        Args:
+            max_files (int): Maximum number of files to analyze
+            max_workers (int): Number of parallel workers
+            allow_incremental (bool): Whether to allow incremental update (default: True)
+            progress_callback (callable): Callback function for progress updates
+
+        Returns:
+            Dict[str, Any]: Complete generation results
+        """
+        # Send initial progress
+        if progress_callback:
+            progress_callback({
+                "stage": "started",
+                "message": "Starting MoeAgent documentation generation",
+                "progress": 0,
+            })
+
+        # Decide whether to run full generation or incremental update
+        if allow_incremental:
+            incremental_agent = IncrementalUpdateAgent(
+                owner=self.owner,
+                repo_name=self.repo_name,
+                llm=self.llm,
+            )
+
+            can_update, info = incremental_agent.can_update_incrementally()
+
+            if can_update:
+                print("✅ Detected new commits, performing incremental update...")
+                if progress_callback:
+                    progress_callback({
+                        "stage": "incremental_update",
+                        "message": "Performing incremental update",
+                        "progress": 50,
+                    })
+                result = incremental_agent.update(max_workers)
+                if progress_callback:
+                    progress_callback({
+                        "stage": "completed",
+                        "message": "Incremental update completed",
+                        "progress": 100,
+                    })
+                return result
+            elif info["reason"] == "no_new_commits":
+                print("✅ No new commits, using cached documentation")
+                if progress_callback:
+                    progress_callback({
+                        "stage": "cached",
+                        "message": "Using cached documentation",
+                        "progress": 100,
+                    })
+                return self._load_cached_summary()
+
+        # Fallback to full documentation generation with streaming
+        print("🚀 Starting full documentation generation with streaming...")
+        return self._full_generate(max_files, max_workers, progress_callback)
+
+    def _ensure_repo_cloned(self):
+        """Ensure the repository is cloned locally."""
+        if not self.repo_path.exists():
+            print(f"Cloning repository {self.owner}/{self.repo_name}...")
+            clone_repo(
+                platform=CONFIG.GIT_PLATFORM if CONFIG.GIT_PLATFORM else "github",
+                owner=self.owner,
+                repo=self.repo_name,
+                dest=str(self.repo_path),
+            )
+            print(f"Repository cloned to {self.repo_path}")
 
     def _repo_info(self):
         """Stage 1: Repository Information Collection."""
@@ -528,12 +590,15 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         self.stage_timings["Stage 6: Index Generation"] = stage_time
         print(f"⏱️  Stage 6 completed in {stage_time:.2f}s")
 
-    def _full_generate(self, max_files: int, max_workers: int) -> Dict[str, Any]:
+    def _full_generate(
+        self, max_files: int, max_workers: int, progress_callback=None
+    ) -> Dict[str, Any]:
         """Run the full multi-stage documentation generation pipeline.
 
         Args:
             max_files: Maximum number of files to analyze during selection.
             max_workers: Maximum number of parallel workers for module docs.
+            progress_callback: Optional callback function for progress updates.
 
         Returns:
             Dict[str, Any]: Aggregated results from all pipeline stages.
@@ -541,18 +606,40 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         start_time = time.time()
         print(f"Starting MoeAgent Documentation Generation Pipeline")
 
+        # Progress stages mapping
+        progress_stages = {
+            "repo_info": {"progress": 10, "message": "Collecting repository information"},
+            "file_selection": {"progress": 25, "message": "Selecting important files"},
+            "module_clustering": {"progress": 40, "message": "Clustering files into modules"},
+            "module_docs": {"progress": 70, "message": "Generating module documentation"},
+            "macro_docs": {"progress": 85, "message": "Generating macro documentation"},
+            "index_generation": {"progress": 95, "message": "Generating index and summary"},
+        }
+
+        def _notify(stage: str):
+            if progress_callback and stage in progress_stages:
+                progress_callback({
+                    "stage": stage,
+                    "message": progress_stages[stage]["message"],
+                    "progress": progress_stages[stage]["progress"],
+                })
+
         try:
             # Stage 1: Repository Information Collection (Async - Non-blocking)
+            _notify("repo_info")
             executor = ThreadPoolExecutor(max_workers=1)
             stage1_future = executor.submit(self._repo_info)
 
             # Stage 2: Intelligent File Selection
+            _notify("file_selection")
             self._file_selection(max_files)
-            
+
             # Stage 3: Module Clustering
+            _notify("module_clustering")
             self._module_clustering()
 
             # Stage 4: Incremental Module Documentation Generation
+            _notify("module_docs")
             self._module_documentation(max_workers)
 
             # Wait for Stage 1 to complete before Stage 5
@@ -564,9 +651,11 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
             print(f"✅ Stage 1 completed, continuing with Stage 5...\n")
 
             # Stage 5: Macro Documentation Generation
+            _notify("macro_docs")
             self._macro_documentation()
 
             # Stage 6: Index Generation
+            _notify("index_generation")
             self._index_generation()
 
             # Calculate total time
@@ -590,6 +679,15 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
             print(f"💾 Cache Location: {self.cache_path}")
             print(f"{'='*60}\n")
 
+            # Send completion progress
+            if progress_callback:
+                progress_callback({
+                    "stage": "completed",
+                    "message": "Documentation generation completed successfully",
+                    "progress": 100,
+                    "elapsed_time": total_time,
+                })
+
             return results
 
         except Exception as e:
@@ -597,6 +695,14 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
             print(f"❌ Error in documentation generation pipeline:")
             print(f"   {str(e)}")
             print(f"{'='*60}\n")
+
+            # Send error progress
+            if progress_callback:
+                progress_callback({
+                    "stage": "error",
+                    "message": f"Error: {str(e)}",
+                    "progress": -1,
+                })
             raise
 
     def _load_cached_summary(self) -> Dict[str, Any]:
@@ -711,7 +817,7 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         Args:
             results (Dict[str, Any]): Complete results
         """
-        # 添加 baseline 信息（从 repo_info 的 commits[0] 获取）
+        # Add baseline information (from repo_info commits[0])
         if self.repo_info and self.repo_info.get("commits"):
             commits = self.repo_info["commits"]
             if commits:
@@ -735,14 +841,12 @@ def test_moe_agent():
 
     # Create MoeAgent instance
     agent = MoeAgent(
-        repo_path=".repos/cloudwego_eino",
-        wiki_path=".wikis/cloudwego_eino",
         owner="cloudwego",
         repo_name="eino",
     )
 
     # Generate documentation
-    results = agent.generate(max_files=50, max_workers=10)
+    results = agent.generate(max_files=30, max_workers=4)
 
     # Print summary
     print("\n" + "=" * 60)

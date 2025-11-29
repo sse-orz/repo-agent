@@ -21,40 +21,28 @@ class ModuleDocAgent(BaseAgent):
 
     def __init__(
         self,
-        repo_identifier: str,
-        repo_root: Optional[str] = None,
-        wiki_path: Optional[str] = None,
-        cache_path: Optional[str] = None,
+        owner: str,
+        repo_name: str,
         llm=None,
     ):
         """Initialize the ModuleDocAgent.
 
         Args:
-            repo_identifier (str): Unified repository identifier (format: owner_repo_name)
-            repo_root (Optional[str]): Absolute path to repository root for file resolution
-            wiki_path (Optional[str]): Base wiki path. Module docs will be saved to {wiki_path}/modules/
-            cache_path (Optional[str]): Base cache path. Module analysis will be saved to {cache_path}/module_analysis/
+            owner (str): Repository owner
+            repo_name (str): Repository name
             llm: Language model instance. If None, uses CONFIG.get_llm()
         """
-        self.repo_identifier = repo_identifier
+        self.owner = owner
+        self.repo_name = repo_name
         self.llm = llm if llm else CONFIG.get_llm()
-        self.repo_root = (
-            Path(repo_root).absolute() if repo_root else Path(".").absolute()
-        )
-
-        # Use provided wiki_path or default to .wikis/{repo_identifier}
-        if wiki_path:
-            self.wiki_base_path = Path(wiki_path) / "modules"
-        else:
-            self.wiki_base_path = Path(f".wikis/{repo_identifier}/modules")
-
-        # Use provided cache_path or default to .cache/{repo_identifier}
-        if cache_path:
-            self.module_analysis_base_path = Path(cache_path) / "module_analysis"
-        else:
-            self.module_analysis_base_path = Path(
-                f".cache/{repo_identifier}/module_analysis"
-            )
+        
+        # Derive paths from owner and repo_name
+        self.repo_identifier = f"{owner}_{repo_name}"
+        self.repo_root = Path(f".repos/{self.repo_identifier}").absolute()
+        
+        # Set up wiki and cache paths
+        self.wiki_base_path = Path(f".wikis/{self.repo_identifier}/modules")
+        self.module_analysis_base_path = Path(f".cache/{self.repo_identifier}/module_analysis")
 
         # Ensure directories exist
         self.wiki_base_path.mkdir(parents=True, exist_ok=True)
@@ -552,6 +540,11 @@ This module contains {len(files)} file(s).
         Returns:
             List[Dict[str, Any]]: List of results for each module
         """
+        # Handle empty modules list
+        if not modules:
+            print("⚠️  No modules to generate documentation for, skipping module documentation")
+            return []
+        
         print(
             f"\n🚀 Starting parallel module documentation generation for {len(modules)} modules..."
         )

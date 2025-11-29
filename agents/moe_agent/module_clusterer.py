@@ -464,8 +464,16 @@ Return the final module structure as JSON."""
         Returns:
             Dict[str, Any]: Complete module structure with metadata
         """
+        # Handle empty file list
         if not file_list:
-            return {"modules": []}
+            print("⚠️  No files to cluster, returning empty module structure")
+            return {
+                "modules": [],
+                "total_modules": 0,
+                "total_files": 0,
+                "initial_module_snapshot": {},
+                "dependency_graph": {"files": [], "edges": [], "module_dependency_summary": {}},
+            }
 
         initial_modules = self.cluster_by_directory(file_list)
         module_metadata = self._build_module_metadata(initial_modules)

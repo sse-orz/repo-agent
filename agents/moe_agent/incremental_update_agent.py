@@ -31,10 +31,6 @@ class IncrementalUpdateAgent:
 
     def __init__(
         self,
-        repo_path: str,
-        wiki_path: str,
-        cache_path: str,
-        repo_identifier: str,
         owner: str,
         repo_name: str,
         llm=None,
@@ -42,35 +38,31 @@ class IncrementalUpdateAgent:
         """Initialize the incremental update agent.
 
         Args:
-            repo_path: Local repository path.
-            wiki_path: Output path for wiki documents.
-            cache_path: Cache directory path.
-            repo_identifier: Repository identifier in the form ``{owner}_{repo_name}``.
             owner: Repository owner.
             repo_name: Repository name.
             llm: Optional LLM instance to use for reasoning.
         """
-        self.repo_path = Path(repo_path)
-        self.wiki_path = Path(wiki_path)
-        self.cache_path = Path(cache_path)
-        self.repo_identifier = repo_identifier
         self.owner = owner
         self.repo_name = repo_name
         self.llm = llm or CONFIG.get_llm()
+        
+        # Derive paths from owner and repo_name
+        self.repo_identifier = f"{owner}_{repo_name}"
+        self.repo_path = Path(f".repos/{self.repo_identifier}").absolute()
+        self.wiki_path = Path(f".wikis/{self.repo_identifier}").absolute()
+        self.cache_path = Path(f".cache/{self.repo_identifier}").absolute()
+        
         # Threshold of changed lines below which we prefer incremental updates
         self.incremental_change_threshold = 600
 
         self.module_doc_agent = ModuleDocAgent(
-            repo_identifier=repo_identifier,
-            repo_root=str(repo_path),
-            wiki_path=str(wiki_path),
-            cache_path=str(cache_path),
+            owner=owner,
+            repo_name=repo_name,
             llm=self.llm,
         )
         self.macro_doc_agent = MacroDocAgent(
-            repo_identifier=repo_identifier,
-            wiki_path=str(wiki_path),
-            cache_path=str(cache_path),
+            owner=owner,
+            repo_name=repo_name,
             llm=self.llm,
         )
 
@@ -102,7 +94,7 @@ class IncrementalUpdateAgent:
             print(f"⚠️  Failed to fetch remote commits: {e}")
             return (False, {"reason": "fetch_error", "error": str(e)})
 
-        # 4. 对比
+        # 4. Compare baseline with current
         if baseline_info["sha"] == current_sha:
             return (False, {"reason": "no_new_commits"})
 
@@ -250,7 +242,7 @@ class IncrementalUpdateAgent:
             if not commits:
                 return None
 
-            # 使用 commits[0] 作为 baseline
+            # Use commits[0] as baseline
             return {
                 "sha": commits[0]["sha"],
                 "date": commits[0].get("date"),
@@ -670,19 +662,19 @@ class IncrementalUpdateAgent:
     def _update_baseline(self):
         """Refresh baseline commits in ``repo_info.json`` by refetching latest history."""
         try:
-            # 重新获取最新的 commits
+            # Re-fetch the latest commits
             commits = get_commits(self.owner, self.repo_name, per_page=10)
 
-            # 加载现有的 repo_info.json
+            # Load existing repo_info.json
             repo_info_path = self.cache_path / "repo_info.json"
             if repo_info_path.exists():
                 with open(repo_info_path, "r", encoding="utf-8") as f:
                     repo_info = json.load(f)
 
-                # 更新 commits
+                # Update commits
                 repo_info["commits"] = commits
 
-                # 保存回去
+                # Save back to file
                 with open(repo_info_path, "w", encoding="utf-8") as f:
                     json.dump(repo_info, f, indent=2, ensure_ascii=False)
 

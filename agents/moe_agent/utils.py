@@ -526,17 +526,17 @@ def get_repo_commit_info(
 
 
 def git_pull_with_retry(repo_path: str, max_retries: int = 3) -> tuple[bool, str]:
-    """执行 git pull 并支持自动重试
+    """Execute git pull with automatic retry support.
 
     Args:
-        repo_path: 本地仓库路径
-        max_retries: 最大重试次数（默认3次）
+        repo_path: Local repository path.
+        max_retries: Maximum number of retries (default: 3).
 
     Returns:
-        (success: bool, message: str) - 是否成功及状态信息
+        (success: bool, message: str) - Whether successful and status message.
 
     Raises:
-        Exception: 达到最大重试次数后仍失败时抛出异常
+        Exception: Raised when max retries reached and still failing.
     """
     for attempt in range(1, max_retries + 1):
         try:
@@ -546,7 +546,7 @@ def git_pull_with_retry(repo_path: str, max_retries: int = 3) -> tuple[bool, str
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=60,  # 60秒超时
+                timeout=60,  # 60 second timeout
             )
             return (True, f"Pull succeeded on attempt {attempt}")
         except subprocess.TimeoutExpired:
@@ -564,14 +564,14 @@ def git_pull_with_retry(repo_path: str, max_retries: int = 3) -> tuple[bool, str
 
 
 def git_diff_name_status(repo_path: str, baseline_sha: str) -> List[Dict[str, str]]:
-    """获取从 baseline_sha 到 HEAD 的文件变更状态
+    """Get file change status from baseline_sha to HEAD.
 
     Args:
-        repo_path: 本地仓库路径
-        baseline_sha: 基线提交 SHA
+        repo_path: Local repository path.
+        baseline_sha: Baseline commit SHA.
 
     Returns:
-        List[Dict]: 变更文件列表，每项包含 status (M/A/D) 和 filename
+        List[Dict]: List of changed files, each containing status (M/A/D) and filename.
 
     Examples:
         [
@@ -597,7 +597,7 @@ def git_diff_name_status(repo_path: str, baseline_sha: str) -> List[Dict[str, st
                     status, filename = parts
                     changes.append(
                         {
-                            "status": status,  # M=修改, A=新增, D=删除
+                            "status": status,  # M=Modified, A=Added, D=Deleted
                             "filename": filename,
                         }
                     )
@@ -609,25 +609,25 @@ def git_diff_name_status(repo_path: str, baseline_sha: str) -> List[Dict[str, st
 
 
 def git_diff_file(repo_path: str, baseline_sha: str, filepath: str) -> Dict[str, Any]:
-    """获取单个文件从 baseline_sha 到 HEAD 的完整 diff
+    """Get the complete diff of a single file from baseline_sha to HEAD.
 
     Args:
-        repo_path: 本地仓库路径
-        baseline_sha: 基线提交 SHA
-        filepath: 文件相对路径
+        repo_path: Local repository path.
+        baseline_sha: Baseline commit SHA.
+        filepath: File relative path.
 
     Returns:
-        Dict: 包含 diff 内容和变更统计
+        Dict: Contains diff content and change statistics.
         {
             "filepath": str,
-            "diff": str,  # 完整 diff 文本
+            "diff": str,  # Complete diff text
             "additions": int,
             "deletions": int,
             "changes": int
         }
     """
     try:
-        # 获取 diff 内容
+        # Get diff content
         diff_result = subprocess.run(
             ["git", "diff", baseline_sha, "HEAD", "--", filepath],
             cwd=repo_path,
@@ -636,7 +636,7 @@ def git_diff_file(repo_path: str, baseline_sha: str, filepath: str) -> Dict[str,
             check=True,
         )
 
-        # 获取统计信息（additions/deletions）
+        # Get statistics (additions/deletions)
         stat_result = subprocess.run(
             ["git", "diff", "--numstat", baseline_sha, "HEAD", "--", filepath],
             cwd=repo_path,
@@ -645,7 +645,7 @@ def git_diff_file(repo_path: str, baseline_sha: str, filepath: str) -> Dict[str,
             check=True,
         )
 
-        # 解析统计信息：格式为 "additions\tdeletions\tfilename"
+        # Parse statistics: format is "additions\tdeletions\tfilename"
         additions, deletions = 0, 0
         stat_line = stat_result.stdout.strip()
         if stat_line:
@@ -669,15 +669,15 @@ def git_diff_file(repo_path: str, baseline_sha: str, filepath: str) -> Dict[str,
 def git_diff_multiple_files(
     repo_path: str, baseline_sha: str, filepaths: List[str]
 ) -> Dict[str, Dict[str, Any]]:
-    """批量获取多个文件的 diff
+    """Get diffs for multiple files in batch.
 
     Args:
-        repo_path: 本地仓库路径
-        baseline_sha: 基线提交 SHA
-        filepaths: 文件路径列表
+        repo_path: Local repository path.
+        baseline_sha: Baseline commit SHA.
+        filepaths: List of file paths.
 
     Returns:
-        Dict[filename, diff_info]: 文件名到 diff 信息的映射
+        Dict[filename, diff_info]: Mapping from filename to diff information.
     """
     result = {}
     for filepath in filepaths:
@@ -699,13 +699,13 @@ def git_diff_multiple_files(
 
 
 def git_get_current_head_sha(repo_path: str) -> str:
-    """获取本地仓库当前 HEAD 的 SHA
+    """Get the current HEAD SHA of the local repository.
 
     Args:
-        repo_path: 本地仓库路径
+        repo_path: Local repository path.
 
     Returns:
-        str: 当前 HEAD 的 SHA（短格式，7位）
+        str: Current HEAD SHA (short format, 7 characters).
     """
     try:
         result = subprocess.run(
