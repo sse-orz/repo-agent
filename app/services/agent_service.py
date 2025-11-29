@@ -11,6 +11,7 @@ from app.models.agents import (
 )
 from agents.sub_graph.parent import ParentGraphBuilder
 from config import CONFIG
+from utils.repo import clone_repo, pull_repo
 
 
 class AgentService:
@@ -66,6 +67,45 @@ class AgentService:
                 )
 
         return files
+
+    def preprocess_repo(self, request: GenerateRequest) -> bool:
+        # Preprocess the repository for documentation generation
+        repo_root = "./.repos"
+        repo_dir = f"{request.owner}_{request.repo}"
+        repo_path = os.path.join(repo_root, repo_dir)
+
+        try:
+            cloned = clone_repo(
+                platform=request.platform,
+                owner=request.owner,
+                repo=request.repo,
+                dest=repo_path,
+            )
+            if cloned:
+                print(
+                    f"[AgentService] Cloned repository {request.platform}:{request.owner}/{request.repo} to {repo_path}."
+                )
+            else:
+                print(
+                    f"[AgentService] Repository already exists at {repo_path}. Pulling latest changes..."
+                )
+                pulled = pull_repo(
+                    platform=request.platform,
+                    owner=request.owner,
+                    repo=request.repo,
+                    dest=repo_path,
+                )
+                if pulled:
+                    print(
+                        f"[AgentService] Pulled latest changes for {request.platform}:{request.owner}/{request.repo}."
+                    )
+        except Exception as e:
+            # throw exception to upper layer
+            raise RuntimeError(
+                f"Failed to preprocess repository for {request.platform}:{request.owner}/{request.repo}: {e}"
+            ) from e
+
+        return True
 
     def generate_documentation(
         self, request: GenerateRequest, progress_callback=None

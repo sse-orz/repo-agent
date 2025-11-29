@@ -28,6 +28,11 @@ async def generate_agent_documentation(
             message="Existing documentation found.", code=200, data=existing_wiki
         )
 
+    if not agent_service.preprocess_repo(request):
+        return BaseResponse(
+            message="Failed to preprocess repository.", code=500, data=None
+        )
+
     data = agent_service.generate_documentation(request)
     return BaseResponse(
         message="Agent documentation generated successfully.", code=200, data=data
@@ -45,6 +50,11 @@ async def generate_agent_documentation_stream(
     if existing_wiki := agent_service.check_existing_wiki(request):
         return BaseResponse(
             message="Existing documentation found.", code=200, data=existing_wiki
+        )
+
+    if not agent_service.preprocess_repo(request):
+        return BaseResponse(
+            message="Failed to preprocess repository.", code=500, data=None
         )
 
     progress_queue = Queue()

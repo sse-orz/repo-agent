@@ -16,4 +16,4 @@ rag:
 
 server:
 	@echo "Starting FastAPI server..."
-	@uv run uvicorn server:app --port 8000 --reload
+	@uv run uvicorn server:app --port 8000 --reload --reload-exclude ".repos/*" --reload-exclude ".wikis/*"
