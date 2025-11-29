@@ -63,13 +63,8 @@ class MoeAgent:
         self._ensure_repo_cloned()
 
         # Initialize components
-        repo_llm = ChatOpenAI(
-            model="Minimax-M2",
-            openai_api_key=CONFIG.MINIMAX_API_KEY,
-            openai_api_base="https://api.minimaxi.com/v1",
-        )
         self.repo_agent = RepoInfoAgent(
-            repo_path=str(self.repo_path), wiki_path=str(self.wiki_path), llm=repo_llm
+            repo_path=str(self.repo_path), wiki_path=str(self.wiki_path), llm=self.llm
         )
 
         self.clusterer = ModuleClusterer(llm=self.llm, repo_root=str(self.repo_path))
