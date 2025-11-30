@@ -392,7 +392,7 @@ md.renderer.rules.fence = (
   const info = (token.info || '').trim()
   if (info === 'mermaid') {
     const content = token.content || ''
-    return `<div class="mermaid-container"><div class="mermaid">${escapeHtml(content)}</div><button class="mermaid-zoom-btn" title="Zoom"><i class="fas fa-search-plus"></i></button></div>`
+    return `<div class="mermaid-container"><div class="mermaid">${escapeHtml(content)}</div><button class="mermaid-zoom-btn" title="Zoom" aria-label="Zoom diagram"><i class="fas fa-search-plus"></i></button></div>`
   }
   return defaultFence(tokens, idx, options, env, self)
 }
