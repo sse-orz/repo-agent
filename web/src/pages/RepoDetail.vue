@@ -112,7 +112,7 @@
       >
         <div v-html="zoomSvgHtml"></div>
       </div>
-      <button class="close-zoom" @click="closeZoomModal">
+      <button class="close-zoom" @click="closeZoomModal" aria-label="Close zoom modal">
         <i class="fas fa-times"></i>
       </button>
     </div>
