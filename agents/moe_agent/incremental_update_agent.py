@@ -72,6 +72,19 @@ class IncrementalUpdateAgent:
             wiki_base_path=str(self.wiki_path),
         )
 
+    def _is_zero_code_repository(self) -> bool:
+        """Check if this is a zero-code (documentation-only) repository.
+
+        Returns:
+            bool: True if zero-code repository, False if normal code repository.
+        """
+        selected_files_path = self.cache_path / "selected_files.json"
+        if selected_files_path.exists():
+            with open(selected_files_path, "r", encoding="utf-8") as f:
+                selected_data = json.load(f)
+                return len(selected_data.get("files", [])) == 0
+        return False
+
     def can_update_incrementally(self) -> Tuple[bool, Dict[str, Any]]:
         """Check whether incremental update is possible.
 
@@ -171,15 +184,25 @@ class IncrementalUpdateAgent:
         affected_modules = self._analyze_affected_modules(changed_files_info)
 
         if not affected_modules["dirty_modules"]:
-            print(f"ℹ️  No modules affected (changes outside selected files)")
-            # Still need to refresh repo_info.json baseline and summary cache
-            self._update_baseline()
-            return {
-                "status": "no_module_changes",
-                "baseline_sha": baseline_sha,
-                "changed_files": len(changed_files_info["changed_files"]),
-                "total_time": time.time() - start_time,
-            }
+            # Check if this is a zero-code repository
+            is_zero_code_repo = self._is_zero_code_repository()
+
+            if not is_zero_code_repo:
+                # Normal code repository: no module changes, return early
+                print(f"ℹ️  No modules affected (changes outside selected files)")
+                # Still need to refresh repo_info.json baseline and summary cache
+                self._update_baseline()
+                return {
+                    "status": "no_module_changes",
+                    "baseline_sha": baseline_sha,
+                    "changed_files": len(changed_files_info["changed_files"]),
+                    "total_time": time.time() - start_time,
+                }
+            else:
+                # Zero-code repository: proceed to macro documentation update
+                print(
+                    f"ℹ️  Zero-code repository: no modules to update, proceeding to macro docs"
+                )
 
         print(f"✅ {len(affected_modules['dirty_modules'])} modules affected:")
         for mod_info in affected_modules["dirty_modules"][:5]:
@@ -190,14 +213,19 @@ class IncrementalUpdateAgent:
             print(f"   ... and {len(affected_modules['dirty_modules']) - 5} more")
 
         # Step 4: Update module‑level documentation
-        print(f"\n📝 Step 4: Updating module documentation...")
-        module_results = self._update_module_docs(
-            affected_modules["dirty_modules"], max_workers
-        )
+        if affected_modules["dirty_modules"]:
+            print(f"\n📝 Step 4: Updating module documentation...")
+            module_results = self._update_module_docs(
+                affected_modules["dirty_modules"], max_workers
+            )
 
-        # Step 4.5: Regenerate module structure for future runs
-        print(f"\n🔄 Step 4.5: Regenerating module structure...")
-        self._regenerate_module_structure()
+            # Step 4.5: Regenerate module structure for future runs
+            print(f"\n🔄 Step 4.5: Regenerating module structure...")
+            self._regenerate_module_structure()
+        else:
+            # Zero-code repository: skip module updates
+            print(f"\n📝 Step 4: Skipping module documentation (zero-code repository)")
+            module_results = []
 
         # Step 5: Update macro docs (LLM decides per document if changes matter)
         print(f"\n📄 Step 5: Updating macro documentation...")
@@ -287,22 +315,33 @@ class IncrementalUpdateAgent:
         else:
             selected_files = set()
 
+        # Determine if this is a zero-code repository
+        is_zero_code_repo = len(selected_files) == 0
+
         # Filter: only handle modified (M) and deleted (D) files, skip additions (A) for now
         filtered_changes = []
         for change in all_changes:
             status = change["status"]
             filename = change["filename"]
 
-            # Only consider files that were selected during initial scan
-            if filename not in selected_files:
-                continue
+            if is_zero_code_repo:
+                # Zero-code repository: monitor changes to all markdown/documentation files
+                doc_extensions = {".md", ".rst", ".txt", ".adoc", ".asciidoc"}
+                if any(filename.lower().endswith(ext) for ext in doc_extensions):
+                    # Include added, modified, and deleted documentation files
+                    if status in ["M", "A", "D"]:
+                        filtered_changes.append(change)
+            else:
+                # Normal code repository: only process changes to selected files
+                if filename not in selected_files:
+                    continue
 
-            # Skip newly added files for this incremental path
-            if status == "A":
-                continue
+                # Skip newly added files for this incremental path
+                if status == "A":
+                    continue
 
-            if status in ["M", "D"]:
-                filtered_changes.append(change)
+                if status in ["M", "D"]:
+                    filtered_changes.append(change)
 
         # Compute detailed diff only for modified files
         modified_files = [c["filename"] for c in filtered_changes if c["status"] == "M"]
@@ -318,6 +357,7 @@ class IncrementalUpdateAgent:
             "filtered": len(filtered_changes),
             "modified": sum(1 for c in filtered_changes if c["status"] == "M"),
             "deleted": sum(1 for c in filtered_changes if c["status"] == "D"),
+            "added": sum(1 for c in filtered_changes if c["status"] == "A"),
         }
 
         return {
@@ -545,7 +585,19 @@ class IncrementalUpdateAgent:
             "total_modules": affected_modules.get("total_modules", 0),
         }
 
+        # Determine if this is a zero-code repository
+        is_zero_code_repo = self._is_zero_code_repository()
+
+        if is_zero_code_repo:
+            # Zero-code repository: only update README
+            doc_types_to_update = ["README.md"]
+            print("   ℹ️  Zero-code repository: updating README.md only")
+        else:
+            # Normal repository: update all macro documents
+            doc_types_to_update = None  # None means update all
+
         return self.macro_doc_agent.update_docs_incremental(
+            doc_types=doc_types_to_update,
             change_summary=change_summary,
             repo_info=repo_info,
             full_change_info=full_change_info,

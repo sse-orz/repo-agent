@@ -557,16 +557,37 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         print(f"📄 STAGE 5: Macro Documentation Generation")
         print(f"{'='*60}")
 
-        self.macro_results = self.macro_doc_agent.generate_all_docs(
-            repo_info=self.repo_info,
-        )
+        # Determine if this is a zero-code repository
+        is_zero_code_repo = len(self.selected_files) == 0
+
+        if is_zero_code_repo:
+            print("ℹ️  Detected zero-code repository (documentation-only)")
+            print(
+                "   Generating README.md only (skipping API, ARCHITECTURE, DEVELOPMENT)"
+            )
+
+            # Generate README only
+            self.macro_results = [
+                self.macro_doc_agent.generate_single_doc(
+                    doc_type="README.md", repo_info=self.repo_info
+                )
+            ]
+        else:
+            # Default behavior: generate all macro documents
+            self.macro_results = self.macro_doc_agent.generate_all_docs(
+                repo_info=self.repo_info,
+            )
 
         # Save macro results
         save_json_to_context(
             self.repo_identifier,
             "",
             "macro_results.json",
-            {"results": self.macro_results, "total_docs": len(self.macro_results)},
+            {
+                "results": self.macro_results,
+                "total_docs": len(self.macro_results),
+                "is_zero_code_repo": is_zero_code_repo,
+            },
         )
 
         print(f"\n✅ Macro documentation complete")
@@ -791,11 +812,20 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         Returns:
             Dict[str, Any]: Complete results
         """
+        # Determine if this is a zero-code repository
+        is_zero_code_repo = len(self.selected_files) == 0
+
+        # Collect statistics on generated macro document types
+        generated_docs = [r.get("doc_type") for r in self.macro_results if r.get("status") in ["success", "fallback"]]
+        all_doc_types = ["README.md", "API.md", "ARCHITECTURE.md", "DEVELOPMENT.md"]
+        skipped_docs = [d for d in all_doc_types if d not in generated_docs]
+
         return {
             "repo_name": self.repo_name,
             "repo_path": str(self.repo_path),
             "wiki_path": str(self.wiki_path),
             "cache_path": str(self.cache_path),
+            "is_zero_code_repo": is_zero_code_repo,  # Flag for zero-code repositories
             "total_time": total_time,
             "stage_timings": self.stage_timings,  # Add stage timings
             "stages": {
@@ -811,16 +841,17 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                     "files": self.selected_files[:20],  # First 20 for brevity
                 },
                 "3_module_clustering": {
-                    "status": "success" if self.module_structure else "error",
+                    "status": "skipped" if is_zero_code_repo else ("success" if self.module_structure else "error"),
                     "time": self.stage_timings.get("Stage 3: Module Clustering", 0),
                     "total_modules": (
                         self.module_structure.get("total_modules", 0)
                         if self.module_structure
                         else 0
                     ),
+                    "reason": "zero_code_repository" if is_zero_code_repo else None,
                 },
                 "4_module_docs": {
-                    "status": "success",
+                    "status": "skipped" if is_zero_code_repo else "success",
                     "time": self.stage_timings.get("Stage 4: Module Documentation", 0),
                     "total": len(self.module_results),
                     "successful": sum(
@@ -829,6 +860,7 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                     "failed": sum(
                         1 for r in self.module_results if r["status"] == "error"
                     ),
+                    "reason": "zero_code_repository" if is_zero_code_repo else None,
                 },
                 "5_macro_docs": {
                     "status": "success",
@@ -840,6 +872,8 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                     "failed": sum(
                         1 for r in self.macro_results if r["status"] == "error"
                     ),
+                    "docs_generated": generated_docs,  # List of generated documents
+                    "docs_skipped": skipped_docs if is_zero_code_repo else [],  # List of skipped documents
                 },
                 "6_index": {
                     "status": (
