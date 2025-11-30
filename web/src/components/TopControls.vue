@@ -8,7 +8,6 @@
 
 <script setup lang="ts">
 import ThemeToggle from './ThemeToggle.vue'
-import HomeButton from './HomeButton.vue'
 import HistoryButton from './HistoryButton.vue'
 </script>
 
