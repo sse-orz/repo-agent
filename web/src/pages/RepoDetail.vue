@@ -33,11 +33,31 @@
       @send="handleSend"
       @new-repo="handleNewRepo"
     />
+    <div
+      v-if="zoomModalVisible"
+      class="zoom-modal"
+      @click.self="closeZoomModal"
+      @mousemove="onDrag"
+      @mouseup="stopDrag"
+      @mouseleave="stopDrag"
+    >
+      <div
+        class="zoom-content"
+        :style="zoomStyle"
+        @wheel.prevent="handleZoom"
+        @mousedown="startDrag"
+      >
+        <div v-html="zoomSvgHtml"></div>
+      </div>
+      <button class="close-zoom" @click="closeZoomModal">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch, computed, inject, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import HistoryButton from '../components/HistoryButton.vue'
@@ -99,7 +119,7 @@ const isStreaming = ref(false)
 const progressLogs = ref<string[]>([])
 const streamController = ref<AbortController | null>(null)
 const currentProgress = ref<number>(0)
-let mermaidInitialized = false
+const themeContext = inject<{ isDarkMode: Ref<boolean> } | null>('theme', null)
 
 const repoPlatform = computed(() => {
   const platform = route.query.platform
@@ -291,7 +311,7 @@ md.renderer.rules.fence = (
   const info = (token.info || '').trim()
   if (info === 'mermaid') {
     const content = token.content || ''
-    return `<div class="mermaid">${escapeHtml(content)}</div>`
+    return `<div class="mermaid-container"><div class="mermaid">${escapeHtml(content)}</div><button class="mermaid-zoom-btn" title="Zoom"><i class="fas fa-search-plus"></i></button></div>`
   }
   return defaultFence(tokens, idx, options, env, self)
 }
@@ -325,13 +345,129 @@ const renderMarkdown = (markdown: string) => {
   return { html, headings }
 }
 
+const getMermaidThemeVariables = () => {
+  if (typeof window === 'undefined') {
+    return {
+      background: '#bbb',
+      primaryColor: '#ffffff',
+      primaryBorderColor: '#d1d5db',
+      primaryTextColor: '#111827',
+      secondaryColor: '#ffffff',
+      secondaryBorderColor: '#d1d5db',
+      secondaryTextColor: '#111827',
+      tertiaryColor: '#ffffff',
+      tertiaryBorderColor: '#d1d5db',
+      tertiaryTextColor: '#111827',
+      lineColor: '#9ca3af',
+      textColor: '#111827',
+      edgeLabelBackground: '#ffffff',
+    }
+  }
+
+  const styles = getComputedStyle(document.documentElement)
+  const pick = (name: string, fallback: string) => {
+    const value = styles.getPropertyValue(name).trim()
+    return value || fallback
+  }
+
+  return {
+    background: pick('--placeholder-color', '#bbb'),
+    primaryColor: pick('--card-bg', '#ffffff'),
+    primaryBorderColor: pick('--border-color', '#d1d5db'),
+    primaryTextColor: pick('--text-color', '#111827'),
+    secondaryColor: pick('--card-bg', '#ffffff'),
+    secondaryBorderColor: pick('--border-color', '#d1d5db'),
+    secondaryTextColor: pick('--text-color', '#111827'),
+    tertiaryColor: pick('--card-bg', '#ffffff'),
+    tertiaryBorderColor: pick('--border-color', '#d1d5db'),
+    tertiaryTextColor: pick('--text-color', '#111827'),
+    lineColor: pick('--border-color', '#9ca3af'),
+    textColor: pick('--text-color', '#111827'),
+    edgeLabelBackground: pick('--card-bg', '#ffffff'),
+  }
+}
+
 const ensureMermaid = () => {
   if (typeof window === 'undefined') return false
-  if (!mermaidInitialized) {
-    mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' })
-    mermaidInitialized = true
-  }
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'loose',
+    theme: 'base',
+    themeVariables: getMermaidThemeVariables(),
+  })
   return true
+}
+
+const zoomModalVisible = ref(false)
+const zoomSvgHtml = ref('')
+const zoomScale = ref(1)
+const zoomTranslate = ref({ x: 0, y: 0 })
+const isDragging = ref(false)
+const dragStart = ref({ x: 0, y: 0 })
+const lastTranslate = ref({ x: 0, y: 0 })
+
+const openZoomModal = (html: string) => {
+  zoomSvgHtml.value = html
+  zoomModalVisible.value = true
+  zoomScale.value = 1
+  zoomTranslate.value = { x: 0, y: 0 }
+  lastTranslate.value = { x: 0, y: 0 }
+  document.body.style.overflow = 'hidden'
+}
+
+const closeZoomModal = () => {
+  zoomModalVisible.value = false
+  document.body.style.overflow = ''
+}
+
+const handleZoom = (e: WheelEvent) => {
+  const delta = e.deltaY > 0 ? 0.9 : 1.1
+  zoomScale.value = Math.max(0.1, Math.min(5, zoomScale.value * delta))
+}
+
+const startDrag = (e: MouseEvent) => {
+  isDragging.value = true
+  dragStart.value = { x: e.clientX, y: e.clientY }
+  lastTranslate.value = { ...zoomTranslate.value }
+}
+
+const onDrag = (e: MouseEvent) => {
+  if (!isDragging.value) return
+  const dx = e.clientX - dragStart.value.x
+  const dy = e.clientY - dragStart.value.y
+  zoomTranslate.value = {
+    x: lastTranslate.value.x + dx,
+    y: lastTranslate.value.y + dy,
+  }
+}
+
+const stopDrag = () => {
+  isDragging.value = false
+}
+
+const zoomStyle = computed(() => ({
+  transform: `translate(${zoomTranslate.value.x}px, ${zoomTranslate.value.y}px) scale(${zoomScale.value})`,
+  transformOrigin: 'center center',
+  cursor: isDragging.value ? 'grabbing' : 'grab',
+}))
+
+const attachZoomListeners = () => {
+  if (!docInnerRef.value) return
+  const btns = docInnerRef.value.querySelectorAll('.mermaid-zoom-btn')
+  btns.forEach((btn) => {
+    const newBtn = btn.cloneNode(true)
+    if (btn.parentNode) {
+      btn.parentNode.replaceChild(newBtn, btn)
+      newBtn.addEventListener('click', (e) => {
+        const target = e.currentTarget as HTMLElement
+        const container = target.closest('.mermaid-container')
+        const mermaidDiv = container?.querySelector('.mermaid')
+        if (mermaidDiv) {
+          openZoomModal(mermaidDiv.innerHTML)
+        }
+      })
+    }
+  })
 }
 
 const renderMermaidDiagrams = async () => {
@@ -343,6 +479,7 @@ const renderMermaidDiagrams = async () => {
   if (!nodes.length || !ensureMermaid()) return
   try {
     await mermaid.run({ nodes })
+    attachZoomListeners()
   } catch (error) {
     console.warn('Failed to render mermaid diagrams', error)
   }
@@ -711,6 +848,16 @@ watch(docContent, () => {
   })
 })
 
+if (themeContext?.isDarkMode) {
+  watch(
+    () => themeContext.isDarkMode.value,
+    () => {
+      // Re-render diagrams so mermaid picks up the latest CSS variable values per theme
+      void renderMermaidDiagrams()
+    }
+  )
+}
+
 onMounted(async () => {
   if (repoId.value && lastHandledRepoId !== repoId.value) {
     lastHandledRepoId = repoId.value
@@ -848,3 +995,52 @@ const openRepoInNewTab = () => {
   margin-right: auto;
 }
 </style>
+
+.zoom-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.zoom-content {
+  display: inline-block;
+  transition: transform 0.1s ease-out;
+}
+
+.zoom-content :deep(svg) {
+  max-width: none;
+  height: auto;
+  background: var(--card-bg);
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.close-zoom {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.close-zoom:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
