@@ -103,6 +103,8 @@
       @mousemove="onDrag"
       @mouseup="stopDrag"
       @mouseleave="stopDrag"
+      @keydown.esc="closeZoomModal"
+      tabindex="0"
     >
       <div
         class="zoom-content"
