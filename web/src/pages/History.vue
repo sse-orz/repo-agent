@@ -1,7 +1,6 @@
 <template>
   <div class="history-page">
-    <ThemeToggle />
-    <HistoryButton />
+    <TopControls />
 
     <div class="history-container">
       <header class="history-header">
@@ -77,8 +76,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import ThemeToggle from '../components/ThemeToggle.vue'
-import HistoryButton from '../components/HistoryButton.vue'
+import TopControls from '../components/TopControls.vue'
 import { listDocs, type BaseResponse } from '../utils/request'
 
 interface WikiItem {

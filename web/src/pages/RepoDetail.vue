@@ -1,7 +1,6 @@
 <template>
   <div class="repo-detail">
-    <ThemeToggle />
-    <HistoryButton />
+    <TopControls />
 
     <RepoHeader
       v-if="currentRepoName"
@@ -49,6 +48,7 @@ import AskBox from '../components/AskBox.vue'
 import { generateDocStream, resolveBackendStaticUrl, type BaseResponse } from '../utils/request'
 import MarkdownIt from 'markdown-it'
 import anchor from 'markdown-it-anchor'
+import mermaid from 'mermaid'
 
 interface HeadingItem {
   level: number
@@ -99,6 +99,7 @@ const isStreaming = ref(false)
 const progressLogs = ref<string[]>([])
 const streamController = ref<AbortController | null>(null)
 const currentProgress = ref<number>(0)
+let mermaidInitialized = false
 
 const repoPlatform = computed(() => {
   const platform = route.query.platform
@@ -262,6 +263,39 @@ const md = new MarkdownIt({
   // keep default slugify behavior
 })
 
+type FenceRule = Exclude<typeof md.renderer.rules.fence, undefined>
+type FenceParams = Parameters<FenceRule>
+
+const builtInFence = md.renderer.rules.fence?.bind(md.renderer.rules)
+const defaultFence: FenceRule = builtInFence
+  ? (builtInFence as FenceRule)
+  : (((
+      tokens: FenceParams[0],
+      idx: FenceParams[1],
+      options: FenceParams[2],
+      env: FenceParams[3],
+      self: FenceParams[4]
+    ) => self.renderToken(tokens, idx, options)) as FenceRule)
+
+md.renderer.rules.fence = (
+  tokens: FenceParams[0],
+  idx: FenceParams[1],
+  options: FenceParams[2],
+  env: FenceParams[3],
+  self: FenceParams[4]
+) => {
+  const token = tokens[idx]
+  if (!token) {
+    return defaultFence(tokens, idx, options, env, self)
+  }
+  const info = (token.info || '').trim()
+  if (info === 'mermaid') {
+    const content = token.content || ''
+    return `<div class="mermaid">${escapeHtml(content)}</div>`
+  }
+  return defaultFence(tokens, idx, options, env, self)
+}
+
 const renderMarkdown = (markdown: string) => {
   const env: Record<string, unknown> = {}
   const html = md.render(markdown, env)
@@ -271,6 +305,7 @@ const renderMarkdown = (markdown: string) => {
   const headings: { level: number; title: string; id: string }[] = []
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]
+    if (!t) continue
     if (t.type === 'heading_open') {
       const level = Number(t.tag.replace('h', '')) || 1
       // try to find id in attrs
@@ -288,6 +323,29 @@ const renderMarkdown = (markdown: string) => {
   }
 
   return { html, headings }
+}
+
+const ensureMermaid = () => {
+  if (typeof window === 'undefined') return false
+  if (!mermaidInitialized) {
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' })
+    mermaidInitialized = true
+  }
+  return true
+}
+
+const renderMermaidDiagrams = async () => {
+  if (!docContentRef.value) return
+  await nextTick()
+  const container = docContentRef.value.getElement()
+  if (!container) return
+  const nodes = container.querySelectorAll<HTMLElement>('.mermaid')
+  if (!nodes.length || !ensureMermaid()) return
+  try {
+    await mermaid.run({ nodes })
+  } catch (error) {
+    console.warn('Failed to render mermaid diagrams', error)
+  }
 }
 
 const attachHeadingsToResolvedUrl = (
@@ -646,6 +704,12 @@ watch(
     selectRepoById(id)
   }
 )
+
+watch(docContent, () => {
+  nextTick(() => {
+    void renderMermaidDiagrams()
+  })
+})
 
 onMounted(async () => {
   if (repoId.value && lastHandledRepoId !== repoId.value) {
