@@ -1,7 +1,7 @@
 <template>
   <div class="top-controls">
     <ThemeToggle />
-    <HomeButton />
+    <!-- <HomeButton /> -->
     <HistoryButton />
   </div>
 </template>
