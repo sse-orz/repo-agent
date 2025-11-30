@@ -1,6 +1,6 @@
 <template>
-  <button class="history-button" @click="goHistory" aria-label="View generated repositories">
-    <span class="label">History</span>
+  <button class="home-button" @click="goHome" aria-label="Return to home">
+    <span class="label">Home</span>
   </button>
 </template>
 
@@ -9,13 +9,13 @@ import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
-const goHistory = () => {
-  router.push({ name: 'History' })
+const goHome = () => {
+  router.push({ name: 'Home' })
 }
 </script>
 
 <style scoped>
-.history-button {
+.home-button {
   height: 40px;
   padding: 0 18px;
   background: var(--card-bg);
@@ -32,7 +32,7 @@ const goHistory = () => {
   transition: all 0.3s ease;
 }
 
-.history-button:hover {
+.home-button:hover {
   background: var(--hover-bg);
   transform: translateY(-1px);
 }
