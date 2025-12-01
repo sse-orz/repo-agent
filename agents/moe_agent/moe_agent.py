@@ -816,7 +816,11 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         is_zero_code_repo = len(self.selected_files) == 0
 
         # Collect statistics on generated macro document types
-        generated_docs = [r.get("doc_type") for r in self.macro_results if r.get("status") in ["success", "fallback"]]
+        generated_docs = [
+            r.get("doc_type")
+            for r in self.macro_results
+            if r.get("status") in ["success", "fallback"]
+        ]
         all_doc_types = ["README.md", "API.md", "ARCHITECTURE.md", "DEVELOPMENT.md"]
         skipped_docs = [d for d in all_doc_types if d not in generated_docs]
 
@@ -841,7 +845,11 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                     "files": self.selected_files[:20],  # First 20 for brevity
                 },
                 "3_module_clustering": {
-                    "status": "skipped" if is_zero_code_repo else ("success" if self.module_structure else "error"),
+                    "status": (
+                        "skipped"
+                        if is_zero_code_repo
+                        else ("success" if self.module_structure else "error")
+                    ),
                     "time": self.stage_timings.get("Stage 3: Module Clustering", 0),
                     "total_modules": (
                         self.module_structure.get("total_modules", 0)
@@ -873,7 +881,9 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                         1 for r in self.macro_results if r["status"] == "error"
                     ),
                     "docs_generated": generated_docs,  # List of generated documents
-                    "docs_skipped": skipped_docs if is_zero_code_repo else [],  # List of skipped documents
+                    "docs_skipped": (
+                        skipped_docs if is_zero_code_repo else []
+                    ),  # List of skipped documents
                 },
                 "6_index": {
                     "status": (
