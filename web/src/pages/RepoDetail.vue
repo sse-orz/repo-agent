@@ -157,7 +157,6 @@ const externalRepoUrl = computed(() => {
   if (repoPlatform.value === 'gitee') {
     return `https://gitee.com/${owner.value}/${repoName.value}`
   }
-  // 默认 GitHub
   return `https://github.com/${owner.value}/${repoName.value}`
 })
 
@@ -194,7 +193,6 @@ const buildTocItems = (
     const rawUrl = String(rec.url ?? '').trim()
     if (!rawPath && !rawUrl) continue
 
-    // 只保留 markdown 文件
     const isMd = /\.md$/i.test(rawPath || rawUrl)
     if (!isMd) continue
 
@@ -205,7 +203,6 @@ const buildTocItems = (
     let depth = 0
     let parentPath = ''
 
-    // 中间段作为目录节点
     for (let i = 0; i < segments.length - 1; i++) {
       const seg = segments[i]
       if (!seg) continue
@@ -216,7 +213,6 @@ const buildTocItems = (
     }
 
     const baseName = segments[segments.length - 1] || rawPath || rawUrl
-    // 统一处理形如 "xxxxxx.ext_doc.md" 的文件名，只显示 "xxxxxx.ext"
     let displayName = baseName.replace(/\.md$/i, '')
     displayName = displayName.replace(/_doc$/i, '')
     const url = resolveBackendStaticUrl(rawUrl || rawPath)
@@ -233,7 +229,6 @@ const buildTocItems = (
     children.push(item)
   }
 
-  // 附加标题信息到指定 URL 的文件节点
   if (options.resolvedUrlWithHeadings) {
     const { url, headings } = options.resolvedUrlWithHeadings
     const attach = (nodes: FileItem[]) => {
@@ -576,7 +571,6 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
         if (data?.stage) {
           const message = data.message || event.message || `Processing ${data.stage}`
           progressLogs.value.push(message)
-          // 更新进度值
           if (typeof data.progress === 'number') {
             currentProgress.value = data.progress
           }
@@ -991,12 +985,10 @@ const openRepoInNewTab = () => {
   border-top: 1px solid var(--border-color);
   padding-top: 16px;
   margin-top: 8px;
-  /* 固定整体内容区域宽度并居中 */
   max-width: 1340px;
   margin-left: auto;
   margin-right: auto;
 }
-</style>
 
 .zoom-modal {
   position: fixed;
@@ -1046,3 +1038,4 @@ const openRepoInNewTab = () => {
 .close-zoom:hover {
   background: rgba(255, 255, 255, 0.4);
 }
+</style>
