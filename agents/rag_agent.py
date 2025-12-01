@@ -369,21 +369,58 @@ class RAGAgent:
         )
 
     def _init_vectorstores(self, repo_dir: str):
-        """Initialize vectorstores for the given repository."""
-        vectorstores = {}
-        repo_path = os.path.join(self.wikis_dir, repo_dir)
+        """Initialize vectorstores for the given repository.
 
-        if not os.path.exists(repo_path) or not os.path.isdir(repo_path):
+        support the following directory structures:
+        - `.wikis/{owner_repo}/...`
+        - `.wikis/sub/{owner_repo}/...`
+        - `.wikis/moe/{owner_repo}/...`
+        - and other subdirectories in `.wikis` that contain `{repo_dir}`.
+        """
+        vectorstores = {}
+
+        # collect all possible directories that contain the repository documents
+        candidate_paths = []
+
+        # 1. directly in `.wikis/{repo_dir}`
+        direct_path = os.path.join(self.wikis_dir, repo_dir)
+        if os.path.isdir(direct_path):
+            candidate_paths.append(direct_path)
+
+        # 2. `.wikis/*/{repo_dir}` structure (e.g., `.wikis/sub/{repo_dir}`, `.wikis/moe/{repo_dir}`)
+        if os.path.isdir(self.wikis_dir):
+            for name in os.listdir(self.wikis_dir):
+                sub_root = os.path.join(self.wikis_dir, name)
+                if not os.path.isdir(sub_root):
+                    continue
+                nested_repo_path = os.path.join(sub_root, repo_dir)
+                if (
+                    os.path.isdir(nested_repo_path)
+                    and nested_repo_path not in candidate_paths
+                ):
+                    candidate_paths.append(nested_repo_path)
+
+        # if no directory is found, return empty
+        if not candidate_paths:
             return vectorstores
 
-        loader = DirectoryLoader(
-            repo_path, glob="**/*", loader_cls=TextLoader, show_progress=False
-        )
-        repo_docs = loader.load()
+        # load all documents from all directories
+        repo_docs = []
+        for path in candidate_paths:
+            loader = DirectoryLoader(
+                path, glob="**/*", loader_cls=TextLoader, show_progress=False
+            )
+            docs = loader.load()
+            for doc in docs:
+                # mark the source directory for later inspection
+                doc.metadata["source"] = os.path.relpath(path, self.wikis_dir)
+            repo_docs.extend(docs)
 
-        for doc in repo_docs:
-            doc.metadata["source"] = repo_dir
+        # if no documents are available, return empty
+        if not repo_docs:
+            return vectorstores
 
+        # merge all documents into the same collection (by repo_dir)
         vectorstore = Chroma(
             collection_name=repo_dir,
             embedding_function=HuggingFaceEmbeddings(
@@ -393,7 +430,10 @@ class RAGAgent:
         )
 
         if not vectorstore.get()["ids"]:
-            print(f"Indexing documents for: {repo_dir}")
+            print(
+                f"Indexing documents for: {repo_dir} "
+                f"from {len(candidate_paths)} wiki directories"
+            )
             vectorstore.add_documents(repo_docs)
         else:
             print(f"Using existing vectorstore for: {repo_dir}")
@@ -411,6 +451,12 @@ class RAGAgent:
             else:
                 print(message)
             final_state = s
+        # print the final answer
+        if final_state is not None:
+            answer = final_state.get("answer")
+            if answer:
+                print("\n=== Answer ===")
+                print(answer)
         return final_state
 
     def _log_state(self, state: RAGState, file_name: str):
