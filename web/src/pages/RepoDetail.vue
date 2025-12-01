@@ -1,7 +1,6 @@
 <template>
   <div class="repo-detail">
-    <ThemeToggle />
-    <HistoryButton />
+    <TopControls />
 
     <RepoHeader
       v-if="currentRepoName"
@@ -34,14 +33,35 @@
       @send="handleSend"
       @new-repo="handleNewRepo"
     />
+    <div
+      v-if="zoomModalVisible"
+      class="zoom-modal"
+      @click.self="closeZoomModal"
+      @mousemove="onDrag"
+      @mouseup="stopDrag"
+      @mouseleave="stopDrag"
+      @keydown.esc="closeZoomModal"
+      tabindex="0"
+    >
+      <div
+        class="zoom-content"
+        :style="zoomStyle"
+        @wheel.prevent="handleZoom"
+        @mousedown="startDrag"
+      >
+        <div v-html="zoomSvgHtml"></div>
+      </div>
+      <button class="close-zoom" @click="closeZoomModal" aria-label="Close zoom modal">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch, computed, inject, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import ThemeToggle from '../components/ThemeToggle.vue'
-import HistoryButton from '../components/HistoryButton.vue'
+import TopControls from '../components/TopControls.vue'
 import RepoHeader from '../components/RepoHeader.vue'
 import TocSidebar from '../components/TocSidebar.vue'
 import DocContent from '../components/DocContent.vue'
@@ -49,6 +69,7 @@ import AskBox from '../components/AskBox.vue'
 import { generateDocStream, resolveBackendStaticUrl, type BaseResponse } from '../utils/request'
 import MarkdownIt from 'markdown-it'
 import anchor from 'markdown-it-anchor'
+import mermaid from 'mermaid'
 
 interface HeadingItem {
   level: number
@@ -99,6 +120,7 @@ const isStreaming = ref(false)
 const progressLogs = ref<string[]>([])
 const streamController = ref<AbortController | null>(null)
 const currentProgress = ref<number>(0)
+const themeContext = inject<{ isDarkMode: Ref<boolean> } | null>('theme', null)
 
 const repoPlatform = computed(() => {
   const platform = route.query.platform
@@ -134,7 +156,6 @@ const externalRepoUrl = computed(() => {
   if (repoPlatform.value === 'gitee') {
     return `https://gitee.com/${owner.value}/${repoName.value}`
   }
-  // 默认 GitHub
   return `https://github.com/${owner.value}/${repoName.value}`
 })
 
@@ -171,7 +192,6 @@ const buildTocItems = (
     const rawUrl = String(rec.url ?? '').trim()
     if (!rawPath && !rawUrl) continue
 
-    // 只保留 markdown 文件
     const isMd = /\.md$/i.test(rawPath || rawUrl)
     if (!isMd) continue
 
@@ -182,7 +202,6 @@ const buildTocItems = (
     let depth = 0
     let parentPath = ''
 
-    // 中间段作为目录节点
     for (let i = 0; i < segments.length - 1; i++) {
       const seg = segments[i]
       if (!seg) continue
@@ -193,7 +212,6 @@ const buildTocItems = (
     }
 
     const baseName = segments[segments.length - 1] || rawPath || rawUrl
-    // 统一处理形如 "xxxxxx.ext_doc.md" 的文件名，只显示 "xxxxxx.ext"
     let displayName = baseName.replace(/\.md$/i, '')
     displayName = displayName.replace(/_doc$/i, '')
     const url = resolveBackendStaticUrl(rawUrl || rawPath)
@@ -210,7 +228,6 @@ const buildTocItems = (
     children.push(item)
   }
 
-  // 附加标题信息到指定 URL 的文件节点
   if (options.resolvedUrlWithHeadings) {
     const { url, headings } = options.resolvedUrlWithHeadings
     const attach = (nodes: FileItem[]) => {
@@ -262,6 +279,39 @@ const md = new MarkdownIt({
   // keep default slugify behavior
 })
 
+type FenceRule = Exclude<typeof md.renderer.rules.fence, undefined>
+type FenceParams = Parameters<FenceRule>
+
+const builtInFence = md.renderer.rules.fence?.bind(md.renderer.rules)
+const defaultFence: FenceRule = builtInFence
+  ? (builtInFence as FenceRule)
+  : (((
+      tokens: FenceParams[0],
+      idx: FenceParams[1],
+      options: FenceParams[2],
+      env: FenceParams[3],
+      self: FenceParams[4]
+    ) => self.renderToken(tokens, idx, options)) as FenceRule)
+
+md.renderer.rules.fence = (
+  tokens: FenceParams[0],
+  idx: FenceParams[1],
+  options: FenceParams[2],
+  env: FenceParams[3],
+  self: FenceParams[4]
+) => {
+  const token = tokens[idx]
+  if (!token) {
+    return defaultFence(tokens, idx, options, env, self)
+  }
+  const info = (token.info || '').trim()
+  if (info === 'mermaid') {
+    const content = token.content || ''
+    return `<div class="mermaid-container"><div class="mermaid">${escapeHtml(content)}</div><button class="mermaid-zoom-btn" title="Zoom" aria-label="Zoom diagram"><i class="fas fa-search-plus"></i></button></div>`
+  }
+  return defaultFence(tokens, idx, options, env, self)
+}
+
 const renderMarkdown = (markdown: string) => {
   const env: Record<string, unknown> = {}
   const html = md.render(markdown, env)
@@ -271,6 +321,7 @@ const renderMarkdown = (markdown: string) => {
   const headings: { level: number; title: string; id: string }[] = []
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]
+    if (!t) continue
     if (t.type === 'heading_open') {
       const level = Number(t.tag.replace('h', '')) || 1
       // try to find id in attrs
@@ -288,6 +339,148 @@ const renderMarkdown = (markdown: string) => {
   }
 
   return { html, headings }
+}
+
+const getMermaidThemeVariables = () => {
+  if (typeof window === 'undefined') {
+    return {
+      background: '#bbb',
+      primaryColor: '#ffffff',
+      primaryBorderColor: '#d1d5db',
+      primaryTextColor: '#111827',
+      secondaryColor: '#ffffff',
+      secondaryBorderColor: '#d1d5db',
+      secondaryTextColor: '#111827',
+      tertiaryColor: '#ffffff',
+      tertiaryBorderColor: '#d1d5db',
+      tertiaryTextColor: '#111827',
+      lineColor: '#9ca3af',
+      textColor: '#111827',
+      edgeLabelBackground: '#ffffff',
+    }
+  }
+
+  const styles = getComputedStyle(document.documentElement)
+  const pick = (name: string, fallback: string) => {
+    const value = styles.getPropertyValue(name).trim()
+    return value || fallback
+  }
+
+  return {
+    background: pick('--placeholder-color', '#bbb'),
+    primaryColor: pick('--card-bg', '#ffffff'),
+    primaryBorderColor: pick('--border-color', '#d1d5db'),
+    primaryTextColor: pick('--text-color', '#111827'),
+    secondaryColor: pick('--card-bg', '#ffffff'),
+    secondaryBorderColor: pick('--border-color', '#d1d5db'),
+    secondaryTextColor: pick('--text-color', '#111827'),
+    tertiaryColor: pick('--card-bg', '#ffffff'),
+    tertiaryBorderColor: pick('--border-color', '#d1d5db'),
+    tertiaryTextColor: pick('--text-color', '#111827'),
+    lineColor: pick('--border-color', '#9ca3af'),
+    textColor: pick('--text-color', '#111827'),
+    edgeLabelBackground: pick('--card-bg', '#ffffff'),
+  }
+}
+
+const ensureMermaid = () => {
+  if (typeof window === 'undefined') return false
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'loose',
+    theme: 'base',
+    themeVariables: getMermaidThemeVariables(),
+  })
+  return true
+}
+
+const zoomModalVisible = ref(false)
+const zoomSvgHtml = ref('')
+const zoomScale = ref(1)
+const zoomTranslate = ref({ x: 0, y: 0 })
+const isDragging = ref(false)
+const dragStart = ref({ x: 0, y: 0 })
+const lastTranslate = ref({ x: 0, y: 0 })
+
+const openZoomModal = (html: string) => {
+  zoomSvgHtml.value = html
+  zoomModalVisible.value = true
+  zoomScale.value = 1
+  zoomTranslate.value = { x: 0, y: 0 }
+  lastTranslate.value = { x: 0, y: 0 }
+  document.body.style.overflow = 'hidden'
+}
+
+const closeZoomModal = () => {
+  zoomModalVisible.value = false
+  document.body.style.overflow = ''
+}
+
+const handleZoom = (e: WheelEvent) => {
+  const delta = e.deltaY > 0 ? 0.9 : 1.1
+  zoomScale.value = Math.max(0.1, Math.min(5, zoomScale.value * delta))
+}
+
+const startDrag = (e: MouseEvent) => {
+  isDragging.value = true
+  dragStart.value = { x: e.clientX, y: e.clientY }
+  lastTranslate.value = { ...zoomTranslate.value }
+}
+
+const onDrag = (e: MouseEvent) => {
+  if (!isDragging.value) return
+  const dx = e.clientX - dragStart.value.x
+  const dy = e.clientY - dragStart.value.y
+  zoomTranslate.value = {
+    x: lastTranslate.value.x + dx,
+    y: lastTranslate.value.y + dy,
+  }
+}
+
+const stopDrag = () => {
+  isDragging.value = false
+}
+
+const zoomStyle = computed(() => ({
+  transform: `translate(${zoomTranslate.value.x}px, ${zoomTranslate.value.y}px) scale(${zoomScale.value})`,
+  transformOrigin: 'center center',
+  cursor: isDragging.value ? 'grabbing' : 'grab',
+}))
+
+const attachZoomListeners = () => {
+  if (!docContentRef.value) return
+  const container = docContentRef.value.getElement()
+  if (!container) return
+  const btns = container.querySelectorAll('.mermaid-zoom-btn')
+  btns.forEach((btn) => {
+    const newBtn = btn.cloneNode(true)
+    if (btn.parentNode) {
+      btn.parentNode.replaceChild(newBtn, btn)
+      newBtn.addEventListener('click', (e) => {
+        const target = e.currentTarget as HTMLElement
+        const container = target.closest('.mermaid-container')
+        const mermaidDiv = container?.querySelector('.mermaid')
+        if (mermaidDiv) {
+          openZoomModal(mermaidDiv.innerHTML)
+        }
+      })
+    }
+  })
+}
+
+const renderMermaidDiagrams = async () => {
+  if (!docContentRef.value) return
+  await nextTick()
+  const container = docContentRef.value.getElement()
+  if (!container) return
+  const nodes = container.querySelectorAll<HTMLElement>('.mermaid')
+  if (!nodes.length || !ensureMermaid()) return
+  try {
+    await mermaid.run({ nodes })
+    attachZoomListeners()
+  } catch (error) {
+    console.warn('Failed to render mermaid diagrams', error)
+  }
 }
 
 const attachHeadingsToResolvedUrl = (
@@ -379,7 +572,6 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
         if (data?.stage) {
           const message = data.message || event.message || `Processing ${data.stage}`
           progressLogs.value.push(message)
-          // 更新进度值
           if (typeof data.progress === 'number') {
             currentProgress.value = data.progress
           }
@@ -441,7 +633,7 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
             }
             // Populate TOC with the single file (only markdown, with optional headings)
             const index = findSectionIndexById(section.id)
-            if (index >= 0) {
+            if (index >= 0 && tocSections.value[index]) {
               tocSections.value[index].items = buildTocItems(files as unknown[], {
                 resolvedUrlWithHeadings: resolvedUrl
                   ? {
@@ -463,7 +655,7 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
             docContent.value = listHtml
             // Update TOC with markdown files only
             const index = findSectionIndexById(section.id)
-            if (index >= 0) {
+            if (index >= 0 && tocSections.value[index]) {
               tocSections.value[index].items = buildTocItems(files as unknown[])
             }
           } else {
@@ -617,6 +809,8 @@ const selectRepoById = (id: string, needUpdate = false) => {
     section = tocSections.value[index]
   }
 
+  if (!section) return
+
   selected.value = { section: index, item: null }
   void loadDocumentation(section, needUpdate)
 }
@@ -646,6 +840,22 @@ watch(
     selectRepoById(id)
   }
 )
+
+watch(docContent, () => {
+  nextTick(() => {
+    void renderMermaidDiagrams()
+  })
+})
+
+if (themeContext?.isDarkMode) {
+  watch(
+    () => themeContext.isDarkMode.value,
+    () => {
+      // Re-render diagrams so mermaid picks up the latest CSS variable values per theme
+      void renderMermaidDiagrams()
+    }
+  )
+}
 
 onMounted(async () => {
   if (repoId.value && lastHandledRepoId !== repoId.value) {
@@ -778,9 +988,73 @@ const openRepoInNewTab = () => {
   border-top: 1px solid var(--border-color);
   padding-top: 16px;
   margin-top: 8px;
-  /* 固定整体内容区域宽度并居中 */
   max-width: 1340px;
   margin-left: auto;
   margin-right: auto;
+}
+
+.zoom-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.zoom-content {
+  display: inline-block;
+  transition: transform 0.1s ease-out;
+}
+
+.zoom-content :deep(svg) {
+  max-width: none;
+  height: auto;
+  background: var(--placeholder-color, #bbb);
+  padding: 20px;
+  border-radius: 12px;
+}
+
+.zoom-content :deep(.node rect),
+.zoom-content :deep(.node circle),
+.zoom-content :deep(.node polygon),
+.zoom-content :deep(.cluster rect),
+.zoom-content :deep(.label-container),
+.zoom-content :deep(.actor) {
+  fill: var(--card-bg, #ffffff) !important;
+  stroke: var(--border-color, #d1d5db) !important;
+}
+
+.zoom-content :deep(text),
+.zoom-content :deep(span) {
+  fill: var(--text-color, #111827) !important;
+  color: var(--text-color, #111827) !important;
+}
+
+.close-zoom {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.close-zoom:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 </style>

@@ -16,9 +16,6 @@ const { isDarkMode, toggleTheme } = inject('theme', { isDarkMode: false, toggleT
 
 <style scoped>
 .theme-toggle {
-  position: fixed;
-  top: 20px;
-  right: 150px;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   cursor: pointer;
@@ -31,7 +28,6 @@ const { isDarkMode, toggleTheme } = inject('theme', { isDarkMode: false, toggleT
   border-radius: 50%;
   transition: all 0.3s ease;
   color: var(--text-color);
-  z-index: 1000;
   box-shadow: 0 2px 8px var(--shadow-color);
 }
 
