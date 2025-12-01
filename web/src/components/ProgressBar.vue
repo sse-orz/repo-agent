@@ -68,16 +68,19 @@ const progressPercent = computed(() => {
   overflow: hidden;
   margin-bottom: 28px;
   transition: background-color 0.3s;
+  position: relative;
 }
 
 .progress-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
   height: 100%;
   background: var(--title-color);
   border-radius: 3px;
   transition:
     width 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     background-color 0.3s;
-  position: relative;
   overflow: hidden;
   opacity: 0.85;
 }
