@@ -70,6 +70,9 @@ import { generateDocStream, resolveBackendStaticUrl, type BaseResponse } from '.
 import MarkdownIt from 'markdown-it'
 import anchor from 'markdown-it-anchor'
 import mermaid from 'mermaid'
+import hljs from 'highlight.js'
+import highlightLight from 'highlight.js/styles/github.css?inline'
+import highlightDark from 'highlight.js/styles/atom-one-dark.css?inline'
 
 interface HeadingItem {
   level: number
@@ -121,6 +124,25 @@ const progressLogs = ref<string[]>([])
 const streamController = ref<AbortController | null>(null)
 const currentProgress = ref<number>(0)
 const themeContext = inject<{ isDarkMode: Ref<boolean> } | null>('theme', null)
+
+const updateHighlightStyle = () => {
+  const styleId = 'highlight-theme-style'
+  let styleEl = document.getElementById(styleId)
+  if (!styleEl) {
+    styleEl = document.createElement('style')
+    styleEl.id = styleId
+    document.head.appendChild(styleEl)
+  }
+  const isDark = themeContext?.isDarkMode.value ?? false
+  styleEl.textContent = isDark ? highlightDark : highlightLight
+}
+
+watch(
+  () => themeContext?.isDarkMode.value,
+  () => {
+    updateHighlightStyle()
+  }
+)
 
 const repoPlatform = computed(() => {
   const platform = route.query.platform
@@ -195,7 +217,7 @@ const buildTocItems = (
     const isMd = /\.md$/i.test(rawPath || rawUrl)
     if (!isMd) continue
 
-    const segments = (rawPath || rawUrl).split('/').filter(Boolean)
+    const segments = (rawPath || rawUrl).split(/[/\\]/).filter(Boolean)
     if (!segments.length) continue
 
     let children = rootChildren
@@ -274,6 +296,14 @@ const md = new MarkdownIt({
   html: true,
   linkify: true,
   typographer: true,
+  highlight: (str, lang) => {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`
+      } catch (__) {}
+    }
+    return `<pre class="hljs"><code>${escapeHtml(str)}</code></pre>`
+  },
 }).use(anchor, {
   permalink: false,
   // keep default slugify behavior
@@ -342,45 +372,8 @@ const renderMarkdown = (markdown: string) => {
 }
 
 const getMermaidThemeVariables = () => {
-  if (typeof window === 'undefined') {
-    return {
-      background: '#bbb',
-      primaryColor: '#ffffff',
-      primaryBorderColor: '#d1d5db',
-      primaryTextColor: '#111827',
-      secondaryColor: '#ffffff',
-      secondaryBorderColor: '#d1d5db',
-      secondaryTextColor: '#111827',
-      tertiaryColor: '#ffffff',
-      tertiaryBorderColor: '#d1d5db',
-      tertiaryTextColor: '#111827',
-      lineColor: '#9ca3af',
-      textColor: '#111827',
-      edgeLabelBackground: '#ffffff',
-    }
-  }
-
-  const styles = getComputedStyle(document.documentElement)
-  const pick = (name: string, fallback: string) => {
-    const value = styles.getPropertyValue(name).trim()
-    return value || fallback
-  }
-
-  return {
-    background: pick('--placeholder-color', '#bbb'),
-    primaryColor: pick('--card-bg', '#ffffff'),
-    primaryBorderColor: pick('--border-color', '#d1d5db'),
-    primaryTextColor: pick('--text-color', '#111827'),
-    secondaryColor: pick('--card-bg', '#ffffff'),
-    secondaryBorderColor: pick('--border-color', '#d1d5db'),
-    secondaryTextColor: pick('--text-color', '#111827'),
-    tertiaryColor: pick('--card-bg', '#ffffff'),
-    tertiaryBorderColor: pick('--border-color', '#d1d5db'),
-    tertiaryTextColor: pick('--text-color', '#111827'),
-    lineColor: pick('--border-color', '#9ca3af'),
-    textColor: pick('--text-color', '#111827'),
-    edgeLabelBackground: pick('--card-bg', '#ffffff'),
-  }
+  // Return empty object to use default colorful theme
+  return {}
 }
 
 const ensureMermaid = () => {
@@ -388,8 +381,8 @@ const ensureMermaid = () => {
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'loose',
-    theme: 'base',
-    themeVariables: getMermaidThemeVariables(),
+    theme: 'default',
+    // themeVariables: getMermaidThemeVariables(),
   })
   return true
 }
@@ -587,7 +580,7 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
         if (data?.wiki_url) {
           currentProgress.value = 100
           progressLogs.value.push('Documentation ready.')
-          // Render generated files (do not fetch from /wikis)
+          // Render generated file list (do not fetch from /wikis)
           const files = (data.files as unknown[]) || []
           if (files.length === 1) {
             // Directly load the single file
@@ -644,12 +637,15 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
               })
             }
           } else if (files.length > 1) {
-            // Multiple files: show a simple, elegant placeholder instead of a long file list
-            docContent.value =
-              '<div style="padding:48px 24px;text-align:center;color:var(--secondary-text,#6b7280);font-size:14px;">' +
-              '<div style="font-size:18px;font-weight:600;color:var(--text-color,#111827);margin-bottom:8px;">Documentation is ready</div>' +
-              '<div>Select an item from the left file list to start browsing the structure and description of this repository.</div>' +
-              '</div>'
+            const listHtml = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
+              .map((f) => {
+                const rec = f as Record<string, unknown>
+                return `<li><a href="#" data-url="${escapeHtml(String(rec.url ?? ''))}">${escapeHtml(
+                  String(rec.path ?? rec.name ?? rec.url ?? 'file')
+                )}</a></li>`
+              })
+              .join('')}</ul>`
+            docContent.value = listHtml
             // Update TOC with markdown files only
             const index = findSectionIndexById(section.id)
             if (index >= 0 && tocSections.value[index]) {
@@ -737,12 +733,12 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
         // Populate TOC with markdown files only
         section.items = buildTocItems(files as unknown[])
       } else if (Array.isArray(files) && files.length > 1) {
-        // Multiple files: show a simple, elegant placeholder instead of a long file list
-        docContent.value =
-          '<div style="padding:48px 24px;text-align:center;color:var(--secondary-text,#6b7280);font-size:14px;">' +
-          '<div style="font-size:18px;font-weight:600;color:var(--text-color,#111827);margin-bottom:8px;">Documentation is ready</div>' +
-          '<div>Select an item from the left file list to start browsing the structure and description of this repository.</div>' +
-          '</div>'
+        docContent.value = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
+          .map((f) => {
+            const rec = f as Record<string, unknown>
+            return `<li>${escapeHtml(String(rec.path ?? rec.name ?? rec.url ?? 'file'))}</li>`
+          })
+          .join('')}</ul>`
         // Update TOC with markdown files only
         section.items = buildTocItems(files as unknown[])
       } else {
@@ -855,6 +851,7 @@ if (themeContext?.isDarkMode) {
 }
 
 onMounted(async () => {
+  updateHighlightStyle()
   if (repoId.value && lastHandledRepoId !== repoId.value) {
     lastHandledRepoId = repoId.value
     selectRepoById(repoId.value)
@@ -1017,21 +1014,7 @@ const openRepoInNewTab = () => {
   border-radius: 12px;
 }
 
-.zoom-content :deep(.node rect),
-.zoom-content :deep(.node circle),
-.zoom-content :deep(.node polygon),
-.zoom-content :deep(.cluster rect),
-.zoom-content :deep(.label-container),
-.zoom-content :deep(.actor) {
-  fill: var(--card-bg, #ffffff) !important;
-  stroke: var(--border-color, #d1d5db) !important;
-}
-
-.zoom-content :deep(text),
-.zoom-content :deep(span) {
-  fill: var(--text-color, #111827) !important;
-  color: var(--text-color, #111827) !important;
-}
+/* Removed monochrome overrides for zoom modal to allow colorful mermaid theme */
 
 .close-zoom {
   position: absolute;
