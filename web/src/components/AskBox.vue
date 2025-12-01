@@ -16,6 +16,28 @@
         @keyup.enter="handleSend"
         @input="handleInput"
       />
+      <div class="mode-selector">
+        <button
+          class="mode-button"
+          type="button"
+          @click="showModeMenu = !showModeMenu"
+          title="Select RAG mode"
+        >
+          <span class="mode-label">{{ currentModeLabel }}</span>
+          <i class="fas fa-chevron-down"></i>
+        </button>
+        <div v-if="showModeMenu" class="mode-menu">
+          <div
+            v-for="option in modeOptions"
+            :key="option.value"
+            class="mode-option"
+            :class="{ active: option.value === selectedMode }"
+            @click="selectMode(option.value)"
+          >
+            {{ option.label }}
+          </div>
+        </div>
+      </div>
       <button class="send-btn" @click="handleSend" title="Send question">
         <i class="fas fa-arrow-right"></i>
       </button>
@@ -24,20 +46,48 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+
 interface Props {
   modelValue: string
   placeholder?: string
+  mode?: 'fast' | 'smart'
 }
 
 const props = withDefaults(defineProps<Props>(), {
   placeholder: 'Try to ask me...',
+  mode: 'fast',
 })
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
   (e: 'send'): void
   (e: 'new-repo'): void
+  (e: 'update:mode', value: 'fast' | 'smart'): void
+  (e: 'mode-change', value: 'fast' | 'smart'): void
 }>()
+
+const showModeMenu = ref(false)
+const selectedMode = ref<'fast' | 'smart'>(props.mode === 'smart' ? 'smart' : 'fast')
+
+// sync the external mode to the local selected state
+watch(
+  () => props.mode,
+  (newMode) => {
+    if (newMode === 'fast' || newMode === 'smart') {
+      selectedMode.value = newMode
+    }
+  }
+)
+
+const modeOptions = [
+  { value: 'fast' as const, label: 'Fast' },
+  { value: 'smart' as const, label: 'Smart' },
+]
+
+const currentModeLabel = computed(
+  () => modeOptions.find((opt) => opt.value === selectedMode.value)?.label || selectedMode.value
+)
 
 const handleSend = () => {
   if (!props.modelValue) return
@@ -51,6 +101,19 @@ const handleInput = (event: Event) => {
 
 const handleNewRepo = () => {
   emit('new-repo')
+}
+
+const selectMode = (value: 'fast' | 'smart') => {
+  // if the value is the same as the selected mode, don't do anything
+  if (value === selectedMode.value) {
+    showModeMenu.value = false
+    return
+  }
+
+  selectedMode.value = value
+  emit('update:mode', value)
+  emit('mode-change', value)
+  showModeMenu.value = false
 }
 </script>
 
@@ -110,6 +173,77 @@ const handleNewRepo = () => {
 
 .ask-input::placeholder {
   color: var(--placeholder-color, #bbb);
+}
+
+.mode-selector {
+  position: relative;
+  border-left: 1px solid var(--border-color, #f0f0f0);
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+
+.mode-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--secondary-text, #666);
+  transition: all 0.2s ease;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.mode-button:hover {
+  color: var(--text-color);
+  background: var(--hover-bg);
+  border-radius: 6px;
+}
+
+.mode-button i {
+  font-size: 11px;
+  transition: transform 0.2s ease;
+}
+
+.mode-menu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 6px;
+  background: var(--menu-bg, white);
+  border: 1px solid var(--border-color, #e8e8e8);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+  min-width: 110px;
+  overflow: hidden;
+}
+
+.mode-option {
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--secondary-text, #666);
+  transition: all 0.2s ease;
+  border-bottom: 1px solid var(--border-color, #f5f5f5);
+}
+
+.mode-option:last-child {
+  border-bottom: none;
+}
+
+.mode-option:hover {
+  background: var(--hover-bg);
+  color: var(--text-color);
+}
+
+.mode-option.active {
+  background: var(--hover-bg);
+  color: var(--text-color);
+  font-weight: 600;
 }
 
 .send-btn {

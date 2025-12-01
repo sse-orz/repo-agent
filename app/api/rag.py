@@ -20,11 +20,11 @@ async def ask_repository_question(
     rag_service: RAGService = Depends(get_rag_service),
 ) -> BaseResponse:
     # Ask a question about a specific repository using RAG
-    answer = rag_service.ask(request)
+    result = rag_service.ask(request)
     return BaseResponse(
         message="RAG query executed successfully.",
         code=200,
-        data={"answer": answer},
+        data=result,
     )
 
 

@@ -151,6 +151,7 @@ Ask a question about a specific repository using Retrieval-Augmented Generation 
   "owner": "string", // Repository owner (required)
   "repo": "string", // Repository name (required)
   "platform": "github", // Platform (optional, default: "github")
+  "mode": "fast", // RAG mode: "fast" (default) or "smart"
   "question": "string" // User question about the repository (required)
 }
 ```
@@ -162,7 +163,8 @@ Ask a question about a specific repository using Retrieval-Augmented Generation 
   "message": "RAG query executed successfully.",
   "code": 200,
   "data": {
-    "answer": "string" // Model-generated answer based on repository wiki and code
+    "answer": "string", // Model-generated answer based on repository wiki and code
+    "sources": ["string"] // Optional list of referenced document sources used to answer
   }
 }
 ```
@@ -189,7 +191,8 @@ data: {
   "code": 200,
   "data": {
     "answer": "string",
-    "node": "string" // Current node name, e.g. "Intent" / "Rewrite" / "Retrieve" / "Judge" / "Generate"
+    "node": "string", // Current node name, e.g. "Intent" / "Rewrite" / "Retrieve" / "Judge" / "Generate"
+    "sources": ["string"] // Optional list of referenced document sources accumulated so far
   }
 }
 ```*** End Patch
@@ -235,6 +238,7 @@ curl -X POST http://localhost:8000/api/v1/rag/ask \
     "owner": "octocat",
     "repo": "Hello-World",
     "platform": "github",
+    "mode": "fast",
     "question": "What does this repository do?"
   }'
 ```
@@ -248,6 +252,7 @@ curl -N http://localhost:8000/api/v1/rag/ask-stream \
     "owner": "octocat",
     "repo": "Hello-World",
     "platform": "github",
+    "mode": "fast",
     "question": "Where is the main entrypoint of this project?"
   }'
 ```

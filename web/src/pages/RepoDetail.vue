@@ -587,7 +587,7 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
         if (data?.wiki_url) {
           currentProgress.value = 100
           progressLogs.value.push('Documentation ready.')
-          // Render generated file list (do not fetch from /wikis)
+          // Render generated files (do not fetch from /wikis)
           const files = (data.files as unknown[]) || []
           if (files.length === 1) {
             // Directly load the single file
@@ -644,15 +644,12 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
               })
             }
           } else if (files.length > 1) {
-            const listHtml = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
-              .map((f) => {
-                const rec = f as Record<string, unknown>
-                return `<li><a href="#" data-url="${escapeHtml(String(rec.url ?? ''))}">${escapeHtml(
-                  String(rec.path ?? rec.name ?? rec.url ?? 'file')
-                )}</a></li>`
-              })
-              .join('')}</ul>`
-            docContent.value = listHtml
+            // Multiple files: show a simple, elegant placeholder instead of a long file list
+            docContent.value =
+              '<div style="padding:48px 24px;text-align:center;color:var(--secondary-text,#6b7280);font-size:14px;">' +
+              '<div style="font-size:18px;font-weight:600;color:var(--text-color,#111827);margin-bottom:8px;">Documentation is ready</div>' +
+              '<div>Select an item from the left file list to start browsing the structure and description of this repository.</div>' +
+              '</div>'
             // Update TOC with markdown files only
             const index = findSectionIndexById(section.id)
             if (index >= 0 && tocSections.value[index]) {
@@ -740,12 +737,12 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
         // Populate TOC with markdown files only
         section.items = buildTocItems(files as unknown[])
       } else if (Array.isArray(files) && files.length > 1) {
-        docContent.value = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
-          .map((f) => {
-            const rec = f as Record<string, unknown>
-            return `<li>${escapeHtml(String(rec.path ?? rec.name ?? rec.url ?? 'file'))}</li>`
-          })
-          .join('')}</ul>`
+        // Multiple files: show a simple, elegant placeholder instead of a long file list
+        docContent.value =
+          '<div style="padding:48px 24px;text-align:center;color:var(--secondary-text,#6b7280);font-size:14px;">' +
+          '<div style="font-size:18px;font-weight:600;color:var(--text-color,#111827);margin-bottom:8px;">Documentation is ready</div>' +
+          '<div>Select an item from the left file list to start browsing the structure and description of this repository.</div>' +
+          '</div>'
         // Update TOC with markdown files only
         section.items = buildTocItems(files as unknown[])
       } else {

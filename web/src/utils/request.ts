@@ -59,12 +59,14 @@ export interface RagAskRequest {
   owner: string
   repo: string
   platform?: string
+  mode?: 'fast' | 'smart'
   question: string
 }
 
 export interface RagAskResponseData {
   answer: string
   node?: string // Current node name, e.g. "Intent" / "Rewrite" / "Retrieve" / "Judge" / "Generate"
+  sources?: string[] // Referenced document sources used for the answer
 }
 
 // Create axios instance

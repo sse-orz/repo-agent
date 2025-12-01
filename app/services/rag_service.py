@@ -1,7 +1,7 @@
 from typing import Dict, Any, Iterable, Optional
 
 from agents.rag_agent import RAGAgent
-from app.models.rag import RAGQueryRequest
+from app.models.rag import RAGQueryRequest, RAGAnswerData, RAGStreamStepData
 
 
 class RAGService:
@@ -33,6 +33,29 @@ class RAGService:
         self.rag_agent.vectorstores = self.rag_agent._init_vectorstores(repo_dir)
 
     @staticmethod
+    def _extract_sources_from_state(state: Dict[str, Any]) -> list[str]:
+        # Extract unique document sources from the current RAG state
+        docs = state.get("documents") or []
+        sources = []
+        seen = set()
+        for doc in docs:
+            # langchain Document-like objects expose metadata as .metadata dict
+            metadata = getattr(doc, "metadata", {}) or {}
+            src = (
+                metadata.get("source")
+                or metadata.get("file_path")
+                or metadata.get("path")
+                or metadata.get("absolute_source")
+            )
+            if not src:
+                continue
+            if src in seen:
+                continue
+            seen.add(src)
+            sources.append(src)
+        return sources
+
+    @staticmethod
     def _extract_node_name_from_state(state: Dict[str, Any]) -> Optional[str]:
         # Extract current node name from the latest system message like '[Judge]: ...'
         messages = state.get("messages") or []
@@ -45,8 +68,10 @@ class RAGService:
                 return content[1 : content.index("]")]
         return None
 
-    def ask(self, request: RAGQueryRequest) -> str:
-        # Run a single-turn RAG query and return the final answer
+    def ask(self, request: RAGQueryRequest) -> RAGAnswerData:
+        # Run a single-turn RAG query and return the final answer plus sources
+        # Recreate agent per request to respect mode configuration (fast / smart)
+        self.rag_agent = RAGAgent(mode=request.mode)
         self._init_vectorstores_for_repo(request.owner, request.repo)
         state = self._build_initial_state(request)
         thread_id = f"{request.owner}_{request.repo}-api-chat"
@@ -59,10 +84,14 @@ class RAGService:
             },
         )
 
-        return final_state.get("answer", "")
+        answer = final_state.get("answer", "") or ""
+        sources = self._extract_sources_from_state(final_state)
+        return RAGAnswerData(answer=answer, sources=sources)
 
-    def stream(self, request: RAGQueryRequest) -> Iterable[Dict[str, Any]]:
+    def stream(self, request: RAGQueryRequest) -> Iterable[RAGStreamStepData]:
         # Stream RAG answering process, yielding answer and node name for each step
+        # Recreate agent per request to respect mode configuration (fast / smart)
+        self.rag_agent = RAGAgent(mode=request.mode)
         self._init_vectorstores_for_repo(request.owner, request.repo)
         state = self._build_initial_state(request)
         thread_id = f"{request.owner}_{request.repo}-api-chat"
@@ -75,9 +104,7 @@ class RAGService:
                 "recursion_limit": 100,
             },
         ):
-            answer = s.get("answer", "")
+            answer = s.get("answer", "") or ""
             node = self._extract_node_name_from_state(s)
-            yield {
-                "answer": answer,
-                "node": node,
-            }
+            sources = self._extract_sources_from_state(s)
+            yield RAGStreamStepData(answer=answer, node=node, sources=sources)
