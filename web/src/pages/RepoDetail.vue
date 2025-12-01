@@ -1012,9 +1012,25 @@ const openRepoInNewTab = () => {
 .zoom-content :deep(svg) {
   max-width: none;
   height: auto;
-  background: var(--card-bg);
+  background: var(--placeholder-color, #bbb);
   padding: 20px;
-  border-radius: 8px;
+  border-radius: 12px;
+}
+
+.zoom-content :deep(.node rect),
+.zoom-content :deep(.node circle),
+.zoom-content :deep(.node polygon),
+.zoom-content :deep(.cluster rect),
+.zoom-content :deep(.label-container),
+.zoom-content :deep(.actor) {
+  fill: var(--card-bg, #ffffff) !important;
+  stroke: var(--border-color, #d1d5db) !important;
+}
+
+.zoom-content :deep(text),
+.zoom-content :deep(span) {
+  fill: var(--text-color, #111827) !important;
+  color: var(--text-color, #111827) !important;
 }
 
 .close-zoom {
