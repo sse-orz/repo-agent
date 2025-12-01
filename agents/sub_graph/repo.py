@@ -57,7 +57,14 @@ Guidelines:
 - Be concise yet informative
 - Highlight key changes and their impact
 - Organize information logically with clear sections
-- Include relevant metrics and statistics when available"""
+- Include relevant metrics and statistics when available
+
+CRITICAL OUTPUT RULES:
+- Output ONLY the markdown document content, starting directly with the title (e.g., # Title)
+- Do NOT include any introductory phrases, explanations, or closing remarks
+- Do NOT add text like "Of course", "Here is", "I'll generate", or any conversational preambles
+- The response must begin with the markdown title and end with the last content line
+- No meta-commentary, generation notes, or additional context outside the markdown content"""
         )
 
     @staticmethod
@@ -85,7 +92,14 @@ Repository Information:
 Documentation Source Files Content:
 {doc_contents}
 
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers. Include Mermaid diagrams to visualize the repository architecture and component relationships."""
+Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers. Include Mermaid diagrams to visualize the repository architecture and component relationships.
+
+CRITICAL OUTPUT REQUIREMENTS:
+- Output ONLY the markdown document content starting with the title (e.g., # Title)
+- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
+- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
+- The output should start directly with the markdown title and end with the last content line
+- No meta-commentary or generation information should be included"""
         )
 
     @staticmethod
@@ -118,7 +132,14 @@ IMPORTANT: Update or add Mermaid diagrams to reflect any architectural changes:
 - Update existing Mermaid diagrams if the architecture has changed
 - Add new diagrams (system architecture, component relationships, module dependencies, data flow) if needed
 - Use Mermaid markdown syntax (```mermaid ... ```) to visualize the updated repository structure and changes
-- Highlight new components or modified relationships in the diagrams"""
+- Highlight new components or modified relationships in the diagrams
+
+CRITICAL OUTPUT REQUIREMENTS:
+- Output ONLY the markdown document content starting with the title (e.g., # Title)
+- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
+- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
+- The output should start directly with the markdown title and end with the last content line
+- No meta-commentary or generation information should be included"""
         )
 
     @staticmethod
@@ -139,7 +160,14 @@ Based on the following commit information, create a detailed analysis that inclu
 Commit Information:
 {commit_info}
 
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
+Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers.
+
+CRITICAL OUTPUT REQUIREMENTS:
+- Output ONLY the markdown document content starting with the title (e.g., # Title)
+- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
+- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
+- The output should start directly with the markdown title and end with the last content line
+- No meta-commentary or generation information should be included"""
         )
 
     @staticmethod
@@ -154,7 +182,14 @@ Please structure the documentation with clear sections and make it suitable for 
 Based on the following updated commit information, please update the existing documentation to reflect the latest changes. Ensure that the documentation remains comprehensive and well-structured.
 Updated Commit Information:
 {commit_info}
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers."""
+Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers.
+
+CRITICAL OUTPUT REQUIREMENTS:
+- Output ONLY the markdown document content starting with the title (e.g., # Title)
+- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
+- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
+- The output should start directly with the markdown title and end with the last content line
+- No meta-commentary or generation information should be included"""
         )
 
     @staticmethod
@@ -176,7 +211,14 @@ Based on the following PR information, create a detailed analysis that includes:
 PR Information:
 {pr_info}
 
-Please structure the documentation with clear sections and highlight any important patterns or trends."""
+Please structure the documentation with clear sections and highlight any important patterns or trends.
+
+CRITICAL OUTPUT REQUIREMENTS:
+- Output ONLY the markdown document content starting with the title (e.g., # Title)
+- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
+- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
+- The output should start directly with the markdown title and end with the last content line
+- No meta-commentary or generation information should be included"""
         )
 
     @staticmethod
@@ -191,7 +233,14 @@ Please structure the documentation with clear sections and highlight any importa
 Based on the following updated PR information, please update the existing documentation to reflect the latest changes. Ensure that the documentation remains comprehensive and well-structured.
 Updated PR Information:
 {pr_info}
-Please structure the documentation with clear sections and highlight any important patterns or trends."""
+Please structure the documentation with clear sections and highlight any important patterns or trends.
+
+CRITICAL OUTPUT REQUIREMENTS:
+- Output ONLY the markdown document content starting with the title (e.g., # Title)
+- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
+- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
+- The output should start directly with the markdown title and end with the last content line
+- No meta-commentary or generation information should be included"""
         )
 
     @staticmethod
@@ -215,7 +264,14 @@ Based on the following release note information, create a detailed analysis that
 Release Information:
 {release_note_info}
 
-Please structure the documentation with clear sections and make it suitable for users planning upgrades."""
+Please structure the documentation with clear sections and make it suitable for users planning upgrades.
+
+CRITICAL OUTPUT REQUIREMENTS:
+- Output ONLY the markdown document content starting with the title (e.g., # Title)
+- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
+- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
+- The output should start directly with the markdown title and end with the last content line
+- No meta-commentary or generation information should be included"""
         )
 
     @staticmethod
@@ -230,7 +286,14 @@ Please structure the documentation with clear sections and make it suitable for 
 Based on the following updated release note information, please update the existing documentation to reflect the latest changes. Ensure that the documentation remains comprehensive and well-structured.
 Updated Release Note Information:
 {release_note_info}
-Please structure the documentation with clear sections and make it suitable for users planning upgrades."""
+Please structure the documentation with clear sections and make it suitable for users planning upgrades.
+
+CRITICAL OUTPUT REQUIREMENTS:
+- Output ONLY the markdown document content starting with the title (e.g., # Title)
+- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
+- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
+- The output should start directly with the markdown title and end with the last content line
+- No meta-commentary or generation information should be included"""
         )
 
     def repo_info_overview_node(self, state: dict):

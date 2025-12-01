@@ -113,7 +113,14 @@ Guidelines:
 - Highlight key components and their relationships
 - Organize information logically with clear sections
 - Include code snippets and examples when helpful
-- Document complex algorithms and design patterns"""
+- Document complex algorithms and design patterns
+
+CRITICAL OUTPUT RULES:
+- Output ONLY the markdown document content, starting directly with the title (e.g., # Title)
+- Do NOT include any introductory phrases, explanations, or closing remarks
+- Do NOT add text like "Of course", "Here is", "I'll generate", or any conversational preambles
+- The response must begin with the markdown title and end with the last content line
+- No meta-commentary, generation notes, or additional context outside the markdown content"""
         )
 
     @staticmethod
@@ -161,7 +168,14 @@ Based on the following analysis results and summary, create a detailed documenta
    Use Mermaid markdown syntax (```mermaid ... ```) to create clear, informative diagrams
 {analysis}
 {summary}
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers. Include Mermaid diagrams to visualize code structure, relationships, and logic flow."""
+Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers. Include Mermaid diagrams to visualize code structure, relationships, and logic flow.
+
+CRITICAL OUTPUT REQUIREMENTS:
+- Output ONLY the markdown document content starting with the title (e.g., # Title)
+- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
+- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
+- The output should start directly with the markdown title and end with the last content line
+- No meta-commentary or generation information should be included"""
         )
 
     def code_filter_node(self, state: dict):
