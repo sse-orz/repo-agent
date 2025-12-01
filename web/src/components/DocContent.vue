@@ -121,7 +121,8 @@ defineExpose({
   background: transparent;
   line-height: 1.3;
   /* preserve newlines inside v-html content and allow long words to wrap */
-  white-space: pre-wrap;
+  /* white-space: pre-wrap; */
+  white-space: normal;
   overflow-wrap: break-word;
   word-break: break-word;
   scrollbar-width: none; /* Firefox */
@@ -252,21 +253,6 @@ defineExpose({
   overflow-x: auto;
 }
 
-.doc-inner :deep(.mermaid .node rect),
-.doc-inner :deep(.mermaid .node circle),
-.doc-inner :deep(.mermaid .node polygon),
-.doc-inner :deep(.mermaid .cluster rect),
-.doc-inner :deep(.mermaid .label-container),
-.doc-inner :deep(.mermaid .actor) {
-  fill: var(--card-bg, #ffffff) !important;
-  stroke: var(--border-color, #d1d5db) !important;
-}
-
-.doc-inner :deep(.mermaid text),
-.doc-inner :deep(.mermaid span) {
-  fill: var(--text-color, #111827) !important;
-  color: var(--text-color, #111827) !important;
-}
 
 .doc-inner :deep(.mermaid-zoom-btn) {
   position: absolute;
