@@ -48,9 +48,7 @@ class GenerateResponseData(BaseModel):
     repo: str = Field(..., description="Repository name")
     wiki_path: str = Field(..., description="Local wiki directory path")
     wiki_url: str = Field(..., description="Base URL to access wiki files")
-    files: List[FileInfo] = Field(
-        default_factory=list, description="List of generated files"
-    )
+    files: List[FileInfo] = Field(..., description="List of generated files")
     total_files: int = Field(0, description="Total number of files generated")
 
 
@@ -65,5 +63,5 @@ class WikiItem(BaseModel):
 
 
 class ListWikisResponseData(BaseModel):
-    wikis: List[WikiItem] = Field(default_factory=list, description="List of wikis")
+    wikis: List[WikiItem] = Field(..., description="List of wikis")
     total_wikis: int = Field(0, description="Total number of wikis")

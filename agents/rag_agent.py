@@ -27,7 +27,12 @@ class RAGState(TypedDict):
 
 
 class RAGAgent:
-    """RAG Agent for repository-related question answering with intelligent retrieval."""
+    """RAG Agent for repository-related question answering with intelligent retrieval.
+
+    Two modes:
+    - fast：default mode, less retrieval attempts, faster response
+    - smart：more retrieval attempts, larger history window, better effect
+    """
 
     def __init__(
         self,
@@ -36,15 +41,49 @@ class RAGAgent:
         max_retrieval_attempts: int = 2,
         retrieval_k: int = 5,
         history_window_size: int = 10,
+        mode: str = "fast",
     ):
+        # normalize mode
+        mode = (mode or "fast").lower()
+        if mode not in {"fast", "smart"}:
+            mode = "fast"
+
+        # If user doesn't explicitly set parameters, override defaults based on mode
+        if mode == "smart":
+            max_retrieval_attempts = 5
+            retrieval_k = 10
+            history_window_size = 20
+
         self.wikis_dir = wikis_dir
         self.embeddings_model_name = embeddings_model_name
         self.max_retrieval_attempts = max_retrieval_attempts
         self.retrieval_k = retrieval_k
         self.history_window_size = history_window_size
+        self.mode = mode
         self.memory = InMemorySaver()
         self.vectorstores = {}
         self.app = self._build_graph()
+
+    @staticmethod
+    def _extract_sources_from_docs(docs: List[Document]) -> List[str]:
+        """Extract unique, human-readable source paths from retrieved documents."""
+        sources: List[str] = []
+        seen = set()
+        for doc in docs or []:
+            metadata = getattr(doc, "metadata", {}) or {}
+            src = (
+                metadata.get("source")
+                or metadata.get("file_path")
+                or metadata.get("path")
+                or metadata.get("absolute_source")
+            )
+            if not src:
+                continue
+            if src in seen:
+                continue
+            seen.add(src)
+            sources.append(src)
+        return sources
 
     @staticmethod
     def _create_judge_prompt(question: str, context: str) -> SystemMessage:
@@ -412,8 +451,26 @@ class RAGAgent:
             )
             docs = loader.load()
             for doc in docs:
-                # mark the source directory for later inspection
-                doc.metadata["source"] = os.path.relpath(path, self.wikis_dir)
+                # Preserve original loader source (usually the absolute file path)
+                original_source = doc.metadata.get("source")
+                if original_source:
+                    # Store original absolute path for debugging / advanced use-cases
+                    doc.metadata.setdefault("absolute_source", original_source)
+
+                    # Normalize source path to be relative to the wikis root so callers
+                    # can directly use it as a display path or build URLs.
+                    try:
+                        rel_source = os.path.relpath(original_source, self.wikis_dir)
+                    except ValueError:
+                        # Fallback to the original value if relpath fails on some OS edge cases
+                        rel_source = original_source
+                    doc.metadata["source"] = rel_source
+                else:
+                    # If loader didn't set a source, at least record the directory
+                    doc.metadata["source"] = os.path.relpath(path, self.wikis_dir)
+
+                # Also mark which wiki sub-directory this document came from
+                doc.metadata["wiki_dir"] = os.path.relpath(path, self.wikis_dir)
             repo_docs.extend(docs)
 
         # if no documents are available, return empty
@@ -457,6 +514,13 @@ class RAGAgent:
             if answer:
                 print("\n=== Answer ===")
                 print(answer)
+            # print referenced document sources, if any
+            docs = final_state.get("documents") or []
+            sources = self._extract_sources_from_docs(docs)
+            if sources:
+                print("\n=== Sources ===")
+                for idx, src in enumerate(sources, start=1):
+                    print(f"[{idx}] {src}")
         return final_state
 
     def _log_state(self, state: RAGState, file_name: str):
@@ -517,5 +581,7 @@ class RAGAgent:
 
 
 if __name__ == "__main__":
-    rag_agent = RAGAgent()
+    mode = "fast"
+
+    rag_agent = RAGAgent(mode=mode)
     rag_agent.run()
