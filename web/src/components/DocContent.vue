@@ -230,7 +230,7 @@ defineExpose({
 }
 
 .doc-inner :deep(a) {
-  color: #0969da;
+  color: var(--link-color, #0969da);
   text-decoration: none;
 }
 
