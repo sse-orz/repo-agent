@@ -61,8 +61,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch, computed, inject, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import ThemeToggle from '../components/ThemeToggle.vue'
-import HistoryButton from '../components/HistoryButton.vue'
+import TopControls from '../components/TopControls.vue'
 import RepoHeader from '../components/RepoHeader.vue'
 import TocSidebar from '../components/TocSidebar.vue'
 import DocContent from '../components/DocContent.vue'
@@ -449,8 +448,10 @@ const zoomStyle = computed(() => ({
 }))
 
 const attachZoomListeners = () => {
-  if (!docInnerRef.value) return
-  const btns = docInnerRef.value.querySelectorAll('.mermaid-zoom-btn')
+  if (!docContentRef.value) return
+  const container = docContentRef.value.getElement()
+  if (!container) return
+  const btns = container.querySelectorAll('.mermaid-zoom-btn')
   btns.forEach((btn) => {
     const newBtn = btn.cloneNode(true)
     if (btn.parentNode) {
@@ -632,7 +633,7 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
             }
             // Populate TOC with the single file (only markdown, with optional headings)
             const index = findSectionIndexById(section.id)
-            if (index >= 0) {
+            if (index >= 0 && tocSections.value[index]) {
               tocSections.value[index].items = buildTocItems(files as unknown[], {
                 resolvedUrlWithHeadings: resolvedUrl
                   ? {
@@ -654,7 +655,7 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
             docContent.value = listHtml
             // Update TOC with markdown files only
             const index = findSectionIndexById(section.id)
-            if (index >= 0) {
+            if (index >= 0 && tocSections.value[index]) {
               tocSections.value[index].items = buildTocItems(files as unknown[])
             }
           } else {
@@ -807,6 +808,8 @@ const selectRepoById = (id: string, needUpdate = false) => {
     index = tocSections.value.length - 1
     section = tocSections.value[index]
   }
+
+  if (!section) return
 
   selected.value = { section: index, item: null }
   void loadDocumentation(section, needUpdate)
