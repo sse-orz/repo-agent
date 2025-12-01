@@ -178,7 +178,14 @@ defineExpose({
 }
 
 .doc-inner :deep(code) {
-  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    SF Mono,
+    Menlo,
+    Consolas,
+    Liberation Mono,
+    monospace;
   font-size: 85%;
   background: var(--hover-bg);
   padding: 0.2em 0.4em;
@@ -243,6 +250,22 @@ defineExpose({
   padding: 10px;
   border-radius: 8px;
   overflow-x: auto;
+}
+
+.doc-inner :deep(.mermaid .node rect),
+.doc-inner :deep(.mermaid .node circle),
+.doc-inner :deep(.mermaid .node polygon),
+.doc-inner :deep(.mermaid .cluster rect),
+.doc-inner :deep(.mermaid .label-container),
+.doc-inner :deep(.mermaid .actor) {
+  fill: var(--card-bg, #ffffff) !important;
+  stroke: var(--border-color, #d1d5db) !important;
+}
+
+.doc-inner :deep(.mermaid text),
+.doc-inner :deep(.mermaid span) {
+  fill: var(--text-color, #111827) !important;
+  color: var(--text-color, #111827) !important;
 }
 
 .doc-inner :deep(.mermaid-zoom-btn) {
