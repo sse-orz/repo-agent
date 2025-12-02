@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 from typing import TypedDict, List, Annotated, Sequence
+from textwrap import dedent
 
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -89,124 +90,139 @@ class RAGAgent:
     def _create_judge_prompt(question: str, context: str) -> SystemMessage:
         """Create prompt to judge document sufficiency."""
         return SystemMessage(
-            content=f"""Evaluate if the provided documents contain sufficient information to comprehensively answer the user's question.
+            content=dedent(
+                f"""
+                Evaluate whether the retrieved documents are sufficient to answer the user's question.
 
-                        User Question: {question}
+                User question:
+                {question}
 
-                        Retrieved Documents:
-                        {context}
+                Retrieved documents (combined):
+                {context}
 
-                        Evaluation Criteria:
-                        - The documents should contain direct or highly relevant information that addresses the core of the question
-                        - Code snippets, API documentation, or implementation details are considered sufficient
-                        - General descriptions without specific technical details may be insufficient
-                        - If documents are mostly empty or generic, they are not sufficient
+                Evaluation criteria (for "sufficient"):
+                - Contain direct or highly relevant information for the core of the question
+                - Include concrete technical details (code, APIs, configuration, etc.)
 
-                        Your Response: Answer with ONLY "yes" if documents are sufficient to answer the question, or "no" if more information is needed."""
+                Reply with ONLY:
+                - "yes" if the documents are sufficient
+                - "no" if more information is needed
+                """
+            ).strip(),
         )
 
     @staticmethod
     def _create_intent_check_prompt(question: str, repo_name: str) -> SystemMessage:
         """Create prompt to check if question is repository-related."""
         return SystemMessage(
-            content=f"""Analyze whether the following question is specifically related to the repository "{repo_name}".
+            content=dedent(
+                f"""
+                Decide if the question is specifically about the repository "{repo_name}".
 
-                        User Question: {question}
+                User question:
+                {question}
 
-                        Repository Name: {repo_name}
+                Answer "yes" if the question is about:
+                - This repository's codebase, architecture, or design
+                - Specific files, modules, classes, or functions in this repo
+                - How to use, configure, or extend this repo
 
-                        Classification Guidelines:
+                Otherwise (general programming, other projects, chit-chat, etc.), answer "no".
 
-                        REPOSITORY-RELATED Questions (Answer "yes"):
-                        - Asks about the repository's codebase, architecture, or design patterns
-                        - Requests information about specific files, modules, classes, or functions
-                        - Seeks to understand algorithms, implementations, or technical workflows
-                        - Asks about the repository's purpose, features, capabilities, or limitations
-                        - Requests examples of how to use the code or API
-                        - Questions the repository's dependencies or configuration
-
-                        NOT Repository-Related Questions (Answer "no"):
-                        - General programming questions unrelated to this specific repository
-                        - Asks about the assistant itself or conversation meta-topics
-                        - Requests information about other projects or general knowledge
-                        - Suggests improvements or asks for critique of previous answers
-
-                        Your Response: Answer with ONLY "yes" if the question is repository-related, or "no" otherwise."""
+                Reply with ONLY "yes" or "no".
+                """
+            ).strip(),
         )
 
     @staticmethod
     def _create_rewrite_prompt(original_question: str, repo_name: str) -> SystemMessage:
         """Create prompt to rewrite question for better retrieval."""
         return SystemMessage(
-            content=f"""Your task is to refine and improve the user's question about the repository "{repo_name}" to make it more specific, clear, and optimized for document retrieval.
+            content=dedent(
+                f"""
+                Refine the user's question about the repository "{repo_name}" so it is clearer
+                and better suited for document retrieval.
 
-                        Original Question: {original_question}
+                Original question:
+                {original_question}
 
-                        Refinement Guidelines:
-                        1. Make the question more specific and detailed if it's too vague
-                        2. Add technical context if the question lacks clarity
-                        3. Break down complex questions into focused sub-questions if needed
-                        4. Rephrase to use repository-specific terminology when applicable
-                        5. Ensure the refined question targets concrete code artifacts (functions, classes, files, etc.)
-                        6. Keep the refined question concise but comprehensive
+                Guidelines:
+                - Make vague questions more specific and technical
+                - Use repository-specific terms (files, modules, APIs) when appropriate
+                - Keep it concise but precise
 
-                        Output ONLY the refined question without any explanation or additional text. If the original question is already well-formed, you can return it as-is."""
+                Output ONLY the refined question text (no explanations or extra text).
+                If the original question is already good, you may return it unchanged.
+                """
+            ).strip(),
+        )
+
+    @staticmethod
+    def _get_answer_system_prompt() -> SystemMessage:
+        """Global system prompt for repository-based answering."""
+        return SystemMessage(
+            content=dedent(
+                """
+                You are a Repository Analysis Assistant.
+                Your job is to answer questions strictly based on the provided repository context.
+
+                Global rules:
+                - Use ONLY the given context as your source of truth
+                - Be clear, technical, and concise
+                - Reference relevant files, functions, or code snippets when helpful
+                - If the context lacks required information, say so explicitly
+                """
+            ).strip(),
         )
 
     @staticmethod
     def _create_rag_generation_prompt(
         history: str, context: str, question: str
-    ) -> SystemMessage:
-        """Create prompt for RAG-based answer generation."""
-        return SystemMessage(
-            content=f"""You are a knowledgeable Repository Analysis Assistant specializing in helping users understand and work with codebases.
+    ) -> HumanMessage:
+        """Create user prompt for RAG-based answer generation."""
+        return HumanMessage(
+            content=dedent(
+                f"""
+                Conversation history:
+                {history or "(no prior conversation)"}
 
-                        Your Task: Answer the user's question based EXCLUSIVELY on the provided repository documentation and code context.
+                Repository context (code, docs, related files):
+                ---BEGIN CONTEXT---
+                {context}
+                ---END CONTEXT---
 
-                        Conversation History:
-                        {'---' if history else '(No prior conversation)'}
-                        {history if history else ''}
-                        {'---' if history else ''}
+                User question:
+                {question}
 
-                        Repository Context (Code, Documentation, and Related Files):
-                        ---BEGIN CONTEXT---
-                        {context}
-                        ---END CONTEXT---
-
-                        User Question: {question}
-
-                        Instructions:
-                        1. Ground your answer entirely in the provided context - do not use external knowledge
-                        2. If the context doesn't contain relevant information, explicitly state: "The provided documentation does not contain information about this topic"
-                        3. Be specific and technical - reference actual code, file names, and line numbers when applicable
-                        4. If there are multiple relevant parts in the context, cite them appropriately
-                        5. Provide practical examples or code snippets from the documentation when helpful
-                        6. If the question requires clarification, ask for it before attempting to answer
-
-                        Provide a clear, comprehensive, and well-structured answer:"""
+                Instructions for this answer:
+                - Use ONLY the context above to answer
+                - If the context does not contain enough information, say so directly
+                - Be specific and technical; quote or reference code and files when useful
+                """
+            ).strip(),
         )
 
     @staticmethod
-    def _create_direct_generation_prompt(history: str, question: str) -> SystemMessage:
-        """Create prompt for direct answer generation to decline unrelated questions."""
-        return SystemMessage(
-            content=f"""You are a specialized Repository Analysis Assistant. Your sole purpose is to assist users in understanding, analyzing, and working with the specific code repository loaded into the system.
+    def _create_direct_generation_prompt(history: str, question: str) -> HumanMessage:
+        """Create user prompt for direct answer generation to decline unrelated questions."""
+        return HumanMessage(
+            content=dedent(
+                f"""
+                Conversation history:
+                {history or "(no prior conversation)"}
 
-                        Conversation History:
-                        {'---' if history else '(No prior conversation)'}
-                        {history if history else ''}
-                        {'---' if history else ''}
+                User question:
+                {question}
 
-                        User Question: {question}
+                You have determined that this question is NOT related to the current repository.
 
-                        Instructions:
-                        1. You have identified that the user's question is NOT related to the repository, codebase, or technical context.
-                        2. Explicitly state that you are a Repository Analysis Agent.
-                        3. Politely decline to answer the question because it falls outside the scope of the repository.
-                        4. Do NOT use your general knowledge to answer the question (e.g., do not answer general world knowledge, math, or history questions).
-                        5. Invite the user to ask questions specifically regarding the codebase, architecture, or implementation details of the current repository.
-
-                        Your Response:"""
+                Instructions for this answer:
+                - State that you are a Repository Analysis Assistant limited to this repository
+                - Politely decline to answer because it is out of scope
+                - Do NOT use general world knowledge to answer
+                - Invite the user to ask repository-related questions instead
+                """
+            ).strip(),
         )
 
     def _build_graph(self):
@@ -358,9 +374,10 @@ class RAGAgent:
         context = "\n".join([doc.page_content for doc in docs])
         history = self._get_history(state)
 
-        prompt = self._create_rag_generation_prompt(history, context, question)
+        system_prompt = self._get_answer_system_prompt()
+        user_prompt = self._create_rag_generation_prompt(history, context, question)
         llm = CONFIG.get_llm()
-        answer = llm.invoke([prompt]).content
+        answer = llm.invoke([system_prompt, user_prompt]).content
 
         return {
             "answer": answer,
@@ -376,9 +393,10 @@ class RAGAgent:
         question = state["question"]
         history = self._get_history(state)
 
-        prompt = self._create_direct_generation_prompt(history, question)
+        system_prompt = self._get_answer_system_prompt()
+        user_prompt = self._create_direct_generation_prompt(history, question)
         llm = CONFIG.get_llm()
-        answer = llm.invoke([prompt]).content
+        answer = llm.invoke([system_prompt, user_prompt]).content
 
         return {
             "answer": answer,

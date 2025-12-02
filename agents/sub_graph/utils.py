@@ -193,3 +193,15 @@ def get_updated_code_files(
             if file_path:
                 updated_code_files.add(f"{repo_path}/{file_path}")
     return True, list(updated_code_files)
+
+
+def compare_size_between_content_and_analysis(
+    content: str, formatted_analysis: str
+) -> str:
+    # this func is to compare the size between content and analysis
+    content_size = len(content)
+    analysis_size = len(formatted_analysis)
+    if content_size <= analysis_size:
+        return "content"
+    else:
+        return "analysis"

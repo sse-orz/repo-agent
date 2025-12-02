@@ -1,37 +1,14 @@
 from typing_extensions import TypedDict
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.runnables.graph import MermaidDrawMethod
 from langgraph.graph.state import StateGraph, START
-from langchain_core.messages import HumanMessage, SystemMessage
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import asyncio
-import json
 import os
 import time
 
-from utils.repo import (
-    get_repo_info,
-    get_repo_commit_info,
-    get_commits,
-    get_pr,
-    get_pr_files,
-    get_release_note,
-)
-from utils.file import (
-    get_repo_structure,
-    write_file,
-    read_file,
-    resolve_path,
-    read_json,
-)
-from utils.code_analyzer import (
-    analyze_file_with_tree_sitter,
-    format_tree_sitter_analysis_results,
-    format_tree_sitter_analysis_results_to_prompt,
-)
+from utils.repo import get_repo_info
+from utils.file import get_repo_structure
 from .utils import (
-    draw_graph,
     log_state,
     get_updated_commit_info,
     get_updated_pr_info,
@@ -519,12 +496,12 @@ class ParentGraphBuilder:
 
 if __name__ == "__main__":
     # use "uv run python -m agents.sub_graph.parent" to run this file
-    parent_graph_builder = ParentGraphBuilder(branch_mode="repo")
+    parent_graph_builder = ParentGraphBuilder(branch_mode="all")
     date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     parent_graph_builder.run(
         inputs={
-            "owner": "facebook",
-            "repo": "react",
+            "owner": "xudong7",
+            "repo": "tauri-rbook",
             "platform": "github",
             "mode": "fast",  # "fast" or "smart"
             "max_workers": 50,  # 20 worker -> 3 - 4 minutes

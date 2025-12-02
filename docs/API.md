@@ -43,6 +43,7 @@ Generate or update the agent documentation for a repository.
 ```
 
 **Mode Parameter:**
+
 - `"sub"`: Use ParentGraphBuilder
 - `"moe"`: Use MoeAgent
 
@@ -92,7 +93,8 @@ data: {"message": "string", "code": 200, "data": {...}}
 
 **Progress Stages by Mode:**
 
-*Sub mode (`"mode": "sub"`):*
+_Sub mode (`"mode": "sub"`):_
+
 - `started` (0%): Starting documentation generation
 - `basic_info_node` (15%): Processing basic information
 - `check_update_node` (35%): Checking for updates
@@ -100,7 +102,8 @@ data: {"message": "string", "code": 200, "data": {...}}
 - `code_analysis_graph` (85%): Analyzing code
 - `completed` (100%): Documentation generation completed
 
-*Moe mode (`"mode": "moe"`):*
+_Moe mode (`"mode": "moe"`):_
+
 - `started` (0%): Starting MoeAgent documentation generation
 - `repo_info` (10%): Collecting repository information
 - `file_selection` (25%): Selecting important files
@@ -185,7 +188,7 @@ Server-Sent Events (SSE) stream, containing incremental or updated answers.
 
 Event format:
 
-````
+```
 data: {
   "message": "RAG update",
   "code": 200,
@@ -195,15 +198,7 @@ data: {
     "sources": ["string"] // Optional list of referenced document sources accumulated so far
   }
 }
-```*** End Patch
-
-> Note:
-> - The `answer` field may be empty for intermediate events, and will contain the latest generated answer when available.
-> - The `node` field indicates the current node in the RAG graph, which can be used to显示进度（例如正在意图识别 / 重写问题 / 检索 / 评估 / 生成回答等）。
-
-## Error Handling
-
-All endpoints return JSON responses containing error information when errors occur, with the `code` field being non-200.
+```
 
 ## Examples
 
@@ -212,15 +207,39 @@ All endpoints return JSON responses containing error information when errors occ
 ```bash
 curl -X POST http://localhost:8000/api/v1/agents/generate \
   -H "Content-Type: application/json" \
-  -d '{"owner": "octocat", "repo": "Hello-World"}'
-````
+  -d '{
+    "mode": "sub",
+    "request": {
+      "owner": "facebook",
+      "repo": "zstd",
+      "platform": "github",
+      "need_update": false,
+      "branch_mode": "all",
+      "mode": "fast",
+      "max_workers": 50,
+      "log": false
+    }
+  }'
+```
 
 ### Stream Generate
 
 ```bash
 curl -N http://localhost:8000/api/v1/agents/generate-stream \
   -X POST -H "Content-Type: application/json" \
-  -d '{"owner": "octocat", "repo": "Hello-World"}'
+  -d '{
+    "mode": "sub",
+    "request": {
+      "owner": "facebook",
+      "repo": "zstd",
+      "platform": "github",
+      "need_update": false,
+      "branch_mode": "all",
+      "mode": "fast",
+      "max_workers": 50,
+      "log": false
+    }
+  }'
 ```
 
 ### List Documentation
@@ -235,8 +254,8 @@ curl http://localhost:8000/api/v1/agents/list
 curl -X POST http://localhost:8000/api/v1/rag/ask \
   -H "Content-Type: application/json" \
   -d '{
-    "owner": "octocat",
-    "repo": "Hello-World",
+    "owner": "facebook",
+    "repo": "zstd",
     "platform": "github",
     "mode": "fast",
     "question": "What does this repository do?"
@@ -249,8 +268,8 @@ curl -X POST http://localhost:8000/api/v1/rag/ask \
 curl -N http://localhost:8000/api/v1/rag/ask-stream \
   -H "Content-Type: application/json" \
   -d '{
-    "owner": "octocat",
-    "repo": "Hello-World",
+    "owner": "facebook",
+    "repo": "zstd",
     "platform": "github",
     "mode": "fast",
     "question": "Where is the main entrypoint of this project?"

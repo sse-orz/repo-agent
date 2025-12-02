@@ -1,31 +1,12 @@
 from typing_extensions import TypedDict
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.runnables.graph import MermaidDrawMethod
 from langgraph.graph.state import StateGraph, START
 from langchain_core.messages import HumanMessage, SystemMessage
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import asyncio
+from textwrap import dedent
 import json
 import os
-import time
 
-from utils.repo import (
-    get_repo_info,
-    get_repo_commit_info,
-    get_commits,
-    get_pr,
-    get_pr_files,
-    get_release_note,
-)
-from utils.file import (
-    get_repo_structure,
-    write_file,
-    read_file,
-    resolve_path,
-    read_json,
-)
-from .utils import draw_graph, log_state
+from utils.file import write_file, read_file, resolve_path
+from .utils import log_state
 from config import CONFIG
 
 
@@ -49,22 +30,26 @@ class RepoInfoSubGraphBuilder:
     def _get_system_prompt():
         # this func is to get the system prompt for the repo info subgraph
         return SystemMessage(
-            content="""You are an expert technical documentation writer specializing in generating comprehensive repository documentation. 
-Your role is to analyze provided repository data and create clear, well-structured documentation that helps developers understand the project's history, development process, and releases.
+            content=dedent(
+                """
+                You are an expert technical documentation writer for software repositories.
 
-Guidelines:
-- Use Markdown formatting for better readability
-- Be concise yet informative
-- Highlight key changes and their impact
-- Organize information logically with clear sections
-- Include relevant metrics and statistics when available
+                Your job is to turn repository-related data (commits, PRs, releases, existing docs, etc.) into clear, structured **Markdown documentation** for developers.
 
-CRITICAL OUTPUT RULES:
-- Output ONLY the markdown document content, starting directly with the title (e.g., # Title)
-- Do NOT include any introductory phrases, explanations, or closing remarks
-- Do NOT add text like "Of course", "Here is", "I'll generate", or any conversational preambles
-- The response must begin with the markdown title and end with the last content line
-- No meta-commentary, generation notes, or additional context outside the markdown content"""
+                Global rules:
+                - Use Markdown headings, lists, and tables when helpful
+                - Be concise but informative; prefer summaries over raw dumps
+                - Highlight important changes, impact, and patterns
+                - Organize content into logical sections with clear titles
+                - When diagrams are requested, use valid Mermaid code blocks (```mermaid ... ```).
+
+                Critical output rules:
+                - Output ONLY the final markdown document, starting directly with the title line
+                - Do NOT include explanations, comments, or meta-text about what you are doing
+                - Do NOT include phrases like "Here is", "Of course", "I will", etc.
+                - Do NOT wrap the result in quotes, JSON, or any extra formatting
+                """
+            ).strip(),
         )
 
     @staticmethod
@@ -74,32 +59,24 @@ CRITICAL OUTPUT RULES:
         owner = repo_info.get("owner", "")
 
         return HumanMessage(
-            content=f"""Generate overall repository documentation for the repository '{owner}/{repo_name}'.
-Based on the following repository information and documentation source files, create a detailed analysis that includes:
-1. Overview of the repository structure and key components
-2. Summary of existing documentation and its coverage
-3. Identification of documentation gaps and areas for improvement
-4. Architecture visualization using Mermaid diagrams (include at least one of the following):
-   - System architecture diagram (graph/flowchart)
-   - Component relationships diagram
-   - Module dependency diagram
-   - Data flow diagram
-   Use Mermaid markdown syntax (```mermaid ... ```) to create clear, informative diagrams
+            content=dedent(
+                f"""
+                Generate overall documentation for repository '{owner}/{repo_name}'.
 
-Repository Information:
-{repo_info}
+                Based on:
+                - Repository information:
+                {repo_info}
 
-Documentation Source Files Content:
-{doc_contents}
+                - Documentation source files (content below):
+                {doc_contents}
 
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers. Include Mermaid diagrams to visualize the repository architecture and component relationships.
-
-CRITICAL OUTPUT REQUIREMENTS:
-- Output ONLY the markdown document content starting with the title (e.g., # Title)
-- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
-- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
-- The output should start directly with the markdown title and end with the last content line
-- No meta-commentary or generation information should be included"""
+                Write a markdown document that includes:
+                1. Overview of repository structure and key components
+                2. Summary of existing documentation coverage
+                3. Main documentation gaps and areas for improvement
+                4. At least one Mermaid diagram for architecture or component relationships
+                """
+            ).strip(),
         )
 
     @staticmethod
@@ -114,32 +91,26 @@ CRITICAL OUTPUT REQUIREMENTS:
         repo_name = repo_info.get("repo", "")
         owner = repo_info.get("owner", "")
         return HumanMessage(
-            content=f"""The overall repository documentation for the repository '{owner}/{repo_name}' needs to be updated based on new commit, PR, and release note information. The previous documentation can be found at '{overview_doc_path}'.
-Based on the following updated information, please update the existing documentation to reflect the latest changes. Ensure that the documentation remains comprehensive and well-structured.
+            content=dedent(
+                f"""
+                Update the existing repository overview documentation for '{owner}/{repo_name}'.
 
-Updated Commit Information:
-{commit_info}
+                Existing doc path (for reference only, do NOT mention the path in output): {overview_doc_path}
 
-Updated PR Information:
-{pr_info}
+                Use the updated data below:
+                - Commit information:
+                {commit_info}
 
-Updated Release Note Information:
-{release_note_info}
+                - PR information:
+                {pr_info}
 
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers. 
+                - Release note information:
+                {release_note_info}
 
-IMPORTANT: Update or add Mermaid diagrams to reflect any architectural changes:
-- Update existing Mermaid diagrams if the architecture has changed
-- Add new diagrams (system architecture, component relationships, module dependencies, data flow) if needed
-- Use Mermaid markdown syntax (```mermaid ... ```) to visualize the updated repository structure and changes
-- Highlight new components or modified relationships in the diagrams
-
-CRITICAL OUTPUT REQUIREMENTS:
-- Output ONLY the markdown document content starting with the title (e.g., # Title)
-- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
-- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
-- The output should start directly with the markdown title and end with the last content line
-- No meta-commentary or generation information should be included"""
+                Update the markdown so it reflects the latest changes, keeps a clear structure,
+                and updates or adds Mermaid diagrams when architecture or relationships change.
+                """
+            ).strip(),
         )
 
     @staticmethod
@@ -149,25 +120,20 @@ CRITICAL OUTPUT REQUIREMENTS:
         owner = repo_info.get("owner", "")
 
         return HumanMessage(
-            content=f"""Generate comprehensive commit history documentation for the repository '{owner}/{repo_name}'.
+            content=dedent(
+                f"""
+                Generate commit history documentation for repository '{owner}/{repo_name}'.
 
-Based on the following commit information, create a detailed analysis that includes:
-1. Summary of key commits and their purposes
-2. Patterns in development activity (frequency, authors, etc.)
-3. Major features or fixes identified in recent commits
-4. Development trends and insights
+                From the commit data below, write:
+                - A summary of key commits and their purposes
+                - Notable patterns in development activity (frequency, authors, areas of change)
+                - Major features or fixes from recent commits
+                - Any useful trends or insights for maintainers
 
-Commit Information:
-{commit_info}
-
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers.
-
-CRITICAL OUTPUT REQUIREMENTS:
-- Output ONLY the markdown document content starting with the title (e.g., # Title)
-- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
-- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
-- The output should start directly with the markdown title and end with the last content line
-- No meta-commentary or generation information should be included"""
+                Commit data:
+                {commit_info}
+                """
+            ).strip(),
         )
 
     @staticmethod
@@ -178,18 +144,16 @@ CRITICAL OUTPUT REQUIREMENTS:
         repo_name = repo_info.get("repo", "")
         owner = repo_info.get("owner", "")
         return HumanMessage(
-            content=f"""The commit history documentation for the repository '{owner}/{repo_name}' needs to be updated based on new commit information. The previous documentation can be found at '{commit_doc_path}'.
-Based on the following updated commit information, please update the existing documentation to reflect the latest changes. Ensure that the documentation remains comprehensive and well-structured.
-Updated Commit Information:
-{commit_info}
-Please structure the documentation with clear sections and make it suitable for both new contributors and project maintainers.
+            content=dedent(
+                f"""
+                Update the commit history documentation for repository '{owner}/{repo_name}'.
 
-CRITICAL OUTPUT REQUIREMENTS:
-- Output ONLY the markdown document content starting with the title (e.g., # Title)
-- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
-- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
-- The output should start directly with the markdown title and end with the last content line
-- No meta-commentary or generation information should be included"""
+                Existing doc path (for reference only, do NOT mention the path in output): {commit_doc_path}
+
+                Use the updated commit data below to adjust or extend the existing markdown:
+                {commit_info}
+                """
+            ).strip(),
         )
 
     @staticmethod
@@ -199,26 +163,21 @@ CRITICAL OUTPUT REQUIREMENTS:
         owner = repo_info.get("owner", "")
 
         return HumanMessage(
-            content=f"""Generate comprehensive pull request (PR) analysis documentation for the repository '{owner}/{repo_name}'.
+            content=dedent(
+                f"""
+                Generate pull request (PR) analysis documentation for repository '{owner}/{repo_name}'.
 
-Based on the following PR information, create a detailed analysis that includes:
-1. Overview of active and recent pull requests
-2. Common themes or areas of focus in PRs
-3. Review and merge patterns
-4. Contributor activity and collaboration insights
-5. Any pending or long-standing PRs that need attention
+                From the PR data below, write:
+                - Overview of recent and important PRs
+                - Common themes or focus areas
+                - Review and merge patterns
+                - Contributor and collaboration insights
+                - Any pending or long-lived PRs that need attention
 
-PR Information:
-{pr_info}
-
-Please structure the documentation with clear sections and highlight any important patterns or trends.
-
-CRITICAL OUTPUT REQUIREMENTS:
-- Output ONLY the markdown document content starting with the title (e.g., # Title)
-- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
-- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
-- The output should start directly with the markdown title and end with the last content line
-- No meta-commentary or generation information should be included"""
+                PR data:
+                {pr_info}
+                """
+            ).strip(),
         )
 
     @staticmethod
@@ -229,18 +188,16 @@ CRITICAL OUTPUT REQUIREMENTS:
         repo_name = repo_info.get("repo", "")
         owner = repo_info.get("owner", "")
         return HumanMessage(
-            content=f"""The pull request (PR) analysis documentation for the repository '{owner}/{repo_name}' needs to be updated based on new PR information. The previous documentation can be found at '{pr_doc_path}'.
-Based on the following updated PR information, please update the existing documentation to reflect the latest changes. Ensure that the documentation remains comprehensive and well-structured.
-Updated PR Information:
-{pr_info}
-Please structure the documentation with clear sections and highlight any important patterns or trends.
+            content=dedent(
+                f"""
+                Update the pull request (PR) analysis documentation for repository '{owner}/{repo_name}'.
 
-CRITICAL OUTPUT REQUIREMENTS:
-- Output ONLY the markdown document content starting with the title (e.g., # Title)
-- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
-- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
-- The output should start directly with the markdown title and end with the last content line
-- No meta-commentary or generation information should be included"""
+                Existing doc path (for reference only, do NOT mention the path in output): {pr_doc_path}
+
+                Use the updated PR data below to update or extend the existing markdown:
+                {pr_info}
+                """
+            ).strip(),
         )
 
     @staticmethod
@@ -252,26 +209,21 @@ CRITICAL OUTPUT REQUIREMENTS:
         owner = repo_info.get("owner", "")
 
         return HumanMessage(
-            content=f"""Generate comprehensive release history documentation for the repository '{owner}/{repo_name}'.
+            content=dedent(
+                f"""
+                Generate release history documentation for repository '{owner}/{repo_name}'.
 
-Based on the following release note information, create a detailed analysis that includes:
-1. Timeline of major releases and their key features
-2. Breaking changes and migration guides
-3. Performance improvements and bug fixes across versions
-4. Deprecations and future direction indicators
-5. Release frequency and versioning patterns
+                From the release data below, write:
+                - Timeline of major releases and key features
+                - Breaking changes and any migration guidance
+                - Performance improvements and bug fixes across versions
+                - Deprecations and hints about future direction
+                - Patterns in release frequency and versioning
 
-Release Information:
-{release_note_info}
-
-Please structure the documentation with clear sections and make it suitable for users planning upgrades.
-
-CRITICAL OUTPUT REQUIREMENTS:
-- Output ONLY the markdown document content starting with the title (e.g., # Title)
-- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
-- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
-- The output should start directly with the markdown title and end with the last content line
-- No meta-commentary or generation information should be included"""
+                Release data:
+                {release_note_info}
+                """
+            ).strip(),
         )
 
     @staticmethod
@@ -282,18 +234,16 @@ CRITICAL OUTPUT REQUIREMENTS:
         repo_name = repo_info.get("repo", "")
         owner = repo_info.get("owner", "")
         return HumanMessage(
-            content=f"""The release history documentation for the repository '{owner}/{repo_name}' needs to be updated based on new release note information. The previous documentation can be found at '{release_note_doc_path}'.
-Based on the following updated release note information, please update the existing documentation to reflect the latest changes. Ensure that the documentation remains comprehensive and well-structured.
-Updated Release Note Information:
-{release_note_info}
-Please structure the documentation with clear sections and make it suitable for users planning upgrades.
+            content=dedent(
+                f"""
+                Update the release history documentation for repository '{owner}/{repo_name}'.
 
-CRITICAL OUTPUT REQUIREMENTS:
-- Output ONLY the markdown document content starting with the title (e.g., # Title)
-- Do NOT include any introductory text, explanations, or closing remarks before or after the markdown content
-- Do NOT include phrases like "Of course", "Here is", "I'll generate", or any similar conversational text
-- The output should start directly with the markdown title and end with the last content line
-- No meta-commentary or generation information should be included"""
+                Existing doc path (for reference only, do NOT mention the path in output): {release_note_doc_path}
+
+                Use the updated release data below to update or extend the existing markdown:
+                {release_note_info}
+                """
+            ).strip(),
         )
 
     def repo_info_overview_node(self, state: dict):
