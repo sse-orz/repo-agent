@@ -2174,6 +2174,58 @@ def format_tree_sitter_analysis_results_to_prompt(stats: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_tree_sitter_analysis_results_to_prompt_without_description(
+    stats: Dict[str, Any],
+) -> str:
+    """Formats analysis statistics into a compact prompt string without descriptions.
+
+    This focuses only on function signatures (name, parameters, return type)
+    and outer dependencies, omitting any docstrings or textual descriptions.
+
+    Args:
+        stats (Dict[str, Any]): Raw statistics captured by the analyzers.
+
+    Returns:
+        str: Formatted string representation containing only functions and dependencies.
+    """
+    if not stats:
+        return "No analysis data available."
+
+    lines: List[str] = []
+
+    # Only keep function name, parameters and return type
+    functions = stats.get("functions", [])
+    if functions:
+        func_items = []
+        for func in functions:
+            params = ", ".join(
+                f"{param.get('name', '')}: {param.get('type', '')}".strip(": ")
+                for param in func.get("parameters", [])
+                if param.get("name")
+            )
+            ret_type = func.get("return_type", "")
+            ret_str = f" -> {ret_type}" if ret_type else ""
+            func_items.append(f"{func['name']}({params}){ret_str}")
+        if func_items:
+            lines.append("Functions: " + "; ".join(func_items))
+
+    # Also include dependencies, but without any descriptions
+    deps = stats.get("outer_dependencies", [])
+    if deps:
+        dep_items: List[str] = []
+        for dep in deps:
+            module = dep.get("module", "")
+            name = dep.get("name", "")
+            dep_str = f"{module}.{name}" if name else module
+            dep_str = dep_str.strip(".")
+            if dep_str and dep_str not in dep_items:  # avoid duplicates
+                dep_items.append(dep_str)
+        if dep_items:
+            lines.append("Dependencies: " + ", ".join(dep_items))
+
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     import sys
     import json
@@ -2189,12 +2241,26 @@ if __name__ == "__main__":
         if file_stats:
             # print(format_tree_sitter_analysis_results(file_stats))
             # write to a json file
-            with open("analysis_results.json", "w", encoding="utf-8") as f:
-                json.dump(format_tree_sitter_analysis_results(file_stats), f, indent=2)
-            print("Analysis results written to analysis_results.json")
+            # with open("analysis_results.json", "w", encoding="utf-8") as f:
+            # json.dump(format_tree_sitter_analysis_results(file_stats), f, indent=2)
+            # print("Analysis results written to analysis_results.json")
+            # write to a json file without description
+            with open(
+                "analysis_results_without_description.json", "w", encoding="utf-8"
+            ) as f:
+                json.dump(
+                    format_tree_sitter_analysis_results_to_prompt_without_description(
+                        file_stats
+                    ),
+                    f,
+                    indent=2,
+                )
+            print(
+                "Analysis results written to analysis_results_without_description.json"
+            )
             # write to a txt file
             # with open("analysis_results.txt", "w", encoding="utf-8") as f:
-            #     f.write(format_tree_sitter_analysis_results_to_prompt(file_stats))
+            # f.write(format_tree_sitter_analysis_results_to_prompt(file_stats))
             # print("Analysis results written to analysis_results.txt")
             # print(format_tree_sitter_analysis_results_to_prompt(file_stats))
             # print(json.dumps(format_tree_sitter_analysis_results(file_stats), indent=2))

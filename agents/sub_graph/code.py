@@ -19,8 +19,7 @@ from utils.file import (
 )
 from utils.code_analyzer import (
     analyze_file_with_tree_sitter,
-    format_tree_sitter_analysis_results,
-    format_tree_sitter_analysis_results_to_prompt,
+    format_tree_sitter_analysis_results_to_prompt_without_description,
 )
 from .utils import draw_graph, log_state
 from config import CONFIG
@@ -64,6 +63,11 @@ CRITICAL CONSTRAINTS:
 - Exclude documentation, config, test, build, and dependency files
 - Prioritize files central to the project's core functionality
 - Sort by relevance (most important first)
+- YOU MUST select file paths ONLY from the provided File Structure list below.
+- For every selected file, you MUST copy the path VERBATIM from the File Structure list:
+  - Do NOT change extensions (e.g., do NOT change .ts to .js).
+  - Do NOT change directory names or add/remove path segments.
+  - If you are unsure, always prefer a path that appears exactly in the File Structure list.
 
 Repository Information:
 {repo_info}
@@ -217,18 +221,74 @@ CRITICAL OUTPUT REQUIREMENTS:
                     for file_path in repo_structure
                     if file_path not in existing_code_files
                 ]
-                system_prompt = self._get_system_prompt()
-                human_prompt = self._get_code_filter_prompt(
-                    repo_info, repo_structure, max_num_files
-                )
-                llm = CONFIG.get_llm()
-                response = llm.invoke([system_prompt, human_prompt])
-                code_files = [
-                    line.strip()
-                    for line in response.content.splitlines()
-                    if line.strip()
-                ]
+                code_files: list[str] = []
+                files_num = len(repo_structure)
+                # if num of files is 10x more than max_num_files, call llm times to get max_num_files files
+                if files_num > 10 * max_num_files:
+                    # use thread pool to filter code files in parallel
+                    times = 4
+                    single_max_num_files = int(max_num_files / times)
 
+                    def _filter_single_chunk(
+                        chunk_repo_structure: list[str],
+                    ) -> list[str]:
+                        system_prompt = self._get_system_prompt()
+                        human_prompt = self._get_code_filter_prompt(
+                            repo_info, chunk_repo_structure, single_max_num_files
+                        )
+                        llm = CONFIG.get_llm()
+                        response = llm.invoke([system_prompt, human_prompt])
+                        result_files = [
+                            line.strip()
+                            for line in response.content.splitlines()
+                            if line.strip()
+                        ]
+                        if len(result_files) > single_max_num_files:
+                            result_files = result_files[:single_max_num_files]
+                        return result_files
+
+                    with ThreadPoolExecutor(max_workers=times) as executor:
+                        futures = []
+                        for i in range(times):
+                            start_idx = i * files_num // times
+                            end_idx = (i + 1) * files_num // times
+                            chunk = repo_structure[start_idx:end_idx]
+                            if not chunk:
+                                continue
+                            futures.append(executor.submit(_filter_single_chunk, chunk))
+
+                        for future in as_completed(futures):
+                            try:
+                                chunk_files = future.result()
+                                code_files.extend(chunk_files)
+                            except Exception as e:
+                                print(
+                                    f"   → [code_filter_node] Error filtering chunk: {str(e)}"
+                                )
+                else:
+                    system_prompt = self._get_system_prompt()
+                    human_prompt = self._get_code_filter_prompt(
+                        repo_info, repo_structure, max_num_files
+                    )
+                    llm = CONFIG.get_llm()
+                    response = llm.invoke([system_prompt, human_prompt])
+                    code_files = [
+                        line.strip()
+                        for line in response.content.splitlines()
+                        if line.strip()
+                    ]
+                # filter code files that are not in repo_structure
+                repo_files_set = set(repo_structure)
+                code_files = [f for f in code_files if f in repo_files_set]
+
+                # deduplicate code files
+                seen: set[str] = set()
+                deduped_code_files: list[str] = []
+                for f in code_files:
+                    if f not in seen:
+                        seen.add(f)
+                        deduped_code_files.append(f)
+                code_files = deduped_code_files
                 if len(code_files) > max_num_files:
                     print(
                         f"   → [code_filter_node] LLM returned {len(code_files)} files, limiting to {max_num_files}"
@@ -301,7 +361,9 @@ CRITICAL OUTPUT REQUIREMENTS:
             }
 
         analysis = analyze_file_with_tree_sitter(file_path_resolved)
-        formatted_analysis = format_tree_sitter_analysis_results_to_prompt(analysis)
+        formatted_analysis = (
+            format_tree_sitter_analysis_results_to_prompt_without_description(analysis)
+        )
 
         match_choice = _compare_size_between_content_and_analysis(
             content, formatted_analysis

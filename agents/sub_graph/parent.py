@@ -519,12 +519,12 @@ class ParentGraphBuilder:
 
 if __name__ == "__main__":
     # use "uv run python -m agents.sub_graph.parent" to run this file
-    parent_graph_builder = ParentGraphBuilder(branch_mode="all")
+    parent_graph_builder = ParentGraphBuilder(branch_mode="repo")
     date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     parent_graph_builder.run(
         inputs={
             "owner": "facebook",
-            "repo": "zstd",
+            "repo": "react",
             "platform": "github",
             "mode": "fast",  # "fast" or "smart"
             "max_workers": 50,  # 20 worker -> 3 - 4 minutes

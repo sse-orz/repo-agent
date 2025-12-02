@@ -40,6 +40,7 @@ def get_ignore_dirs(dir_path: str) -> List[str]:
     """
     default_ignore_dirs = [
         ".git",
+        ".github",
         "__pycache__",
         "node_modules",
         ".vscode",
@@ -168,6 +169,6 @@ def read_json(file_path: str) -> Optional[dict]:
 
 if __name__ == "__main__":
     # Example usage
-    repo_path = "./.repos/facebook_zstd"
+    repo_path = "./.repos/facebook_react"
     structure = get_repo_structure(repo_path)
     print(structure)
