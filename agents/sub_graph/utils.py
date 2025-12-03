@@ -1,5 +1,6 @@
 from langchain_core.runnables.graph import MermaidDrawMethod
 from datetime import datetime
+from typing import List
 import json
 import os
 
@@ -10,6 +11,8 @@ from utils.repo import (
 )
 from utils.file import (
     read_json,
+    get_ignore_dirs,
+    get_ignore_extensions,
 )
 
 
@@ -205,3 +208,55 @@ def compare_size_between_content_and_analysis(
         return "content"
     else:
         return "analysis"
+
+
+def get_repo_structure(repo_path: str) -> List[str]:
+    """Get the structure of a repository, returning a list of file paths.
+
+    Args:
+        repo_path (str): The path to the repository.
+    Returns:
+        List[str]: A list of file paths in the repository.
+    """
+    ignore_dirs = get_ignore_dirs(repo_path)
+    ignore_extensions = get_ignore_extensions()
+    file_paths = []
+    for root, dirs, files in os.walk(repo_path):
+        # Modify dirs in-place to skip ignored directories
+        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        for file in files:
+            if not any(file.endswith(ext) for ext in ignore_extensions):
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, repo_path)
+                file_paths.append(rel_path)
+    return file_paths
+
+
+def get_basic_repo_structure(repo_path: str) -> List[str]:
+    """
+    Get the structure of a repository, returning a list of directory paths.
+
+    Args:
+        repo_path (str): The path to the repository.
+    Returns:
+        List[str]: A list of directory paths in the repository.
+    """
+    ignore_dirs = get_ignore_dirs(repo_path)
+    result_dirs = []
+    for root, dirs, _ in os.walk(repo_path):
+        # Filter dirs in-place to skip ignored directories in os.walk
+        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        # Collect the filtered directories with full paths
+        for d in dirs:
+            full_path = os.path.join(root, d)
+            # Make path relative to repo_path
+            rel_path = os.path.relpath(full_path, repo_path)
+            result_dirs.append(rel_path)
+    return sorted(result_dirs)
+
+
+if __name__ == "__main__":
+    repo_path = "./.repos/facebook_zstd"
+    # basic_repo_structure = get_basic_repo_structure(repo_path)
+    repo_structure = get_repo_structure(repo_path)
+    print(repo_structure)

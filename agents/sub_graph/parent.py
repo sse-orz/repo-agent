@@ -7,13 +7,14 @@ import os
 import time
 
 from utils.repo import get_repo_info
-from utils.file import get_repo_structure
 from .utils import (
     log_state,
     get_updated_commit_info,
     get_updated_pr_info,
     get_updated_release_note_info,
     get_updated_code_files,
+    get_repo_structure,
+    get_basic_repo_structure,
 )
 from .repo import RepoInfoSubGraphBuilder
 from .code import CodeAnalysisSubGraphBuilder
@@ -99,6 +100,7 @@ class ParentGraphBuilder:
         date: str,
         log: bool,
         repo_info: dict | None,
+        basic_repo_structure: list[str] | None,
         repo_structure: dict | None,
         repo_root_path: str,
         wiki_root_path: str,
@@ -126,6 +128,7 @@ class ParentGraphBuilder:
             "repo_path": repo_path,
             "wiki_path": wiki_path,
             "repo_info": repo_info,
+            "basic_repo_structure": basic_repo_structure,
             "repo_structure": repo_structure,
         }
 
@@ -189,6 +192,7 @@ class ParentGraphBuilder:
         )
 
         repo_info = get_repo_info(owner, repo, platform=platform)
+        basic_repo_structure = get_basic_repo_structure(repo_path)
         repo_structure = get_repo_structure(repo_path)
 
         print(f"✓ [basic_info_node] repository initialized")
@@ -202,6 +206,7 @@ class ParentGraphBuilder:
             date=date,
             log=log,
             repo_info=repo_info,
+            basic_repo_structure=basic_repo_structure,
             repo_structure=repo_structure,
             repo_root_path=repo_root_path,
             wiki_root_path=wiki_root_path,
@@ -496,12 +501,12 @@ class ParentGraphBuilder:
 
 if __name__ == "__main__":
     # use "uv run python -m agents.sub_graph.parent" to run this file
-    parent_graph_builder = ParentGraphBuilder(branch_mode="all")
+    parent_graph_builder = ParentGraphBuilder(branch_mode="code")
     date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     parent_graph_builder.run(
         inputs={
-            "owner": "xudong7",
-            "repo": "tauri-rbook",
+            "owner": "facebook",
+            "repo": "react",
             "platform": "github",
             "mode": "fast",  # "fast" or "smart"
             "max_workers": 50,  # 20 worker -> 3 - 4 minutes

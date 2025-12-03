@@ -12,7 +12,7 @@ from utils.code_analyzer import (
     analyze_file_with_tree_sitter,
     format_tree_sitter_analysis_results_to_prompt_without_description,
 )
-from .utils import log_state, compare_size_between_content_and_analysis
+from .utils import log_state
 from config import CONFIG
 
 
@@ -87,7 +87,7 @@ class CodeAnalysisSubGraphBuilder:
         return HumanMessage(
             content=dedent(
                 f"""
-                Provide a concise summary (max 100 words) of the following code file content for '{file_path}'.
+                Provide a concise summary of the following code file content for '{file_path}'.
 
                 {content}
 
@@ -104,11 +104,32 @@ class CodeAnalysisSubGraphBuilder:
         return HumanMessage(
             content=dedent(
                 f"""
-                Provide a concise summary (max 100 words) of the following code analysis content for '{file_path}'.
+                Provide a concise summary of the following tree sitter analysis result for '{file_path}'.
 
                 {analysis_result}
 
                 Focus on: key functions/classes, main purpose, and important logic.
+                """
+            ).strip(),
+        )
+
+    @staticmethod
+    def _get_code_analysis_prompt_with_summary(
+        file_path: str, summary: str, analysis_result
+    ) -> HumanMessage:
+        # this func is to generate a prompt for code analysis with summary and analysis result
+        return HumanMessage(
+            content=dedent(
+                f"""
+                Provide a concise summary of the following file content summary and tree sitter analysis result for '{file_path}'.
+
+                - File Content Summary:
+                {summary}
+
+                - Tree Sitter Analysis Result:
+                {analysis_result}
+
+                Focus on: the overall purpose of the file, key functions/classes, and important logic, etc.
                 """
             ).strip(),
         )
@@ -147,18 +168,6 @@ class CodeAnalysisSubGraphBuilder:
         file_path: str, analysis: dict, summary: str
     ) -> HumanMessage:
         # this func is to generate a prompt for code documentation
-        file_path_resolved = resolve_path(file_path)
-        content = read_file(file_path_resolved)
-        match_choice = compare_size_between_content_and_analysis(content, analysis)
-        match match_choice:
-            case "content":
-                analysis = f"File Content:\n{content}"
-            case "analysis":
-                analysis = f"Analysis Result:\n{analysis}"
-        if summary:
-            summary = f"Analysis Summary:\n{summary}"
-        else:
-            summary = ""
         return HumanMessage(
             content=dedent(
                 f"""
@@ -171,11 +180,106 @@ class CodeAnalysisSubGraphBuilder:
                 - Dependencies and relationships with other files or modules
                 - Any helpful Mermaid diagrams to illustrate structure or flow (when appropriate)
 
+                Data:
+                - Tree Sitter Analysis Result:
                 {analysis}
+
+                - File Content Summary:
                 {summary}
                 """
             ).strip(),
         )
+
+    def _filter_single_chunk(
+        self, repo_info: dict, chunk_repo_structure: list[str], max_num_files: int
+    ) -> list[str]:
+        """Filter a single chunk of files using LLM.
+
+        Args:
+            repo_info: Repository information dictionary
+            chunk_repo_structure: List of file paths in this chunk
+            max_num_files: Maximum number of files to return
+
+        Returns:
+            List of filtered file paths
+        """
+        system_prompt = self._get_system_prompt()
+        human_prompt = self._get_code_filter_prompt(
+            repo_info, chunk_repo_structure, max_num_files
+        )
+        llm = CONFIG.get_llm()
+        response = llm.invoke([system_prompt, human_prompt])
+        result_files = [
+            line.strip() for line in response.content.splitlines() if line.strip()
+        ]
+        if len(result_files) > max_num_files:
+            result_files = result_files[:max_num_files]
+        return result_files
+
+    def _filter_code_files(
+        self,
+        repo_info: dict,
+        repo_structure: list[str],
+        max_num_files: int,
+        times: int = 2,
+        x_num: int = 10,
+    ) -> list[str]:
+        """Filter code files using LLM, with parallel processing for large file lists.
+
+        Args:
+            repo_info: Repository information dictionary
+            repo_structure: List of all file paths to filter
+            max_num_files: Maximum number of files to return
+            times: Number of times to call LLM
+            x_num: Number of times to multiply max_num_files to determine if to use parallel processing
+        Returns:
+            List of filtered file paths
+        """
+        files_num = len(repo_structure)
+        code_files: list[str] = []
+
+        # if num of files is 10x more than max_num_files, call llm times to get max_num_files files
+        if files_num > x_num * max_num_files:
+            # use thread pool to filter code files in parallel
+            single_max_num_files = int(max_num_files / times)
+
+            with ThreadPoolExecutor(max_workers=times) as executor:
+                futures = []
+                for i in range(times):
+                    start_idx = i * files_num // times
+                    end_idx = (i + 1) * files_num // times
+                    chunk = repo_structure[start_idx:end_idx]
+                    if not chunk:
+                        continue
+                    futures.append(
+                        executor.submit(
+                            self._filter_single_chunk,
+                            repo_info,
+                            chunk,
+                            single_max_num_files,
+                        )
+                    )
+
+                for future in as_completed(futures):
+                    try:
+                        chunk_files = future.result()
+                        code_files.extend(chunk_files)
+                    except Exception as e:
+                        print(
+                            f"   → [code_filter_node] Error filtering chunk: {str(e)}"
+                        )
+        else:
+            system_prompt = self._get_system_prompt()
+            human_prompt = self._get_code_filter_prompt(
+                repo_info, repo_structure, max_num_files
+            )
+            llm = CONFIG.get_llm()
+            response = llm.invoke([system_prompt, human_prompt])
+            code_files = [
+                line.strip() for line in response.content.splitlines() if line.strip()
+            ]
+
+        return code_files
 
     def code_filter_node(self, state: dict):
         # this node is to filter code files for analysis
@@ -202,6 +306,7 @@ class CodeAnalysisSubGraphBuilder:
                     f"   → [code_filter_node] using mode '{mode}' with max {max_num_files} files for analysis"
                 )
                 repo_info = basic_info_for_code.get("repo_info", {})
+                repo_path = basic_info_for_code.get("repo_path", "")
                 repo_structure = basic_info_for_code.get("repo_structure", [])
                 code_update_log_path = basic_info_for_code.get(
                     "code_update_log_path", ""
@@ -211,70 +316,30 @@ class CodeAnalysisSubGraphBuilder:
                     if read_json(code_update_log_path)
                     else []
                 )
+                # remove prefix path from existing code files
+                existing_code_files = [
+                    file_path.replace(repo_path, "")
+                    for file_path in existing_code_files
+                ]
                 repo_structure = [
                     file_path
                     for file_path in repo_structure
                     if file_path not in existing_code_files
                 ]
-                code_files: list[str] = []
-                files_num = len(repo_structure)
-                # if num of files is 10x more than max_num_files, call llm times to get max_num_files files
-                if files_num > 10 * max_num_files:
-                    # use thread pool to filter code files in parallel
-                    times = 4
-                    single_max_num_files = int(max_num_files / times)
 
-                    def _filter_single_chunk(
-                        chunk_repo_structure: list[str],
-                    ) -> list[str]:
-                        system_prompt = self._get_system_prompt()
-                        human_prompt = self._get_code_filter_prompt(
-                            repo_info, chunk_repo_structure, single_max_num_files
-                        )
-                        llm = CONFIG.get_llm()
-                        response = llm.invoke([system_prompt, human_prompt])
-                        result_files = [
-                            line.strip()
-                            for line in response.content.splitlines()
-                            if line.strip()
-                        ]
-                        if len(result_files) > single_max_num_files:
-                            result_files = result_files[:single_max_num_files]
-                        return result_files
+                # Filter code files using LLM
+                code_files = self._filter_code_files(
+                    repo_info, repo_structure, max_num_files
+                )
 
-                    with ThreadPoolExecutor(max_workers=times) as executor:
-                        futures = []
-                        for i in range(times):
-                            start_idx = i * files_num // times
-                            end_idx = (i + 1) * files_num // times
-                            chunk = repo_structure[start_idx:end_idx]
-                            if not chunk:
-                                continue
-                            futures.append(executor.submit(_filter_single_chunk, chunk))
-
-                        for future in as_completed(futures):
-                            try:
-                                chunk_files = future.result()
-                                code_files.extend(chunk_files)
-                            except Exception as e:
-                                print(
-                                    f"   → [code_filter_node] Error filtering chunk: {str(e)}"
-                                )
-                else:
-                    system_prompt = self._get_system_prompt()
-                    human_prompt = self._get_code_filter_prompt(
-                        repo_info, repo_structure, max_num_files
-                    )
-                    llm = CONFIG.get_llm()
-                    response = llm.invoke([system_prompt, human_prompt])
-                    code_files = [
-                        line.strip()
-                        for line in response.content.splitlines()
-                        if line.strip()
-                    ]
                 # filter code files that are not in repo_structure
+                # add prefix path to code files
                 repo_files_set = set(repo_structure)
-                code_files = [f for f in code_files if f in repo_files_set]
+                code_files = [
+                    os.path.join(repo_path, f)
+                    for f in code_files
+                    if f in repo_files_set
+                ]
 
                 # deduplicate code files
                 seen: set[str] = set()
@@ -344,29 +409,26 @@ class CodeAnalysisSubGraphBuilder:
                 "summary": "File could not be read or is empty.",
             }
 
+        # summarize the content of the file
+        summary_prompt = self._get_code_analysis_prompt_with_content(file_path, content)
+        summary_response = llm.invoke([summary_prompt])
+        summary = summary_response.content
+
         analysis = analyze_file_with_tree_sitter(file_path_resolved)
         formatted_analysis = (
             format_tree_sitter_analysis_results_to_prompt_without_description(analysis)
         )
 
-        match_choice = compare_size_between_content_and_analysis(
-            content, formatted_analysis
+        # add summary and analysis to prompt to generate final summary
+        final_summary_prompt = self._get_code_analysis_prompt_with_summary(
+            file_path, summary, formatted_analysis
         )
-
-        match match_choice:
-            case "content":
-                summary_prompt = self._get_code_analysis_prompt_with_content(
-                    file_path, content
-                )
-            case "analysis":
-                summary_prompt = self._get_code_analysis_prompt_with_analysis(
-                    file_path, formatted_analysis
-                )
-        summary_response = llm.invoke([summary_prompt])
+        final_summary_response = llm.invoke([final_summary_prompt])
+        final_summary = final_summary_response.content
 
         return file_path, {
             "analysis": formatted_analysis,
-            "summary": summary_response.content,
+            "summary": final_summary,
         }
 
     def _generate_single_file_doc(
