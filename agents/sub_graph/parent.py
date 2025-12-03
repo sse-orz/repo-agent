@@ -505,9 +505,9 @@ if __name__ == "__main__":
     date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     parent_graph_builder.run(
         inputs={
-            "owner": "facebook",
-            "repo": "react",
-            "platform": "github",
+            "owner": "squatting-at-home123",
+            "repo": "back-puppet",
+            "platform": "gitee",
             "mode": "fast",  # "fast" or "smart"
             "max_workers": 50,  # 20 worker -> 3 - 4 minutes
             "date": date,

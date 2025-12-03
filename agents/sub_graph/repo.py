@@ -258,7 +258,9 @@ class RepoInfoSubGraphBuilder:
         pr_info = state.get("pr_info", {})
         release_note_info = state.get("release_note_info", {})
         repo_info = basic_info_for_repo.get("repo_info", {})
+        repo_path = basic_info_for_repo.get("repo_path", "")
         repo_structure = basic_info_for_repo.get("repo_structure", [])
+
         overview_doc_path = basic_info_for_repo.get("overview_doc_path", "")
         os.makedirs(os.path.dirname(overview_doc_path), exist_ok=True)
 
@@ -285,8 +287,11 @@ class RepoInfoSubGraphBuilder:
             print(
                 "   → [repo_info_overview_node] generating overall documentation without updates..."
             )
+            # add prefix path to doc source files
             doc_source_files = [
-                file_path for file_path in repo_structure if file_path.endswith(".md")
+                os.path.join(repo_path, file_path)
+                for file_path in repo_structure
+                if file_path.endswith(".md")
             ]
             doc_contents = []
             for file_path in doc_source_files:

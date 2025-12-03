@@ -1,4 +1,5 @@
 from langchain_core.runnables.graph import MermaidDrawMethod
+from langchain_core.messages import BaseMessage
 from datetime import datetime
 from typing import List
 import json
@@ -14,6 +15,7 @@ from utils.file import (
     get_ignore_dirs,
     get_ignore_extensions,
 )
+from config import CONFIG
 
 
 def draw_graph(graph):
@@ -253,6 +255,12 @@ def get_basic_repo_structure(repo_path: str) -> List[str]:
             rel_path = os.path.relpath(full_path, repo_path)
             result_dirs.append(rel_path)
     return sorted(result_dirs)
+
+
+def call_llm(prompt: List[BaseMessage]) -> str:
+    llm = CONFIG.get_llm()
+    response = llm.invoke(prompt)
+    return response.content
 
 
 if __name__ == "__main__":

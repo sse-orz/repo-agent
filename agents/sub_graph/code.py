@@ -1,18 +1,16 @@
 from typing_extensions import TypedDict
 from langgraph.graph.state import StateGraph, START
-from langchain_core.messages import HumanMessage, SystemMessage
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from textwrap import dedent
 import json
 import os
-import time
 
 from utils.file import write_file, read_file, resolve_path, read_json
 from utils.code_analyzer import (
     analyze_file_with_tree_sitter,
     format_tree_sitter_analysis_results_to_prompt_without_description,
 )
-from .utils import log_state
+from .utils import log_state, call_llm
+from .prompt import CodePrompt
 from config import CONFIG
 
 
@@ -28,168 +26,6 @@ class CodeAnalysisSubGraphBuilder:
     def __init__(self):
         self.graph = self.build()
 
-    @staticmethod
-    def _get_system_prompt():
-        # this func is to generate a system prompt for code filtering
-        return SystemMessage(
-            content=dedent(
-                """
-                You are an expert code analyst specializing in identifying relevant code files for static analysis.
-                Your role is to analyze the provided repository information and file structure
-                to select files that are most pertinent for in-depth examination.
-
-                Guidelines:
-                - Focus on source code files with extensions like .py, .js, .go, .cpp, .java, .rs, .c, .h, .hpp
-                - Exclude documentation, configuration, and non-code files
-                - Use the repository context to prioritize files central to core functionality
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _get_code_filter_prompt(
-        repo_info: dict, repo_structure: list[str], max_num_files: int
-    ) -> HumanMessage:
-        # this func is to generate a prompt for code filtering
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Based on the repository information and file structure below, identify EXACTLY {max_num_files}
-                code files (or fewer if fewer exist) that are most relevant for static analysis.
-
-                Critical constraints:
-                - Return at most {max_num_files} file paths
-                - Focus on source code files (.py, .js, .go, .cpp, .java, .rs, .c, .h, .hpp, .ts)
-                - Exclude documentation, config, test, build, and dependency files
-                - Prioritize files central to the project's core functionality
-                - Sort by relevance (most important first)
-                - Select paths ONLY from the File Structure list below and copy them verbatim
-                  (no changes to extensions, directory names, or segments)
-
-                Repository information:
-                {repo_info}
-
-                File structure:
-                {repo_structure}
-
-                Output format:
-                - Output ONLY file paths, one per line
-                - No descriptions, headers, numbering, or extra text
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _get_code_analysis_prompt_with_content(
-        file_path: str, content: str
-    ) -> HumanMessage:
-        # this func is to generate a prompt for code analysis with content
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Provide a concise summary of the following code file content for '{file_path}'.
-
-                {content}
-
-                Focus on: key functions/classes, main purpose, and important logic.
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _get_code_analysis_prompt_with_analysis(
-        file_path: str, analysis_result
-    ) -> HumanMessage:
-        # this func is to generate a prompt for code analysis with analysis result
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Provide a concise summary of the following tree sitter analysis result for '{file_path}'.
-
-                {analysis_result}
-
-                Focus on: key functions/classes, main purpose, and important logic.
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _get_code_analysis_prompt_with_summary(
-        file_path: str, summary: str, analysis_result
-    ) -> HumanMessage:
-        # this func is to generate a prompt for code analysis with summary and analysis result
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Provide a concise summary of the following file content summary and tree sitter analysis result for '{file_path}'.
-
-                - File Content Summary:
-                {summary}
-
-                - Tree Sitter Analysis Result:
-                {analysis_result}
-
-                Focus on: the overall purpose of the file, key functions/classes, and important logic, etc.
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _get_system_prompt_for_doc():
-        # this func is to generate a system prompt for code documentation generation
-        return SystemMessage(
-            content=dedent(
-                """
-                You are an expert technical documentation writer for source code.
-                Your job is to turn code and analysis results into clear, structured **Markdown documentation**
-                that explains the codebase structure, functionality, and architecture.
-
-                Guidelines:
-                - Use Markdown headings, lists, and tables when helpful
-                - Be concise yet informative
-                - Highlight key components and their relationships
-                - Organize content into logical sections with clear titles
-                - Include code snippets and examples when they add clarity
-                - Document important algorithms and design patterns
-                - When diagrams are requested or helpful, use valid Mermaid code blocks (```mermaid ... ```).
-
-                Critical output rules:
-                - Output ONLY the final markdown document, starting directly with the title line (e.g., "# Title")
-                - Do NOT include introductory phrases, explanations, or closing remarks
-                - Do NOT add text like "Of course", "Here is", "I'll generate", etc.
-                - The response must begin with the markdown title and end with the last content line
-                - No meta-commentary, generation notes, or additional context outside the markdown content
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _get_code_doc_prompt(
-        file_path: str, analysis: dict, summary: str
-    ) -> HumanMessage:
-        # this func is to generate a prompt for code documentation
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Generate documentation for the code file '{file_path}'.
-
-                Use the data below to write a markdown document that covers:
-                - The file's overall purpose and main responsibilities
-                - Key functions/classes and what they do
-                - Important algorithms or design decisions
-                - Dependencies and relationships with other files or modules
-                - Any helpful Mermaid diagrams to illustrate structure or flow (when appropriate)
-
-                Data:
-                - Tree Sitter Analysis Result:
-                {analysis}
-
-                - File Content Summary:
-                {summary}
-                """
-            ).strip(),
-        )
-
     def _filter_single_chunk(
         self, repo_info: dict, chunk_repo_structure: list[str], max_num_files: int
     ) -> list[str]:
@@ -203,18 +39,16 @@ class CodeAnalysisSubGraphBuilder:
         Returns:
             List of filtered file paths
         """
-        system_prompt = self._get_system_prompt()
-        human_prompt = self._get_code_filter_prompt(
-            repo_info, chunk_repo_structure, max_num_files
+        content = call_llm(
+            [
+                CodePrompt._get_system_prompt_for_filter(),  # system prompt
+                CodePrompt._get_human_prompt_for_filter(
+                    repo_info, chunk_repo_structure, max_num_files
+                ),  # human prompt
+            ]
         )
-        llm = CONFIG.get_llm()
-        response = llm.invoke([system_prompt, human_prompt])
-        result_files = [
-            line.strip() for line in response.content.splitlines() if line.strip()
-        ]
-        if len(result_files) > max_num_files:
-            result_files = result_files[:max_num_files]
-        return result_files
+        code_files = [line.strip() for line in content.splitlines() if line.strip()]
+        return code_files
 
     def _filter_code_files(
         self,
@@ -240,7 +74,6 @@ class CodeAnalysisSubGraphBuilder:
 
         # if num of files is 10x more than max_num_files, call llm times to get max_num_files files
         if files_num > x_num * max_num_files:
-            # use thread pool to filter code files in parallel
             single_max_num_files = int(max_num_files / times)
 
             with ThreadPoolExecutor(max_workers=times) as executor:
@@ -269,16 +102,84 @@ class CodeAnalysisSubGraphBuilder:
                             f"   → [code_filter_node] Error filtering chunk: {str(e)}"
                         )
         else:
-            system_prompt = self._get_system_prompt()
-            human_prompt = self._get_code_filter_prompt(
-                repo_info, repo_structure, max_num_files
+            content = call_llm(
+                [
+                    CodePrompt._get_system_prompt_for_filter(),  # system prompt
+                    CodePrompt._get_human_prompt_for_filter(
+                        repo_info, repo_structure, max_num_files
+                    ),  # human prompt
+                ]
             )
-            llm = CONFIG.get_llm()
-            response = llm.invoke([system_prompt, human_prompt])
-            code_files = [
-                line.strip() for line in response.content.splitlines() if line.strip()
-            ]
+            code_files = [line.strip() for line in content.splitlines() if line.strip()]
 
+        return code_files
+
+    def _preprocess_code_files(
+        self, code_update_log_path: str, repo_path: str, repo_structure: list[str]
+    ) -> list[str]:
+        """
+        Preprocess the code files to:
+        1. Get the existing code files from the code update log
+        2. Remove prefix path from existing code files
+        3. Remove existing code files from repo structure
+        4. Return the repo structure
+        Args:
+            code_update_log_path: Path to the code update log
+            repo_path: Path to the repository
+            repo_structure: List of all file paths in the repository
+        Returns:
+            List of repo structure
+        """
+        existing_code_files = (
+            read_json(code_update_log_path).get("code_files", [])
+            if read_json(code_update_log_path)
+            else []
+        )
+        # remove prefix path from existing code files
+        existing_code_files = [
+            file_path.replace(repo_path, "") for file_path in existing_code_files
+        ]
+        repo_structure = [
+            file_path
+            for file_path in repo_structure
+            if file_path not in existing_code_files
+        ]
+        return repo_structure
+
+    def _postprocess_code_files(
+        self,
+        repo_structure: list[str],
+        code_files: list[str],
+        repo_path: str,
+        max_num_files: int,
+    ) -> list[str]:
+        """
+        Postprocess the code files to:
+        1. Deduplicate code files
+        2. Add prefix path to code files
+        3. Limit the number of code files to max_num_files
+        4. Return the code files
+        Args:
+            repo_structure: List of all file paths in the repository
+            code_files: List of code files to postprocess
+            repo_path: Path to the repository
+            max_num_files: Maximum number of code files to return
+        Returns:
+            List of postprocessed code files
+        """
+        repo_files_set = set(repo_structure)
+        code_files = [
+            os.path.join(repo_path, f) for f in code_files if f in repo_files_set
+        ]
+        seen: set[str] = set()
+        deduped_code_files: list[str] = []
+        for f in code_files:
+            if f not in seen:
+                seen.add(f)
+                deduped_code_files.append(f)
+        code_files = deduped_code_files
+        if len(code_files) > max_num_files:
+            code_files = code_files[:max_num_files]
         return code_files
 
     def code_filter_node(self, state: dict):
@@ -311,49 +212,21 @@ class CodeAnalysisSubGraphBuilder:
                 code_update_log_path = basic_info_for_code.get(
                     "code_update_log_path", ""
                 )
-                existing_code_files = (
-                    read_json(code_update_log_path).get("code_files", [])
-                    if read_json(code_update_log_path)
-                    else []
+
+                # Preprocess repo structure: remove existing code files from repo structure
+                repo_structure = self._preprocess_code_files(
+                    code_update_log_path, repo_path, repo_structure
                 )
-                # remove prefix path from existing code files
-                existing_code_files = [
-                    file_path.replace(repo_path, "")
-                    for file_path in existing_code_files
-                ]
-                repo_structure = [
-                    file_path
-                    for file_path in repo_structure
-                    if file_path not in existing_code_files
-                ]
 
                 # Filter code files using LLM
                 code_files = self._filter_code_files(
                     repo_info, repo_structure, max_num_files
                 )
 
-                # filter code files that are not in repo_structure
-                # add prefix path to code files
-                repo_files_set = set(repo_structure)
-                code_files = [
-                    os.path.join(repo_path, f)
-                    for f in code_files
-                    if f in repo_files_set
-                ]
-
-                # deduplicate code files
-                seen: set[str] = set()
-                deduped_code_files: list[str] = []
-                for f in code_files:
-                    if f not in seen:
-                        seen.add(f)
-                        deduped_code_files.append(f)
-                code_files = deduped_code_files
-                if len(code_files) > max_num_files:
-                    print(
-                        f"   → [code_filter_node] LLM returned {len(code_files)} files, limiting to {max_num_files}"
-                    )
-                    code_files = code_files[:max_num_files]
+                # Postprocess code files: add prefix path to code files and deduplicate code files
+                code_files = self._postprocess_code_files(
+                    repo_structure, code_files, repo_path, max_num_files
+                )
 
                 print(
                     f"   → [code_filter_node] {len(code_files)} code files generated for analysis (max: {max_num_files})"
@@ -395,57 +268,76 @@ class CodeAnalysisSubGraphBuilder:
     def _analyze_single_file(
         self, file_path: str, idx: int, total: int
     ) -> tuple[str, dict]:
-        # this func is to analyze a single code file
-        print(f"   → [code_analysis_node] analyzing file {file_path} ({idx}/{total})")
+        """
+        Analyze a single code file and return results.
+        This method will be called concurrently for each file.
 
-        llm = CONFIG.get_llm()
+        Args:
+            file_path: Path to the code file
+            idx: Index of the file in the list
+            total: Total number of files
+        Returns:
+            tuple[str, dict]: file_path and its analysis results.
+        """
+        print(f"   → [code_analysis_node] analyzing file {file_path} ({idx}/{total})")
 
         file_path_resolved = resolve_path(file_path)
         content = read_file(file_path_resolved)
-
-        if not content:
-            return file_path, {
-                "analysis": "File could not be read or is empty.",
-                "summary": "File could not be read or is empty.",
-            }
+        analysis = analyze_file_with_tree_sitter(file_path_resolved)
 
         # summarize the content of the file
-        summary_prompt = self._get_code_analysis_prompt_with_content(file_path, content)
-        summary_response = llm.invoke([summary_prompt])
-        summary = summary_response.content
+        summary = call_llm(
+            [
+                CodePrompt._get_system_prompt_for_analysis(),  # system prompt
+                CodePrompt._get_human_prompt_for_analysis_with_content(
+                    file_path, content
+                ),  # human prompt
+            ]
+        )
 
-        analysis = analyze_file_with_tree_sitter(file_path_resolved)
+        # TODO: temp debug: save the summary to a file for debugging
+        # remove this after debugging
+        write_file(f"./.logs/{file_path.replace('/', '_')}_summary.md", summary)
+
+        # format the analysis results
         formatted_analysis = (
             format_tree_sitter_analysis_results_to_prompt_without_description(analysis)
         )
 
-        # add summary and analysis to prompt to generate final summary
-        final_summary_prompt = self._get_code_analysis_prompt_with_summary(
-            file_path, summary, formatted_analysis
-        )
-        final_summary_response = llm.invoke([final_summary_prompt])
-        final_summary = final_summary_response.content
-
         return file_path, {
             "analysis": formatted_analysis,
-            "summary": final_summary,
+            "summary": summary,
         }
 
     def _generate_single_file_doc(
         self, file_path: str, analysis: dict, summary: str, idx: int, total: int
     ) -> tuple[str, str]:
-        # this func is to generate documentation for a single code file
+        """
+        Generate documentation for a single code file.
+        This method will be called concurrently for each file.
+
+        Args:
+            file_path: Path to the code file
+            analysis: Analysis results
+            summary: Summary of the file
+            idx: Index of the file in the list
+            total: Total number of files
+        Returns:
+            tuple[str, str]: file_path and its documentation content.
+        """
         print(
             f"   → [code_analysis_node] generating documentation for {file_path} ({idx}/{total})"
         )
-        llm = CONFIG.get_llm()
-
-        system_prompt = self._get_system_prompt_for_doc()
-        human_prompt = self._get_code_doc_prompt(file_path, analysis, summary)
-
         try:
-            response = llm.invoke([system_prompt, human_prompt])
-            return file_path, response.content
+            content = call_llm(
+                [
+                    CodePrompt._get_system_prompt_for_doc(),  # system prompt
+                    CodePrompt._get_human_prompt_for_doc(
+                        file_path, analysis, summary
+                    ),  # human prompt
+                ]
+            )
+            return file_path, content
         except Exception as e:
             print(
                 f"   → [code_analysis_node] Error generating documentation for {file_path}: {str(e)}"
@@ -461,7 +353,20 @@ class CodeAnalysisSubGraphBuilder:
         idx: int,
         total: int,
     ) -> tuple[str, bool]:
-        # this func is to write the generated documentation to a file
+        """
+        Write the generated documentation to a file.
+        This method will be called concurrently for each file.
+
+        Args:
+            file_path: Path to the code file
+            doc_content: Documentation content
+            wiki_path: Path to the wiki directory
+            repo_path: Path to the repository
+            idx: Index of the file in the list
+            total: Total number of files
+        Returns:
+            tuple[str, bool]: file_path and success status.
+        """
         try:
             rel_file_path = file_path
             if file_path.startswith(repo_path):
@@ -491,7 +396,19 @@ class CodeAnalysisSubGraphBuilder:
     def _single_thread_process(
         self, file_path: str, idx: int, total: int, wiki_path: str, repo_path: str
     ) -> tuple[str, bool]:
-        # this func is to process a single code file in a single thread
+        """
+        Process a single code file in a single thread.
+        This method will be called concurrently for each file.
+
+        Args:
+            file_path: Path to the code file
+            idx: Index of the file in the list
+            total: Total number of files
+            wiki_path: Path to the wiki directory
+            repo_path: Path to the repository
+        Returns:
+            tuple[str, bool]: file_path and success status.
+        """
         try:
             file_path, analysis_result = self._analyze_single_file(
                 file_path, idx, total
