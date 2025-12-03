@@ -9,7 +9,7 @@ from utils.code_analyzer import (
     analyze_file_with_tree_sitter,
     format_tree_sitter_analysis_results_to_prompt_without_description,
 )
-from .utils import log_state, call_llm
+from .utils import log_state, call_llm, count_tokens, get_llm_max_tokens
 from .prompt import CodePrompt
 from config import CONFIG
 
@@ -56,7 +56,6 @@ class CodeAnalysisSubGraphBuilder:
         repo_structure: list[str],
         max_num_files: int,
         times: int = 2,
-        x_num: int = 10,
     ) -> list[str]:
         """Filter code files using LLM, with parallel processing for large file lists.
 
@@ -65,15 +64,15 @@ class CodeAnalysisSubGraphBuilder:
             repo_structure: List of all file paths to filter
             max_num_files: Maximum number of files to return
             times: Number of times to call LLM
-            x_num: Number of times to multiply max_num_files to determine if to use parallel processing
         Returns:
             List of filtered file paths
         """
         files_num = len(repo_structure)
         code_files: list[str] = []
 
-        # if num of files is 10x more than max_num_files, call llm times to get max_num_files files
-        if files_num > x_num * max_num_files:
+        repo_structure_tokens = count_tokens(str(repo_structure))
+        if repo_structure_tokens > get_llm_max_tokens(compress_ratio=0.90):
+            # if the tokens of the repo structure are more than 90% of the max tokens, call llm times to get max_num_files files
             single_max_num_files = int(max_num_files / times)
 
             with ThreadPoolExecutor(max_workers=times) as executor:
@@ -130,11 +129,8 @@ class CodeAnalysisSubGraphBuilder:
         Returns:
             List of repo structure
         """
-        existing_code_files = (
-            read_json(code_update_log_path).get("code_files", [])
-            if read_json(code_update_log_path)
-            else []
-        )
+        data = read_json(code_update_log_path)
+        existing_code_files = data.get("code_files", []) if data else []
         # remove prefix path from existing code files
         existing_code_files = [
             file_path.replace(repo_path, "") for file_path in existing_code_files
@@ -182,15 +178,18 @@ class CodeAnalysisSubGraphBuilder:
             code_files = code_files[:max_num_files]
         return code_files
 
+    @staticmethod
+    def _get_max_num_files(
+        mode: str, repo_structure_len: int, ratios: dict[str, float]
+    ) -> int:
+        if mode == "smart":
+            return int(repo_structure_len * ratios.get("smart", 0.75))
+        else:
+            return int(repo_structure_len * ratios.get("fast", 0.25))
+
     def code_filter_node(self, state: dict):
         # this node is to filter code files for analysis
         log_state(state)
-
-        def get_max_num_files(mode: str) -> int:
-            if mode == "smart":
-                return 100
-            else:
-                return 20
 
         print("→ [code_filter_node] Processing code_filter_node...")
         basic_info_for_code = state.get("basic_info_for_code", {})
@@ -201,11 +200,6 @@ class CodeAnalysisSubGraphBuilder:
                 print("   → [code_filter_node] using updated code files for analysis")
             case False:
                 print("   → [code_filter_node] filtering code files for analysis...")
-                mode = basic_info_for_code.get("mode", "fast")
-                max_num_files = get_max_num_files(mode)
-                print(
-                    f"   → [code_filter_node] using mode '{mode}' with max {max_num_files} files for analysis"
-                )
                 repo_info = basic_info_for_code.get("repo_info", {})
                 repo_path = basic_info_for_code.get("repo_path", "")
                 repo_structure = basic_info_for_code.get("repo_structure", [])
@@ -216,6 +210,21 @@ class CodeAnalysisSubGraphBuilder:
                 # Preprocess repo structure: remove existing code files from repo structure
                 repo_structure = self._preprocess_code_files(
                     code_update_log_path, repo_path, repo_structure
+                )
+
+                mode = basic_info_for_code.get("mode", "fast")
+                ratios = basic_info_for_code.get(
+                    "ratios",
+                    {
+                        "fast": 0.25,
+                        "smart": 0.75,
+                    },
+                )
+                max_num_files = self._get_max_num_files(
+                    mode, len(repo_structure), ratios
+                )
+                print(
+                    f"   → [code_filter_node] using mode '{mode}' with max {max_num_files} files for analysis"
                 )
 
                 # Filter code files using LLM
@@ -285,19 +294,20 @@ class CodeAnalysisSubGraphBuilder:
         content = read_file(file_path_resolved)
         analysis = analyze_file_with_tree_sitter(file_path_resolved)
 
-        # summarize the content of the file
-        summary = call_llm(
-            [
-                CodePrompt._get_system_prompt_for_analysis(),  # system prompt
-                CodePrompt._get_human_prompt_for_analysis_with_content(
-                    file_path, content
-                ),  # human prompt
-            ]
-        )
-
-        # TODO: temp debug: save the summary to a file for debugging
-        # remove this after debugging
-        write_file(f"./.logs/{file_path.replace('/', '_')}_summary.md", summary)
+        # count the tokens in the content
+        content_tokens = count_tokens(content)
+        # summarize the content of the file if the tokens are more than 90% of the max tokens
+        if content_tokens > get_llm_max_tokens(compress_ratio=0.90):
+            summary = call_llm(
+                [
+                    CodePrompt._get_system_prompt_for_analysis(),  # system prompt
+                    CodePrompt._get_human_prompt_for_analysis_with_content(
+                        file_path, content
+                    ),  # human prompt
+                ]
+            )
+        else:
+            summary = content
 
         # format the analysis results
         formatted_analysis = (
@@ -449,7 +459,7 @@ class CodeAnalysisSubGraphBuilder:
         wiki_path = basic_info_for_code.get("wiki_path", "./.wikis/default")
         repo_path = basic_info_for_code.get("repo_path", "./.repos")
 
-        max_workers = min(state.get("max_workers", 10), len(code_files))
+        max_workers = min(basic_info_for_code.get("max_workers", 10), len(code_files))
 
         print(
             f"→ [code_analysis_node] Analyzing {len(code_files)} code files with {max_workers} workers"

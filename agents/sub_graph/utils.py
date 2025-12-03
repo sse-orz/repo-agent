@@ -2,6 +2,7 @@ from langchain_core.runnables.graph import MermaidDrawMethod
 from langchain_core.messages import BaseMessage
 from datetime import datetime
 from typing import List
+import tiktoken
 import json
 import os
 
@@ -263,8 +264,46 @@ def call_llm(prompt: List[BaseMessage]) -> str:
     return response.content
 
 
+def count_tokens(content: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    return len(encoding.encode(content))
+
+
+def get_llm_max_tokens(compress_ratio: float = 0.90) -> int:
+    # get the max tokens of the llm
+    model_name = CONFIG.LLM_MODEL
+    tokens = 128_000
+    match model_name:
+        case "gpt-4o":
+            tokens = 128_000
+        case "claude-4.5-sonnet":
+            tokens = 200_000
+        case "deepseek-chat":
+            tokens = 128_000
+        case "gemini-2.5-pro":
+            tokens = 1_000_000
+        case "qwen2.5:7b":
+            tokens = 32_000
+        case "MiniMax-M2":
+            tokens = 128_000
+        case "GLM-4.5":
+            tokens = 128_000
+        case _:
+            pass
+    return int(tokens * compress_ratio)
+
+
 if __name__ == "__main__":
-    repo_path = "./.repos/facebook_zstd"
+    repo_path = "./.repos/facebook_react"
     # basic_repo_structure = get_basic_repo_structure(repo_path)
+    # repo_structure = get_repo_structure(repo_path)
+    # print(repo_structure)
+    # file_path = "./.repos/facebook_zstd/lib/compress/zstd_compress.c"
+    # from utils.file import read_file
+    # content = read_file(file_path)
+    # print(count_tokens(content))
+    from .utils import get_repo_structure
+
     repo_structure = get_repo_structure(repo_path)
     print(repo_structure)
+    print(count_tokens(str(repo_structure)))
