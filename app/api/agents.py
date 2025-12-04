@@ -5,7 +5,7 @@ from threading import Thread
 import asyncio
 
 from app.models.common import BaseResponse
-from app.models.agents import GenerateRequestWrapper
+from app.models.agents import GenerateRequestWrapper, WikiFilesResponse, AgentMode
 from app.services.agent_service import AgentService
 
 router = APIRouter()
@@ -98,6 +98,9 @@ async def generate_agent_documentation_stream(
                             if result_container["data"]
                             else None
                         )
+                        # Add completion flag for frontend to stop polling
+                        if result_dict:
+                            result_dict["generation_complete"] = True
                         yield f"data: {BaseResponse(message='Documentation generation completed successfully', code=200, data=result_dict).model_dump_json()}\n\n"
                     break
 
@@ -122,4 +125,36 @@ async def list_documentation(
         message="List of generated wikis retrieved successfully.",
         code=200,
         data=agent_service.list_wikis(),
+    )
+
+
+# curl "http://localhost:8000/api/v1/agents/wikis/octocat/Hello-World?mode=moe"
+@router.get("/wikis/{owner}/{repo}")
+async def get_wiki_files(
+    owner: str,
+    repo: str,
+    mode: AgentMode = AgentMode.SUB,
+    agent_service: AgentService = Depends(get_agent_service),
+) -> BaseResponse:
+    """Get currently generated wiki files for a repository.
+    
+    This endpoint is used for progressive loading to query files that have
+    been generated so far, without waiting for the entire generation to complete.
+    """
+    wiki_info = agent_service.get_wiki_info(owner, repo, mode)
+    
+    if not wiki_info:
+        return BaseResponse(
+            code=200,
+            message="No wiki files found yet",
+            data=WikiFilesResponse(files=[], total_files=0)
+        )
+    
+    return BaseResponse(
+        code=200,
+        message="Success",
+        data=WikiFilesResponse(
+            files=wiki_info.files,
+            total_files=wiki_info.total_files
+        )
     )

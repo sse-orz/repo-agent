@@ -21,7 +21,6 @@ import Header from '../components/Header.vue'
 import InputSection from '../components/InputSection.vue'
 import InfoCard from '../components/InfoCard.vue'
 import TopControls from '../components/TopControls.vue'
-import { generateDocStream } from '../utils/request'
 
 const router = useRouter()
 const repoUrl = ref('')
@@ -68,15 +67,8 @@ const handleSubmit = async () => {
       return
     }
 
-    // Always start streaming generation and navigate to the RepoDetail page
-    // The RepoDetail page will handle the streaming results and display progress
-    const controller = new AbortController()
-    // Fire-and-forget the stream; RepoDetail will create its own stream when mounted.
-    generateDocStream({ mode: mode.value, request: { owner, repo, platform } }, () => {}, {
-      signal: controller.signal,
-    }).catch((e) => {
-      console.error('Stream start error:', e)
-    })
+    // Navigate to RepoDetail page
+    // RepoDetail will check for existing docs and generate if needed
     router.push({
       name: 'RepoDetail',
       params: { repoId: `${owner}_${repo}` },

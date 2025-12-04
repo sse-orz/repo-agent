@@ -66,7 +66,7 @@ import RepoHeader from '../components/RepoHeader.vue'
 import TocSidebar from '../components/TocSidebar.vue'
 import DocContent from '../components/DocContent.vue'
 import AskBox from '../components/AskBox.vue'
-import { generateDocStream, resolveBackendStaticUrl, type BaseResponse } from '../utils/request'
+import { generateDocStream, getWikiFiles, resolveBackendStaticUrl, type BaseResponse } from '../utils/request'
 import MarkdownIt from 'markdown-it'
 import anchor from 'markdown-it-anchor'
 import mermaid from 'mermaid'
@@ -124,6 +124,10 @@ const progressLogs = ref<string[]>([])
 const streamController = ref<AbortController | null>(null)
 const currentProgress = ref<number>(0)
 const themeContext = inject<{ isDarkMode: Ref<boolean> } | null>('theme', null)
+
+// Progressive loading state
+const pollInterval = ref<ReturnType<typeof setInterval> | null>(null)
+const hasLoadedAnyFile = ref(false)
 
 const updateHighlightStyle = () => {
   const styleId = 'highlight-theme-style'
@@ -522,6 +526,13 @@ const createSectionFromId = (id: string): TocSection | null => {
 async function loadDocumentation(section: TocSection, needUpdate = false) {
   if (!section) return
 
+  // Clear old polling
+  if (pollInterval.value) {
+    clearInterval(pollInterval.value)
+    pollInterval.value = null
+  }
+  hasLoadedAnyFile.value = false
+
   if (streamController.value) {
     streamController.value.abort()
     streamController.value = null
@@ -533,6 +544,11 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
   currentProgress.value = 5
   progressLogs.value = ['Connecting to documentation stream...']
   docContent.value = ''
+
+  // Start polling for newly generated files
+  pollInterval.value = setInterval(async () => {
+    await pollWikiFiles(section)
+  }, 3000)
 
   let loadedFromStream = false
 
@@ -569,12 +585,17 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
             currentProgress.value = data.progress
           }
           await nextTick()
-          return
         }
 
-        if (data?.error) {
-          progressLogs.value.push(data.error)
-          return
+        // Check for generation complete flag
+        if ((data as Record<string, unknown>)?. generation_complete === true) {
+          currentProgress.value = 100
+          progressLogs.value.push('✅ Documentation generation complete')
+          if (pollInterval.value) {
+            clearInterval(pollInterval.value)
+            pollInterval.value = null
+          }
+          await pollWikiFiles(section)
         }
 
         if (data?.wiki_url) {
@@ -789,6 +810,81 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
   }
 }
 
+// Unified entry point for documentation initialization
+// Always check for existing docs first, only generate if none found
+async function initializeDocumentation(section: TocSection) {
+  try {
+    progressLogs.value = ['Checking for existing documentation...']
+    currentProgress.value = 10
+    isStreaming.value = true
+    
+    const response = await getWikiFiles(section.owner, section.repo, generationMode.value)
+    
+    if (response.code === 200 && response.data.files.length > 0) {
+      // Documentation exists, load it directly
+      currentProgress.value = 100
+      progressLogs.value.push('✅ Documentation loaded')
+      const index = findSectionIndexById(section.id)
+      if (index >= 0 && tocSections.value[index]) {
+        tocSections.value[index].items = buildTocItems(response.data.files)
+      }
+      const firstFile = findFirstMarkdownFile(section.items)
+      if (firstFile) {
+        await selectItemByNode(firstFile)
+      }
+      isStreaming.value = false
+    } else {
+      // No documentation found, trigger generation
+      progressLogs.value.push('⚠️ No existing documentation found, generating...')
+      await loadDocumentation(section, false)
+    }
+  } catch (error) {
+    console.error('Check existing documentation error:', error)
+    progressLogs.value.push('⚠️ Failed to check documentation, generating new one...')
+    await loadDocumentation(section, false)
+  }
+}
+
+// Poll for newly generated files
+async function pollWikiFiles(section: TocSection) {
+  try {
+    const response = await getWikiFiles(section.owner, section.repo, generationMode.value)
+    if (response.code === 200 && response.data.files.length > 0) {
+      updateTocWithNewFiles(section, response.data.files)
+      if (!hasLoadedAnyFile.value) {
+        const firstFile = findFirstMarkdownFile(section.items)
+        if (firstFile) {
+          await selectItemByNode(firstFile)
+          hasLoadedAnyFile.value = true
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Poll wiki files error:', error)
+  }
+}
+
+// Update TOC with new files
+function updateTocWithNewFiles(section: TocSection, newFiles: unknown[]) {
+  const index = findSectionIndexById(section.id)
+  if (index >= 0 && tocSections.value[index]) {
+    tocSections.value[index].items = buildTocItems(newFiles)
+  }
+}
+
+// Find first markdown file
+function findFirstMarkdownFile(items?: FileItem[]): FileItem | null {
+  if (!items || items.length === 0) return null
+  for (const item of items) {
+    if (!item.isDir && item.url) return item
+    if (item.children) {
+      const found = findFirstMarkdownFile(item.children)
+      if (found) return found
+    }
+  }
+  return null
+}
+
 const selectRepoById = (id: string, needUpdate = false) => {
   if (!id) return
   let index = findSectionIndexById(id)
@@ -805,7 +901,7 @@ const selectRepoById = (id: string, needUpdate = false) => {
   if (!section) return
 
   selected.value = { section: index, item: null }
-  void loadDocumentation(section, needUpdate)
+  void initializeDocumentation(section)
 }
 
 let lastHandledRepoId: string | null = null
@@ -852,6 +948,7 @@ if (themeContext?.isDarkMode) {
 
 onMounted(async () => {
   updateHighlightStyle()
+  
   if (repoId.value && lastHandledRepoId !== repoId.value) {
     lastHandledRepoId = repoId.value
     selectRepoById(repoId.value)
@@ -859,6 +956,11 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  // Clean up polling
+  if (pollInterval.value) {
+    clearInterval(pollInterval.value)
+    pollInterval.value = null
+  }
   if (streamController.value) {
     streamController.value.abort()
     streamController.value = null

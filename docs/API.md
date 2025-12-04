@@ -138,7 +138,42 @@ Get the list of all generated wiki documentation.
 }
 ```
 
-### 4. RAG: Ask Question About Repository
+### 4. Get Wiki Files (Progressive Loading)
+
+**GET** `/wikis/{owner}/{repo}`
+
+Get currently generated wiki files for a repository. This endpoint is used for progressive loading to query files that have been generated so far, without waiting for the entire generation to complete.
+
+#### Path Parameters
+
+- `owner` (string, required): Repository owner
+- `repo` (string, required): Repository name
+
+#### Query Parameters
+
+- `mode` (string, optional): Agent mode - `"sub"` (default) or `"moe"`
+
+#### Response
+
+```json
+{
+  "message": "Success",
+  "code": 200,
+  "data": {
+    "files": [
+      {
+        "name": "string",
+        "path": "string",
+        "url": "string",
+        "size": 0
+      }
+    ],
+    "total_files": 0
+  }
+}
+```
+
+### 5. RAG: Ask Question About Repository
 
 **POST** `/rag/ask`
 
@@ -169,7 +204,7 @@ Ask a question about a specific repository using Retrieval-Augmented Generation 
 }
 ```
 
-### 5. RAG: Stream Question Answering
+### 6. RAG: Stream Question Answering
 
 **POST** `/rag/ask-stream`
 
@@ -185,7 +220,7 @@ Server-Sent Events (SSE) stream, containing incremental or updated answers.
 
 Event format:
 
-````
+```
 data: {
   "message": "RAG update",
   "code": 200,
@@ -195,11 +230,11 @@ data: {
     "sources": ["string"] // Optional list of referenced document sources accumulated so far
   }
 }
-```*** End Patch
+```
 
 > Note:
 > - The `answer` field may be empty for intermediate events, and will contain the latest generated answer when available.
-> - The `node` field indicates the current node in the RAG graph, which can be used to显示进度（例如正在意图识别 / 重写问题 / 检索 / 评估 / 生成回答等）。
+> - The `node` field indicates the current node in the RAG graph, which can be used to show progress (e.g. intent recognition / rewrite question / retrieve / evaluate / generate answer).
 
 ## Error Handling
 
@@ -213,7 +248,7 @@ All endpoints return JSON responses containing error information when errors occ
 curl -X POST http://localhost:8000/api/v1/agents/generate \
   -H "Content-Type: application/json" \
   -d '{"owner": "octocat", "repo": "Hello-World"}'
-````
+```
 
 ### Stream Generate
 
@@ -241,6 +276,12 @@ curl -X POST http://localhost:8000/api/v1/rag/ask \
     "mode": "fast",
     "question": "What does this repository do?"
   }'
+```
+
+### Get Wiki Files (Progressive Loading)
+
+```bash
+curl "http://localhost:8000/api/v1/agents/wikis/octocat/Hello-World?mode=sub"
 ```
 
 ### RAG Ask (Stream)

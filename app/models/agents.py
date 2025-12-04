@@ -65,3 +65,9 @@ class WikiItem(BaseModel):
 class ListWikisResponseData(BaseModel):
     wikis: List[WikiItem] = Field(..., description="List of wikis")
     total_wikis: int = Field(0, description="Total number of wikis")
+
+
+class WikiFilesResponse(BaseModel):
+    """Response model for querying currently generated wiki files"""
+    files: List[FileInfo] = Field(..., description="Currently generated files")
+    total_files: int = Field(0, description="Total number of files")
