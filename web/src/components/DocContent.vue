@@ -5,6 +5,7 @@
         v-if="isStreaming && progressLogs.length > 0"
         :progress="progress"
         :logs="progressLogs"
+        :isMini="hasLoadedAnyFile" 
       />
       <div v-html="content"></div>
     </div>
@@ -22,12 +23,14 @@ interface Props {
   isStreaming?: boolean
   progressLogs?: string[]
   progress?: number
+  hasLoadedAnyFile: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isStreaming: false,
   progressLogs: () => [],
   progress: 0,
+  hasLoadedAnyFile: false,
 })
 
 const docInnerRef = ref<HTMLElement | null>(null)

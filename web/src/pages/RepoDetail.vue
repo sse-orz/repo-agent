@@ -24,6 +24,7 @@
         :is-streaming="isStreaming"
         :progress-logs="progressLogs"
         :progress="currentProgress"
+        :hasLoadedAnyFile="hasLoadedAnyFile"
       />
     </div>
 
