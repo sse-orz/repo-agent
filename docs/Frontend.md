@@ -46,6 +46,7 @@ pnpm preview     # preview the built output locally
 - **Routing**: `vue-router` (routes are defined in `web/src/router/index.ts`).
 - **HTTP client**: `axios` for calls to backend / agent APIs.
 - **Markdown processing**: `markdown-it` and `markdown-it-anchor` for rendering and anchors.
+- **Diagram rendering**: `mermaid` for rendering flowcharts and diagrams in documentation.
 - **Lint & formatting**: ESLint + Prettier with `@vue/eslint-config-typescript` and `@vue/eslint-config-prettier`.
 
 ## Project structure (brief)
@@ -57,24 +58,63 @@ pnpm preview     # preview the built output locally
     - `App.vue` — root component.
     - `style.css` — global CSS.
     - `router/`
-      - `index.ts` — route definitions (`Home`, `RepoDetail`, ...).
+      - `index.ts` — route definitions (`Home`, `RepoDetail`, `History`).
     - `pages/`
-      - `Home.vue` — home page.
-      - `RepoDetail.vue` — repository detail page.
+      - `Home.vue` — home page for submitting new repository URLs.
+      - `RepoDetail.vue` — repository detail and documentation view.
+      - `History.vue` — history page listing previously generated repositories.
     - `components/`
       - `Header.vue` — top navigation / header.
       - `InfoCard.vue` — card for displaying lists/info.
       - `InputSection.vue` — input / query area.
       - `ThemeToggle.vue` — theme toggle control.
-    - `utils/` — shared frontend utilities (e.g. API request helpers).
+      - `AskBox.vue` — RAG question input box with mode selector (fast/smart).
+      - `DocContent.vue` — markdown document content renderer with scroll fade effects.
+      - `ProgressBar.vue` — streaming progress bar with log display.
+      - `TocSidebar.vue` — sidebar with Files and Outline tabs for navigation.
+      - `TopControls.vue` — top-right controls container (theme toggle, history button).
+      - `RepoHeader.vue` — repository header showing current repo name with link.
+      - `HistoryButton.vue` — navigation button to history page.
+      - `HomeButton.vue` — navigation button to home page.
+    - `types/` — TypeScript type definitions.
+    - `utils/` — shared frontend utilities (API request helpers, URL resolvers).
 
 ## Key files
 - `web/src/main.ts`: bootstraps the app, registers router and any global plugins.
 - `web/src/router/index.ts`: contains route table and route-level configuration.
-- `web/src/pages/Home.vue`: the home page — primary entry UI.
-- `web/src/pages/RepoDetail.vue`: repository detail and analysis view.
+- `web/src/pages/Home.vue`: the home page — primary entry UI for submitting repo URLs.
+- `web/src/pages/RepoDetail.vue`: repository detail and documentation view with TOC sidebar, document content, and RAG ask box.
+- `web/src/pages/History.vue`: history page showing all previously generated repositories with mode selection (SUB/MOE).
 - `web/src/components/*`: reusable UI components following single-responsibility.
+- `web/src/utils/request.ts`: API utilities including `generateDocStream`, `askRagStream`, `getWikiFiles`, and `resolveBackendStaticUrl`.
 - `web/style.css`: global CSS variables and base styles.
+
+## Routes
+
+| Path | Name | Component | Description |
+|------|------|-----------|-------------|
+| `/` | Home | `Home.vue` | Home page for submitting new repository URLs |
+| `/detail/:repoId?` | RepoDetail | `RepoDetail.vue` | Repository documentation view with TOC and RAG |
+| `/history` | History | `History.vue` | History of generated repositories |
+
+## Key Features
+
+### History Page
+- Displays all previously generated repository documentation
+- Grouped by repository with mode selector (SUB/MOE)
+- Shows file count and generation timestamp
+- Quick navigation to repository detail view
+
+### Repository Detail Page
+- **TOC Sidebar**: Two tabs - "Files" (file tree navigation) and "Outline" (heading navigation)
+- **Document Content**: Rendered markdown with code highlighting, mermaid diagrams, and scroll fade effects
+- **Progress Bar**: Real-time streaming progress during documentation generation
+- **Ask Box**: RAG question input with Fast/Smart mode selector
+
+### Streaming Support
+- Documentation generation with real-time progress updates (SSE)
+- Progressive file loading during generation
+- RAG streaming responses with node-based progress indication
 
 ## Development practices & tools
 - Use `pnpm format` (Prettier) to format code consistently.
