@@ -549,7 +549,7 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
   // Start polling for newly generated files
   pollInterval.value = setInterval(async () => {
     await pollWikiFiles(section)
-  }, 3000)
+  }, 30000)
 
   let loadedFromStream = false
 
@@ -865,11 +865,49 @@ async function pollWikiFiles(section: TocSection) {
   }
 }
 
-// Update TOC with new files
+// Collect all headings from the TOC tree recursively
+function collectHeadingsMap(items?: FileItem[]): Map<string, HeadingItem[]> {
+  const map = new Map<string, HeadingItem[]>()
+  if (!items) return map
+  const walk = (nodes: FileItem[]) => {
+    for (const node of nodes) {
+      if (!node.isDir && node.url && node.headings && node.headings.length) {
+        map.set(node.url, node.headings)
+      }
+      if (node.children) walk(node.children)
+    }
+  }
+  walk(items)
+  return map
+}
+
+// Restore headings to the new TOC tree
+function restoreHeadingsToItems(items: FileItem[], headingsMap: Map<string, HeadingItem[]>) {
+  const walk = (nodes: FileItem[]) => {
+    for (const node of nodes) {
+      if (!node.isDir && node.url) {
+        const headings = headingsMap.get(node.url)
+        if (headings) {
+          node.headings = headings
+        }
+      }
+      if (node.children) walk(node.children)
+    }
+  }
+  walk(items)
+}
+
+// Update TOC with new files while preserving existing headings
 function updateTocWithNewFiles(section: TocSection, newFiles: unknown[]) {
   const index = findSectionIndexById(section.id)
   if (index >= 0 && tocSections.value[index]) {
-    tocSections.value[index].items = buildTocItems(newFiles)
+    // Collect existing headings before rebuilding
+    const existingHeadings = collectHeadingsMap(tocSections.value[index].items)
+    // Rebuild TOC with new files
+    const newItems = buildTocItems(newFiles)
+    // Restore headings to matching items
+    restoreHeadingsToItems(newItems, existingHeadings)
+    tocSections.value[index].items = newItems
   }
 }
 

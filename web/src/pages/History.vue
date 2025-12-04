@@ -10,7 +10,6 @@
 
       <div v-if="loading" class="status-text">Loading history...</div>
       <div v-else-if="error" class="status-text error">{{ error }}</div>
-      <div v-else-if="!groupedWikis.length" class="status-text">No repositories generated yet.</div>
 
       <div v-else class="grid">
         <!-- Add repo tile -->
