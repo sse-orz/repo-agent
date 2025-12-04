@@ -176,7 +176,7 @@ class CodePrompt:
 
 class RepoPrompt:
     @staticmethod
-    def _get_system_prompt() -> SystemMessage:
+    def _get_system_prompt_for_repo() -> SystemMessage:
         # this func is to get the system prompt for the repo info subgraph
         return SystemMessage(
             content=dedent(
@@ -202,7 +202,9 @@ class RepoPrompt:
         )
 
     @staticmethod
-    def _get_overview_doc_prompt(repo_info: dict, doc_contents: str) -> HumanMessage:
+    def _get_human_prompt_for_repo_overview_doc(
+        repo_info: dict, doc_contents: str
+    ) -> HumanMessage:
         # this func is to generate a prompt for overall repository documentation
         repo_name = repo_info.get("repo", "")
         owner = repo_info.get("owner", "")
@@ -229,7 +231,7 @@ class RepoPrompt:
         )
 
     @staticmethod
-    def _get_updated_overview_doc_prompt(
+    def _get_human_prompt_for_repo_updated_overview_doc(
         repo_info: dict,
         commit_info: dict,
         pr_info: dict,
@@ -263,50 +265,74 @@ class RepoPrompt:
         )
 
     @staticmethod
-    def _generate_commit_doc_prompt(commit_info: dict, repo_info: dict) -> HumanMessage:
-        # this func is to generate a prompt for commit documentation
+    def _get_human_prompt_for_repo_single_commit_doc(
+        commit: dict, repo_info: dict
+    ) -> HumanMessage:
+        # this func is to generate a prompt for a single commit documentation section
         repo_name = repo_info.get("repo", "")
         owner = repo_info.get("owner", "")
-
         return HumanMessage(
             content=dedent(
                 f"""
-                Generate commit history documentation for repository '{owner}/{repo_name}'.
-
-                From the commit data below, write:
-                - A summary of key commits and their purposes
-                - Notable patterns in development activity (frequency, authors, areas of change)
-                - Major features or fixes from recent commits
-                - Any useful trends or insights for maintainers
+                You are documenting a single commit for repository '{owner}/{repo_name}'.
 
                 Commit data:
-                {commit_info}
+                {commit}
+
+                Write a self-contained **markdown section** for this commit that includes:
+                - A level-2 heading combining commit message and short SHA
+                - A short paragraph under a "Summary" subheading explaining what changed and why it matters
+                - A "Modified Files" subheading with a concise bullet list of key files and their roles, based ONLY on the given data
+
+                Formatting rules:
+                - Always use the following structure:
+                  - "## ..." for the commit title
+                  - "Author" and "Date" lines
+                  - "### Summary" followed by 1–2 short paragraphs
+                  - "### Modified Files" followed by a few bullets (omit this section only if there are no files listed)
+                - If the commit is primarily a dependency bump or CI workflow update (e.g., actions/checkout, github/codeql-action, actions/upload-artifact),
+                  keep the description **very concise** and summarize affected workflows at a high level instead of listing every file verbosely.
+
+                Output only the markdown section for this commit, without any surrounding introduction or conclusion.
                 """
             ).strip(),
         )
 
     @staticmethod
-    def _generate_updated_commit_doc_prompt(
-        commit_info: dict, repo_info: dict, commit_doc_path: str
+    def _get_human_prompt_for_repo_commit_summary_doc(
+        combined_commit_sections: str, repo_info: dict
     ) -> HumanMessage:
-        # this func is to generate a prompt for updated commit documentation
+        # this func is to generate a prompt for a summary section over multiple commits
         repo_name = repo_info.get("repo", "")
         owner = repo_info.get("owner", "")
         return HumanMessage(
             content=dedent(
                 f"""
-                Update the commit history documentation for repository '{owner}/{repo_name}'.
+                You are writing the **overview section** for a commit history document
+                for repository '{owner}/{repo_name}'.
 
-                Existing doc path (for reference only, do NOT mention the path in output): {commit_doc_path}
+                Below is the already generated per-commit markdown documentation:
 
-                Use the updated commit data below to adjust or extend the existing markdown:
-                {commit_info}
+                {combined_commit_sections}
+
+                Based on this content, write a new markdown section that:
+                - Starts with a level-1 or level-2 heading giving an overall title for the recent changes
+                - Gives 1–2 short paragraphs describing the main themes (e.g., new architecture support, build system refactors, CI/security dependency updates)
+                - Includes a concise bullet list of key takeaways for maintainers, such as:
+                  - Risky or impactful areas of the codebase touched
+                  - Notable improvements (performance, portability, DX)
+                  - Operational or CI/CD changes worth paying attention to
+
+                Do NOT repeat per-commit details; focus only on cross-commit patterns and high-level insights.
+                Output only this overview section, which will appear **before** the per-commit sections.
                 """
             ).strip(),
         )
 
     @staticmethod
-    def _generate_pr_doc_prompt(pr_info: dict, repo_info: dict) -> HumanMessage:
+    def _get_human_prompt_for_repo_pr_doc(
+        pr_info: dict, repo_info: dict
+    ) -> HumanMessage:
         # this func is to generate a prompt for PR documentation
         repo_name = repo_info.get("repo", "")
         owner = repo_info.get("owner", "")
@@ -330,7 +356,7 @@ class RepoPrompt:
         )
 
     @staticmethod
-    def _generate_updated_pr_doc_prompt(
+    def _get_human_prompt_for_repo_updated_pr_doc(
         pr_info: dict, repo_info: dict, pr_doc_path: str
     ) -> HumanMessage:
         # this func is to generate a prompt for updated PR documentation
@@ -350,7 +376,7 @@ class RepoPrompt:
         )
 
     @staticmethod
-    def _generate_release_note_doc_prompt(
+    def _get_human_prompt_for_repo_release_note_doc(
         release_note_info: dict, repo_info: dict
     ) -> HumanMessage:
         # this func is to generate a prompt for release note documentation
@@ -376,7 +402,7 @@ class RepoPrompt:
         )
 
     @staticmethod
-    def _generate_updated_release_note_doc_prompt(
+    def _get_human_prompt_for_repo_updated_release_note_doc(
         release_note_info: dict, repo_info: dict, release_note_doc_path: str
     ) -> HumanMessage:
         # this func is to generate a prompt for updated release note documentation

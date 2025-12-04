@@ -56,7 +56,7 @@ def log_state(state: dict):
 
 
 def get_updated_commit_info(
-    owner: str, repo: str, platform: str, log_path: str
+    owner: str, repo: str, platform: str, log_path: str, max_num: int = 10
 ) -> tuple[bool, dict]:
     # this func is to get updated commits since last doc generation
     # return bool and commit_info dict
@@ -65,6 +65,7 @@ def get_updated_commit_info(
         owner=owner,
         repo=repo,
         platform=platform,
+        max_num=max_num,
     )
     # commit_info contains `repo_info`, "commits_count`, `commits`
     commits = commit_info.get("commits", [])
@@ -332,14 +333,25 @@ if __name__ == "__main__":
     # print(repo_structure)
     # print(count_tokens(str(repo_structure)))
 
-    basic_repo_structure = get_basic_repo_structure(repo_path)
-    print(basic_repo_structure)
-    print(len(basic_repo_structure))
-    print(count_tokens(str(basic_repo_structure)))
-    print("--------------------------------")
+    # basic_repo_structure = get_basic_repo_structure(repo_path)
+    # print(basic_repo_structure)
+    # print(len(basic_repo_structure))
+    # print(count_tokens(str(basic_repo_structure)))
+    # print("--------------------------------")
 
-    md_files = get_md_files(repo_path)
-    print(md_files)
-    print(len(md_files))
-    print(count_tokens(str(md_files)))
+    # md_files = get_md_files(repo_path)
+    # print(md_files)
+    # print(len(md_files))
+    # print(count_tokens(str(md_files)))
+    # print("--------------------------------")
+
+    commit_info = get_updated_commit_info(
+        owner="facebook",
+        repo="react",
+        platform="github",
+        log_path="./.logs/commit_log.json",
+        max_num=5,
+    )
+    print(json.dumps(commit_info, indent=2, default=str))
+    print(count_tokens(json.dumps(commit_info, indent=2, default=str)))
     print("--------------------------------")
