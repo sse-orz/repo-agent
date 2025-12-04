@@ -293,6 +293,30 @@ def get_llm_max_tokens(compress_ratio: float = 0.90) -> int:
     return int(tokens * compress_ratio)
 
 
+def get_md_files(given_path: str) -> List[str]:
+    # get all md files in the given path
+    # p.s. remove the ignored directories and files
+    ignore_dirs = get_ignore_dirs(given_path)
+    md_files: List[str] = []
+
+    for root, dirs, files in os.walk(given_path):
+        # filter out ignored directories in-place for os.walk
+        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+
+        for file in files:
+            lower_name = file.lower()
+            if (
+                lower_name.endswith(".md")
+                or lower_name.endswith(".mdx")
+                or lower_name.endswith(".markdown")
+            ):
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, given_path)
+                md_files.append(rel_path)
+
+    return sorted(md_files)
+
+
 if __name__ == "__main__":
     repo_path = "./.repos/facebook_react"
     # basic_repo_structure = get_basic_repo_structure(repo_path)
@@ -302,8 +326,20 @@ if __name__ == "__main__":
     # from utils.file import read_file
     # content = read_file(file_path)
     # print(count_tokens(content))
-    from .utils import get_repo_structure
+    # from .utils import get_repo_structure
 
-    repo_structure = get_repo_structure(repo_path)
-    print(repo_structure)
-    print(count_tokens(str(repo_structure)))
+    # repo_structure = get_repo_structure(repo_path)
+    # print(repo_structure)
+    # print(count_tokens(str(repo_structure)))
+
+    basic_repo_structure = get_basic_repo_structure(repo_path)
+    print(basic_repo_structure)
+    print(len(basic_repo_structure))
+    print(count_tokens(str(basic_repo_structure)))
+    print("--------------------------------")
+
+    md_files = get_md_files(repo_path)
+    print(md_files)
+    print(len(md_files))
+    print(count_tokens(str(md_files)))
+    print("--------------------------------")

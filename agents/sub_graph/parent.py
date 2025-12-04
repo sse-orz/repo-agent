@@ -27,6 +27,7 @@ class ParentGraphState(TypedDict):
     repo: str
     platform: str
     mode: str
+    ratios: dict[str, float]
     max_workers: int
     date: str
     log: bool
@@ -59,6 +60,7 @@ class ParentGraphBuilder:
         repo: str,
         platform: str,
         mode: str,
+        ratios: dict[str, float],
         max_workers: int,
         repo_root_path: str,
         wiki_root_path: str,
@@ -78,6 +80,7 @@ class ParentGraphBuilder:
         print(f"📦 Repository: {owner}/{repo}")
         print(f"🔗 Platform: {platform}")
         print(f"⚙️ Mode: {mode}")
+        print(f"🔢 Ratios: {ratios}")
         print(f"👷 Max Workers: {max_workers}")
         print(f"📁 Repo Root Path: {repo_root_path}")
         print(f"📁 Repo Path: {repo_path}")
@@ -96,6 +99,7 @@ class ParentGraphBuilder:
         repo: str,
         platform: str,
         mode: str,
+        ratios: dict[str, float],
         max_workers: int,
         date: str,
         log: bool,
@@ -120,6 +124,7 @@ class ParentGraphBuilder:
             "repo": repo,
             "platform": platform,
             "mode": mode,
+            "ratios": ratios,
             "max_workers": max_workers,
             "date": date,
             "log": log,
@@ -158,6 +163,13 @@ class ParentGraphBuilder:
         repo = state.get("repo")
         platform = state.get("platform", "github")
         mode = state.get("mode", "fast")
+        ratios = state.get(
+            "ratios",
+            {
+                "fast": 0.25,
+                "smart": 0.75,
+            },
+        )
         max_workers = state.get("max_workers", 10)
         date = state.get("date", datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
         log = state.get("log", False)
@@ -178,6 +190,7 @@ class ParentGraphBuilder:
             repo,
             platform,
             mode,
+            ratios,
             max_workers,
             repo_root_path,
             wiki_root_path,
@@ -202,6 +215,7 @@ class ParentGraphBuilder:
             repo=repo,
             platform=platform,
             mode=mode,
+            ratios=ratios,
             max_workers=max_workers,
             date=date,
             log=log,
@@ -501,15 +515,19 @@ class ParentGraphBuilder:
 
 if __name__ == "__main__":
     # use "uv run python -m agents.sub_graph.parent" to run this file
-    parent_graph_builder = ParentGraphBuilder(branch_mode="code")
+    parent_graph_builder = ParentGraphBuilder(branch_mode="repo")
     date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     parent_graph_builder.run(
         inputs={
-            "owner": "squatting-at-home123",
-            "repo": "back-puppet",
-            "platform": "gitee",
+            "owner": "facebook",
+            "repo": "zstd",
+            "platform": "github",
             "mode": "fast",  # "fast" or "smart"
-            "max_workers": 50,  # 20 worker -> 3 - 4 minutes
+            "ratios": {
+                "fast": 0.05,
+                "smart": 0.75,
+            },
+            "max_workers": 10,
             "date": date,
             "log": False,
         },

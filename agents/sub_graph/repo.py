@@ -1,12 +1,12 @@
 from typing_extensions import TypedDict
 from langgraph.graph.state import StateGraph, START
 from langchain_core.messages import HumanMessage, SystemMessage
-from textwrap import dedent
 import json
 import os
 
 from utils.file import write_file, read_file, resolve_path
-from .utils import log_state
+from .utils import log_state, call_llm
+from .prompt import RepoPrompt
 from config import CONFIG
 
 
@@ -26,226 +26,6 @@ class RepoInfoSubGraphBuilder:
     def __init__(self):
         self.graph = self.build()
 
-    @staticmethod
-    def _get_system_prompt():
-        # this func is to get the system prompt for the repo info subgraph
-        return SystemMessage(
-            content=dedent(
-                """
-                You are an expert technical documentation writer for software repositories.
-
-                Your job is to turn repository-related data (commits, PRs, releases, existing docs, etc.) into clear, structured **Markdown documentation** for developers.
-
-                Global rules:
-                - Use Markdown headings, lists, and tables when helpful
-                - Be concise but informative; prefer summaries over raw dumps
-                - Highlight important changes, impact, and patterns
-                - Organize content into logical sections with clear titles
-                - When diagrams are requested, use valid Mermaid code blocks (```mermaid ... ```).
-
-                Critical output rules:
-                - Output ONLY the final markdown document, starting directly with the title line
-                - Do NOT include explanations, comments, or meta-text about what you are doing
-                - Do NOT include phrases like "Here is", "Of course", "I will", etc.
-                - Do NOT wrap the result in quotes, JSON, or any extra formatting
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _get_overview_doc_prompt(repo_info: dict, doc_contents: str) -> HumanMessage:
-        # this func is to generate a prompt for overall repository documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Generate overall documentation for repository '{owner}/{repo_name}'.
-
-                Based on:
-                - Repository information:
-                {repo_info}
-
-                - Documentation source files (content below):
-                {doc_contents}
-
-                Write a markdown document that includes:
-                1. Overview of repository structure and key components
-                2. Summary of existing documentation coverage
-                3. Main documentation gaps and areas for improvement
-                4. At least one Mermaid diagram for architecture or component relationships
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _get_updated_overview_doc_prompt(
-        repo_info: dict,
-        commit_info: dict,
-        pr_info: dict,
-        release_note_info: dict,
-        overview_doc_path: str,
-    ) -> HumanMessage:
-        # this func is to generate a prompt for updated overall repository documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Update the existing repository overview documentation for '{owner}/{repo_name}'.
-
-                Existing doc path (for reference only, do NOT mention the path in output): {overview_doc_path}
-
-                Use the updated data below:
-                - Commit information:
-                {commit_info}
-
-                - PR information:
-                {pr_info}
-
-                - Release note information:
-                {release_note_info}
-
-                Update the markdown so it reflects the latest changes, keeps a clear structure,
-                and updates or adds Mermaid diagrams when architecture or relationships change.
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _generate_commit_doc_prompt(commit_info: dict, repo_info: dict) -> HumanMessage:
-        # this func is to generate a prompt for commit documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Generate commit history documentation for repository '{owner}/{repo_name}'.
-
-                From the commit data below, write:
-                - A summary of key commits and their purposes
-                - Notable patterns in development activity (frequency, authors, areas of change)
-                - Major features or fixes from recent commits
-                - Any useful trends or insights for maintainers
-
-                Commit data:
-                {commit_info}
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _generate_updated_commit_doc_prompt(
-        commit_info: dict, repo_info: dict, commit_doc_path: str
-    ) -> HumanMessage:
-        # this func is to generate a prompt for updated commit documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Update the commit history documentation for repository '{owner}/{repo_name}'.
-
-                Existing doc path (for reference only, do NOT mention the path in output): {commit_doc_path}
-
-                Use the updated commit data below to adjust or extend the existing markdown:
-                {commit_info}
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _generate_pr_doc_prompt(pr_info: dict, repo_info: dict) -> HumanMessage:
-        # this func is to generate a prompt for PR documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Generate pull request (PR) analysis documentation for repository '{owner}/{repo_name}'.
-
-                From the PR data below, write:
-                - Overview of recent and important PRs
-                - Common themes or focus areas
-                - Review and merge patterns
-                - Contributor and collaboration insights
-                - Any pending or long-lived PRs that need attention
-
-                PR data:
-                {pr_info}
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _generate_updated_pr_doc_prompt(
-        pr_info: dict, repo_info: dict, pr_doc_path: str
-    ) -> HumanMessage:
-        # this func is to generate a prompt for updated PR documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Update the pull request (PR) analysis documentation for repository '{owner}/{repo_name}'.
-
-                Existing doc path (for reference only, do NOT mention the path in output): {pr_doc_path}
-
-                Use the updated PR data below to update or extend the existing markdown:
-                {pr_info}
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _generate_release_note_doc_prompt(
-        release_note_info: dict, repo_info: dict
-    ) -> HumanMessage:
-        # this func is to generate a prompt for release note documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Generate release history documentation for repository '{owner}/{repo_name}'.
-
-                From the release data below, write:
-                - Timeline of major releases and key features
-                - Breaking changes and any migration guidance
-                - Performance improvements and bug fixes across versions
-                - Deprecations and hints about future direction
-                - Patterns in release frequency and versioning
-
-                Release data:
-                {release_note_info}
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _generate_updated_release_note_doc_prompt(
-        release_note_info: dict, repo_info: dict, release_note_doc_path: str
-    ) -> HumanMessage:
-        # this func is to generate a prompt for updated release note documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Update the release history documentation for repository '{owner}/{repo_name}'.
-
-                Existing doc path (for reference only, do NOT mention the path in output): {release_note_doc_path}
-
-                Use the updated release data below to update or extend the existing markdown:
-                {release_note_info}
-                """
-            ).strip(),
-        )
-
     def repo_info_overview_node(self, state: dict):
         # this node is to process the overall repository documentation
         log_state(state)
@@ -264,18 +44,23 @@ class RepoInfoSubGraphBuilder:
         overview_doc_path = basic_info_for_repo.get("overview_doc_path", "")
         os.makedirs(os.path.dirname(overview_doc_path), exist_ok=True)
 
-        system_prompt = self._get_system_prompt()
-        llm = CONFIG.get_llm()
-        overview_info = ""
+        system_prompt = RepoPrompt._get_system_prompt()
         if commits_updated or prs_updated or releases_updated:
             print(
                 "   → [repo_info_overview_node] generating overall documentation with updates..."
             )
-            human_prompt = self._get_updated_overview_doc_prompt(
-                repo_info, commit_info, pr_info, release_note_info, overview_doc_path
+            overview_info = call_llm(
+                [
+                    system_prompt,
+                    RepoPrompt._get_updated_overview_doc_prompt(
+                        repo_info,
+                        commit_info,
+                        pr_info,
+                        release_note_info,
+                        overview_doc_path,
+                    ),
+                ]
             )
-            response = llm.invoke([system_prompt, human_prompt])
-            overview_info = response.content
             print("   → [repo_info_overview_node] overall documentation updated")
         elif os.path.exists(overview_doc_path):
             print(
@@ -287,6 +72,7 @@ class RepoInfoSubGraphBuilder:
             print(
                 "   → [repo_info_overview_node] generating overall documentation without updates..."
             )
+            # TODO: need to fix bug here: not all md files are deserving to be the documentation source files
             # add prefix path to doc source files
             doc_source_files = [
                 os.path.join(repo_path, file_path)
@@ -300,11 +86,14 @@ class RepoInfoSubGraphBuilder:
                 if content:
                     doc_contents.append(f"# Source File: {file_path}\n\n{content}\n\n")
             combined_doc_content = "\n".join(doc_contents)
-            human_prompt = self._get_overview_doc_prompt(
-                repo_info, combined_doc_content
+            overview_info = call_llm(
+                [
+                    system_prompt,
+                    RepoPrompt._get_overview_doc_prompt(
+                        repo_info, combined_doc_content
+                    ),
+                ]
             )
-            response = llm.invoke([system_prompt, human_prompt])
-            overview_info = response.content
             print("   → [repo_info_overview_node] overall documentation generated")
 
         print(
@@ -343,16 +132,19 @@ class RepoInfoSubGraphBuilder:
         commit_doc_path = basic_info_for_repo.get("commit_doc_path", "")
         os.makedirs(os.path.dirname(commit_doc_path), exist_ok=True)
 
-        system_prompt = self._get_system_prompt()
-        llm = CONFIG.get_llm()
+        system_prompt = RepoPrompt._get_system_prompt()
         if commits_updated:
             print(
                 "   → [commit_doc_generation_node] generating commit documentation with updates..."
             )
-            human_prompt = self._generate_updated_commit_doc_prompt(
-                commit_info, repo_info, commit_doc_path
+            commit_info = call_llm(
+                [
+                    system_prompt,
+                    RepoPrompt._get_updated_commit_doc_prompt(
+                        commit_info, repo_info, commit_doc_path
+                    ),
+                ]
             )
-            response = llm.invoke([system_prompt, human_prompt])
             print("   → [commit_doc_generation_node] commit documentation updated")
         elif os.path.exists(commit_doc_path):
             print(
@@ -363,8 +155,12 @@ class RepoInfoSubGraphBuilder:
             print(
                 "   → [commit_doc_generation_node] generating commit documentation without updates..."
             )
-            human_prompt = self._generate_commit_doc_prompt(commit_info, repo_info)
-            response = llm.invoke([system_prompt, human_prompt])
+            commit_info = call_llm(
+                [
+                    system_prompt,
+                    RepoPrompt._get_commit_doc_prompt(commit_info, repo_info),
+                ]
+            )
             print("   → [commit_doc_generation_node] commit documentation generated")
 
         print(
@@ -372,7 +168,7 @@ class RepoInfoSubGraphBuilder:
         )
         write_file(
             commit_doc_path,
-            response.content,
+            commit_info,
         )
         print(
             "✓ [commit_doc_generation_node] commit documentation processed successfully"
@@ -389,16 +185,19 @@ class RepoInfoSubGraphBuilder:
         pr_doc_path = basic_info_for_repo.get("pr_doc_path", "")
         os.makedirs(os.path.dirname(pr_doc_path), exist_ok=True)
 
-        system_prompt = self._get_system_prompt()
-        llm = CONFIG.get_llm()
+        system_prompt = RepoPrompt._get_system_prompt()
         if prs_updated:
             print(
                 "   → [pr_doc_generation_node] generating PR documentation with updates..."
             )
-            human_prompt = self._generate_updated_pr_doc_prompt(
-                pr_info, repo_info, pr_doc_path
+            pr_info = call_llm(
+                [
+                    system_prompt,
+                    RepoPrompt._get_updated_pr_doc_prompt(
+                        pr_info, repo_info, pr_doc_path
+                    ),
+                ]
             )
-            response = llm.invoke([system_prompt, human_prompt])
             print("   → [pr_doc_generation_node] PR documentation updated")
         elif os.path.exists(pr_doc_path):
             print(
@@ -409,14 +208,15 @@ class RepoInfoSubGraphBuilder:
             print(
                 "   → [pr_doc_generation_node] generating PR documentation without updates..."
             )
-            human_prompt = self._generate_pr_doc_prompt(pr_info, repo_info)
-            response = llm.invoke([system_prompt, human_prompt])
+            pr_info = call_llm(
+                [system_prompt, RepoPrompt._get_pr_doc_prompt(pr_info, repo_info)]
+            )
             print("   → [pr_doc_generation_node] PR documentation generated")
 
         print(f"   → [pr_doc_generation_node] writing PR info to {pr_doc_path}")
         write_file(
             pr_doc_path,
-            response.content,
+            pr_info,
         )
         print("✓ [pr_doc_generation_node] PR documentation processed successfully")
 
@@ -433,16 +233,19 @@ class RepoInfoSubGraphBuilder:
         release_note_doc_path = basic_info_for_repo.get("release_note_doc_path", "")
         os.makedirs(os.path.dirname(release_note_doc_path), exist_ok=True)
 
-        system_prompt = self._get_system_prompt()
-        llm = CONFIG.get_llm()
+        system_prompt = RepoPrompt._get_system_prompt()
         if releases_updated:
             print(
                 "   → [release_note_doc_generation_node] generating release note documentation with updates..."
             )
-            human_prompt = self._generate_updated_release_note_doc_prompt(
-                release_note_info, repo_info, release_note_doc_path
+            release_note_info = call_llm(
+                [
+                    system_prompt,
+                    RepoPrompt._get_updated_release_note_doc_prompt(
+                        release_note_info, repo_info, release_note_doc_path
+                    ),
+                ]
             )
-            response = llm.invoke([system_prompt, human_prompt])
             print(
                 "   → [release_note_doc_generation_node] release note documentation updated"
             )
@@ -455,10 +258,14 @@ class RepoInfoSubGraphBuilder:
             print(
                 "   → [release_note_doc_generation_node] Generating release note documentation without updates."
             )
-            human_prompt = self._generate_release_note_doc_prompt(
-                release_note_info, repo_info
+            release_note_info = call_llm(
+                [
+                    system_prompt,
+                    RepoPrompt._get_release_note_doc_prompt(
+                        release_note_info, repo_info
+                    ),
+                ]
             )
-            response = llm.invoke([system_prompt, human_prompt])
             print(
                 "   → [release_note_doc_generation_node] Release note documentation generated"
             )
@@ -468,7 +275,7 @@ class RepoInfoSubGraphBuilder:
         )
         write_file(
             release_note_doc_path,
-            response.content,
+            release_note_info,
         )
         print(
             "✓ [release_note_doc_generation_node] release note documentation processed successfully"
