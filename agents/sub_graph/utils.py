@@ -3,6 +3,7 @@ from langchain_core.messages import BaseMessage
 from datetime import datetime
 from typing import List
 import tiktoken
+import requests
 import json
 import os
 
@@ -101,7 +102,7 @@ def get_updated_commit_info(
 
 
 def get_updated_pr_info(
-    owner: str, repo: str, platform: str, log_path: str
+    owner: str, repo: str, platform: str, log_path: str, limit: int = 10
 ) -> tuple[bool, dict]:
     # this func is to get updated prs since last doc generation
     # return bool and pr_info dict
@@ -110,6 +111,7 @@ def get_updated_pr_info(
         owner=owner,
         repo=repo,
         platform=platform,
+        limit=limit,
     )
     # pr_info contains `repo`, `prs_count`, `prs`
     prs = pr_info.get("prs", [])
@@ -143,7 +145,7 @@ def get_updated_pr_info(
 
 
 def get_updated_release_note_info(
-    owner: str, repo: str, platform: str, log_path: str
+    owner: str, repo: str, platform: str, log_path: str, limit: int = 10
 ) -> tuple[bool, dict]:
     # this func is to get updated release notes since last doc generation
     # return bool and release_note_info dict
@@ -152,6 +154,7 @@ def get_updated_release_note_info(
         owner=owner,
         repo=repo,
         platform=platform,
+        limit=limit,
     )
     # release_note_info contains `repo`, `releases_count`, `releases`
     releases = release_note_info.get("releases", [])
@@ -318,6 +321,13 @@ def get_md_files(given_path: str) -> List[str]:
     return sorted(md_files)
 
 
+def curl_content(given_url: str) -> str:
+    # use curl to get the content of the file
+    # like "https://github.com/facebook/react/pull/35280.diff"
+    response = requests.get(given_url)
+    return response.text
+
+
 if __name__ == "__main__":
     repo_path = "./.repos/facebook_react"
     # basic_repo_structure = get_basic_repo_structure(repo_path)
@@ -345,13 +355,40 @@ if __name__ == "__main__":
     # print(count_tokens(str(md_files)))
     # print("--------------------------------")
 
-    commit_info = get_updated_commit_info(
+    # commit_info = get_updated_commit_info(
+    #     owner="facebook",
+    #     repo="react",
+    #     platform="github",
+    #     log_path="./.logs/commit_log.json",
+    #     max_num=5,
+    # )
+    # print(json.dumps(commit_info, indent=2, default=str))
+    # print(count_tokens(json.dumps(commit_info, indent=2, default=str)))
+    # print("--------------------------------")
+
+    # pr_info = get_updated_pr_info(
+    #     owner="facebook",
+    #     repo="react",
+    #     platform="github",
+    #     log_path="./.logs/pr_log.json",
+    #     limit=5,
+    # )
+    # print(json.dumps(pr_info, indent=2, default=str))
+    # print(count_tokens(json.dumps(pr_info, indent=2, default=str)))
+    # print("--------------------------------")
+
+    # curled_content = curl_content("https://github.com/facebook/react/pull/35280.diff")
+    # print(curled_content)
+    # print(count_tokens(curled_content))
+    # print("--------------------------------")
+
+    release_note_info = get_updated_release_note_info(
         owner="facebook",
         repo="react",
         platform="github",
-        log_path="./.logs/commit_log.json",
-        max_num=5,
+        log_path="./.logs/release_note_log.json",
+        limit=5,
     )
-    print(json.dumps(commit_info, indent=2, default=str))
-    print(count_tokens(json.dumps(commit_info, indent=2, default=str)))
+    print(json.dumps(release_note_info, indent=2, default=str))
+    print(count_tokens(json.dumps(release_note_info, indent=2, default=str)))
     print("--------------------------------")

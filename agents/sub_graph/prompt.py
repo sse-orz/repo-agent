@@ -281,17 +281,31 @@ class RepoPrompt:
 
                 Write a self-contained **markdown section** for this commit that includes:
                 - A level-2 heading combining commit message and short SHA
-                - A short paragraph under a "Summary" subheading explaining what changed and why it matters
+                - "Author" and "Date" lines
+                - A "**Type:** ..." line that classifies the commit into one of:
+                  - "Feature", "Bugfix", "Perf", "Refactor", "Dependency", "CI/Infra", or "Docs"
+                - A "Summary" subheading explaining in 1–2 short paragraphs what changed and why it matters
                 - A "Modified Files" subheading with a concise bullet list of key files and their roles, based ONLY on the given data
+
+                Classification & brevity rules:
+                - If the commit message starts with "Bump" or only touches CI/workflow or tooling files
+                  (e.g., paths under .github/workflows, CodeQL, actions/checkout, actions/upload-artifact, etc.),
+                  classify it as "Dependency" or "CI/Infra" and:
+                  - Keep the entire section VERY short (at most about 6–8 lines of markdown excluding bullets)
+                  - Use 1 short summary sentence
+                  - Use at most 1–3 bullets under "Modified Files"
+                  - Avoid repeating generic rationale like "keep dependencies up-to-date" more than once.
+                - For non-maintenance commits (real features / bugfixes / perf work), focus on:
+                  - Impacted components or subsystems
+                  - Why the change was needed
+                  - Risks or notable side effects (only when clearly indicated in the data)
 
                 Formatting rules:
                 - Always use the following structure:
                   - "## ..." for the commit title
-                  - "Author" and "Date" lines
+                  - "Author", "Date", and "Type" lines
                   - "### Summary" followed by 1–2 short paragraphs
                   - "### Modified Files" followed by a few bullets (omit this section only if there are no files listed)
-                - If the commit is primarily a dependency bump or CI workflow update (e.g., actions/checkout, github/codeql-action, actions/upload-artifact),
-                  keep the description **very concise** and summarize affected workflows at a high level instead of listing every file verbosely.
 
                 Output only the markdown section for this commit, without any surrounding introduction or conclusion.
                 """
@@ -299,124 +313,83 @@ class RepoPrompt:
         )
 
     @staticmethod
-    def _get_human_prompt_for_repo_commit_summary_doc(
-        combined_commit_sections: str, repo_info: dict
+    def _get_human_prompt_for_repo_single_pr_doc(
+        pr: dict, repo_info: dict, diff_content: str | None
     ) -> HumanMessage:
-        # this func is to generate a prompt for a summary section over multiple commits
+        # this func is to generate a prompt for a single PR documentation section
         repo_name = repo_info.get("repo", "")
         owner = repo_info.get("owner", "")
         return HumanMessage(
             content=dedent(
                 f"""
-                You are writing the **overview section** for a commit history document
-                for repository '{owner}/{repo_name}'.
+                You are documenting a single pull request for repository '{owner}/{repo_name}'.
 
-                Below is the already generated per-commit markdown documentation:
+                PR metadata:
+                {pr}
 
-                {combined_commit_sections}
+                Unified diff for this PR (may be truncated or empty if unavailable):
+                {diff_content or "<no diff content available>"}
 
-                Based on this content, write a new markdown section that:
-                - Starts with a level-1 or level-2 heading giving an overall title for the recent changes
-                - Gives 1–2 short paragraphs describing the main themes (e.g., new architecture support, build system refactors, CI/security dependency updates)
-                - Includes a concise bullet list of key takeaways for maintainers, such as:
-                  - Risky or impactful areas of the codebase touched
-                  - Notable improvements (performance, portability, DX)
-                  - Operational or CI/CD changes worth paying attention to
+                Write a self-contained **markdown section** for this PR that includes:
+                - A level-2 heading combining PR title and number
+                - Basic metadata (author, state, created_at, merged_at)
+                - A "**Type:** ..." line that classifies the PR into one of:
+                  - "Feature", "Bugfix", "Perf", "Refactor", "Dependency", "CI/Infra", "Docs", or "Release"
+                - A "Summary" subheading explaining in 1–2 short paragraphs what this PR does and why it matters
+                - A "Changes" subheading with a concise bullet list of the main technical changes,
+                  using the PR body and diff content when helpful (but never pasting raw diffs)
+                - Optionally a "Impact / Risk" subheading when the change is notable for maintainers
 
-                Do NOT repeat per-commit details; focus only on cross-commit patterns and high-level insights.
-                Output only this overview section, which will appear **before** the per-commit sections.
+                Rules:
+                - Prefer the PR body for intent and high-level description
+                - Use the diff content ONLY to infer types of files and changes, never to dump line-level patches
+                - Do not mention that you saw a diff or that content might be truncated
+                - When the PR is an automated dependency bump or CI-only change (Dependabot author, title starts with "Bump",
+                  or changes limited to workflows / actions / code scanning):
+                  - Classify it as "Dependency" or "CI/Infra"
+                  - Keep the whole section short:
+                    - 1–2 summary sentences
+                    - 1–3 bullets under "Changes"
+                  - Do NOT restate upstream release notes in detail; only highlight the most relevant effect on this repository.
+
+                Output only the markdown section for this PR.
                 """
             ).strip(),
         )
 
     @staticmethod
-    def _get_human_prompt_for_repo_pr_doc(
-        pr_info: dict, repo_info: dict
+    def _get_human_prompt_for_repo_single_release_doc(
+        release: dict, repo_info: dict
     ) -> HumanMessage:
-        # this func is to generate a prompt for PR documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Generate pull request (PR) analysis documentation for repository '{owner}/{repo_name}'.
-
-                From the PR data below, write:
-                - Overview of recent and important PRs
-                - Common themes or focus areas
-                - Review and merge patterns
-                - Contributor and collaboration insights
-                - Any pending or long-lived PRs that need attention
-
-                PR data:
-                {pr_info}
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _get_human_prompt_for_repo_updated_pr_doc(
-        pr_info: dict, repo_info: dict, pr_doc_path: str
-    ) -> HumanMessage:
-        # this func is to generate a prompt for updated PR documentation
+        # this func is to generate a prompt for a single release documentation section
         repo_name = repo_info.get("repo", "")
         owner = repo_info.get("owner", "")
         return HumanMessage(
             content=dedent(
                 f"""
-                Update the pull request (PR) analysis documentation for repository '{owner}/{repo_name}'.
+                You are documenting a single release for repository '{owner}/{repo_name}'.
 
-                Existing doc path (for reference only, do NOT mention the path in output): {pr_doc_path}
+                Release metadata:
+                {release}
 
-                Use the updated PR data below to update or extend the existing markdown:
-                {pr_info}
-                """
-            ).strip(),
-        )
+                Write a self-contained **markdown section** for this release that includes:
+                - A level-2 heading with the release name and tag (for example: "## v1.2.3 - 2025-01-01")
+                - Basic metadata (tag_name, created_at, published_at)
+                - A "Highlights" subheading summarizing in a few bullets (at most 5) the key features / changes from the body
+                - Optionally other subheadings like "Breaking Changes", "Bug Fixes", or "Performance" if they are clearly present in the body
 
-    @staticmethod
-    def _get_human_prompt_for_repo_release_note_doc(
-        release_note_info: dict, repo_info: dict
-    ) -> HumanMessage:
-        # this func is to generate a prompt for release note documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Generate release history documentation for repository '{owner}/{repo_name}'.
-
-                From the release data below, write:
-                - Timeline of major releases and key features
-                - Breaking changes and any migration guidance
-                - Performance improvements and bug fixes across versions
-                - Deprecations and hints about future direction
-                - Patterns in release frequency and versioning
-
-                Release data:
-                {release_note_info}
-                """
-            ).strip(),
-        )
-
-    @staticmethod
-    def _get_human_prompt_for_repo_updated_release_note_doc(
-        release_note_info: dict, repo_info: dict, release_note_doc_path: str
-    ) -> HumanMessage:
-        # this func is to generate a prompt for updated release note documentation
-        repo_name = repo_info.get("repo", "")
-        owner = repo_info.get("owner", "")
-        return HumanMessage(
-            content=dedent(
-                f"""
-                Update the release history documentation for repository '{owner}/{repo_name}'.
-
-                Existing doc path (for reference only, do NOT mention the path in output): {release_note_doc_path}
-
-                Use the updated release data below to update or extend the existing markdown:
-                {release_note_info}
+                Rules:
+                - Base your content strictly on the provided release body and metadata.
+                - Focus on changes that are most relevant for downstream users of this repository:
+                  - critical bug fixes
+                  - security or behavior changes
+                  - major performance or compatibility updates
+                  - new APIs / flags that may require code or deployment changes
+                - Do NOT copy long upstream release notes verbatim:
+                  - Summarize long lists into a few representative bullets
+                  - Avoid reproducing large tables, benchmarks, or exhaustive change logs
+                - Do NOT invent features or changes that are not reflected in the input.
+                - Output only the markdown section for this release.
                 """
             ).strip(),
         )

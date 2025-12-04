@@ -5,7 +5,7 @@ import json
 import os
 
 from utils.file import write_file, read_file, resolve_path
-from .utils import log_state, call_llm
+from .utils import log_state, call_llm, curl_content
 from .prompt import RepoPrompt
 from config import CONFIG
 
@@ -122,6 +122,20 @@ class RepoInfoSubGraphBuilder:
             "✓ [overview_doc_generation_node] overview documentation processed successfully"
         )
 
+    def _generate_single_commit_section(
+        self,
+        single_commit: dict,
+        commit_repo_info: dict,
+    ) -> str:
+        return call_llm(
+            [
+                RepoPrompt._get_system_prompt_for_repo(),
+                RepoPrompt._get_human_prompt_for_repo_single_commit_doc(
+                    single_commit, commit_repo_info
+                ),
+            ]
+        )
+
     def _build_commit_doc(
         self,
         commit_info: dict,
@@ -133,7 +147,6 @@ class RepoInfoSubGraphBuilder:
         if not commits:
             return prefix_content or ""
 
-        # Per-commit sections generated in parallel
         effective_workers = min(max_workers, len(commits))
         with ThreadPoolExecutor(max_workers=effective_workers) as executor:
             futures = [
@@ -148,38 +161,12 @@ class RepoInfoSubGraphBuilder:
 
         combined = "\n\n".join(section.strip() for section in sections if section)
 
-        # High-level overview section for all commits, based on generated sections
-        summary_section = call_llm(
-            [
-                RepoPrompt._get_system_prompt_for_repo(),
-                RepoPrompt._get_human_prompt_for_repo_commit_summary_doc(
-                    combined, commit_repo_info
-                ),
-            ]
-        )
-
         parts: list[str] = []
         if prefix_content:
             parts.append(prefix_content.rstrip())
-        if summary_section:
-            parts.append(summary_section.strip())
         if combined:
             parts.append(combined)
         return "\n\n".join(parts)
-
-    def _generate_single_commit_section(
-        self,
-        single_commit: dict,
-        commit_repo_info: dict,
-    ) -> str:
-        return call_llm(
-            [
-                RepoPrompt._get_system_prompt_for_repo(),
-                RepoPrompt._get_human_prompt_for_repo_single_commit_doc(
-                    single_commit, commit_repo_info
-                ),
-            ]
-        )
 
     def commit_doc_generation_node(self, state: dict):
         # this node is to process the commit documentation
@@ -237,6 +224,59 @@ class RepoInfoSubGraphBuilder:
             "✓ [commit_doc_generation_node] commit documentation processed successfully"
         )
 
+    def _generate_single_pr_section(
+        self,
+        single_pr: dict,
+        repo_info: dict,
+    ) -> str:
+        diff_url = single_pr.get("diff_url") or ""
+        diff_content = ""
+        if diff_url:
+            try:
+                diff_content = curl_content(diff_url)
+            except Exception:
+                diff_content = ""
+        return call_llm(
+            [
+                RepoPrompt._get_system_prompt_for_repo(),
+                RepoPrompt._get_human_prompt_for_repo_single_pr_doc(
+                    single_pr, repo_info, diff_content
+                ),
+            ]
+        )
+
+    def _build_pr_doc(
+        self,
+        pr_info: dict,
+        max_workers: int,
+        prefix_content: str | None = None,
+    ) -> str:
+        prs = pr_info.get("prs", []) or []
+        repo_info = pr_info.get("repo_info") or {}
+        if not prs:
+            return prefix_content or ""
+
+        effective_workers = min(max_workers, len(prs))
+        with ThreadPoolExecutor(max_workers=effective_workers) as executor:
+            futures = [
+                executor.submit(
+                    self._generate_single_pr_section,
+                    single_pr=pr,
+                    repo_info=repo_info,
+                )
+                for pr in prs
+            ]
+            sections = [f.result() for f in futures]
+
+        combined = "\n\n".join(section.strip() for section in sections if section)
+
+        parts: list[str] = []
+        if prefix_content:
+            parts.append(prefix_content.rstrip())
+        if combined:
+            parts.append(combined)
+        return "\n\n".join(parts)
+
     def pr_doc_generation_node(self, state: dict):
         # this node is to process the PR documentation
         log_state(state)
@@ -246,21 +286,26 @@ class RepoInfoSubGraphBuilder:
         repo_info = basic_info_for_repo.get("repo_info", {})
         prs_updated = basic_info_for_repo.get("prs_updated", False)
         pr_doc_path = basic_info_for_repo.get("pr_doc_path", "")
+        max_workers = basic_info_for_repo.get("max_workers", 10)
         os.makedirs(os.path.dirname(pr_doc_path), exist_ok=True)
 
-        system_prompt = RepoPrompt._get_system_prompt_for_repo()
         result_info = ""
         if prs_updated:
             print(
-                "   → [pr_doc_generation_node] generating PR documentation with updates..."
+                "   → [pr_doc_generation_node] generating PR documentation for updated PRs in parallel..."
             )
-            result_info = call_llm(
-                [
-                    system_prompt,
-                    RepoPrompt._get_human_prompt_for_repo_updated_pr_doc(
-                        pr_info, repo_info, pr_doc_path
-                    ),
-                ]
+            existing_content = ""
+            if os.path.exists(pr_doc_path):
+                existing_content = read_file(pr_doc_path) or ""
+                print(
+                    "   → [pr_doc_generation_node] existing PR documentation found, new sections will be appended."
+                )
+            # Ensure pr_info carries repo_info for prompt context
+            enriched_pr_info = {**pr_info, "repo_info": repo_info}
+            result_info = self._build_pr_doc(
+                pr_info=enriched_pr_info,
+                max_workers=max_workers,
+                prefix_content=existing_content,
             )
             print("   → [pr_doc_generation_node] PR documentation updated")
         elif os.path.exists(pr_doc_path):
@@ -270,13 +315,13 @@ class RepoInfoSubGraphBuilder:
             return
         else:
             print(
-                "   → [pr_doc_generation_node] generating PR documentation without updates..."
+                "   → [pr_doc_generation_node] generating PR documentation for all PRs in parallel..."
             )
-            result_info = call_llm(
-                [
-                    system_prompt,
-                    RepoPrompt._get_human_prompt_for_repo_pr_doc(pr_info, repo_info),
-                ]
+            enriched_pr_info = {**pr_info, "repo_info": repo_info}
+            result_info = self._build_pr_doc(
+                pr_info=enriched_pr_info,
+                max_workers=max_workers,
+                prefix_content=None,
             )
             print("   → [pr_doc_generation_node] PR documentation generated")
 
@@ -286,6 +331,52 @@ class RepoInfoSubGraphBuilder:
             result_info,
         )
         print("✓ [pr_doc_generation_node] PR documentation processed successfully")
+
+    def _generate_single_release_section(
+        self,
+        single_release: dict,
+        repo_info: dict,
+    ) -> str:
+        return call_llm(
+            [
+                RepoPrompt._get_system_prompt_for_repo(),
+                RepoPrompt._get_human_prompt_for_repo_single_release_doc(
+                    single_release, repo_info
+                ),
+            ]
+        )
+
+    def _build_release_note_doc(
+        self,
+        release_note_info: dict,
+        max_workers: int,
+        prefix_content: str | None = None,
+    ) -> str:
+        releases = release_note_info.get("releases", []) or []
+        repo_info = release_note_info.get("repo_info") or {}
+        if not releases:
+            return prefix_content or ""
+
+        effective_workers = min(max_workers, len(releases))
+        with ThreadPoolExecutor(max_workers=effective_workers) as executor:
+            futures = [
+                executor.submit(
+                    self._generate_single_release_section,
+                    single_release=release,
+                    repo_info=repo_info,
+                )
+                for release in releases
+            ]
+            sections = [f.result() for f in futures]
+
+        combined = "\n\n".join(section.strip() for section in sections if section)
+
+        parts: list[str] = []
+        if prefix_content:
+            parts.append(prefix_content.rstrip())
+        if combined:
+            parts.append(combined)
+        return "\n\n".join(parts)
 
     def release_note_doc_generation_node(self, state: dict):
         # this node is to process the release note documentation
@@ -298,21 +389,25 @@ class RepoInfoSubGraphBuilder:
         release_note_info = state.get("release_note_info", {})
         repo_info = basic_info_for_repo.get("repo_info", {})
         release_note_doc_path = basic_info_for_repo.get("release_note_doc_path", "")
+        max_workers = basic_info_for_repo.get("max_workers", 10)
         os.makedirs(os.path.dirname(release_note_doc_path), exist_ok=True)
 
-        system_prompt = RepoPrompt._get_system_prompt_for_repo()
         result_info = ""
         if releases_updated:
             print(
-                "   → [release_note_doc_generation_node] generating release note documentation with updates..."
+                "   → [release_note_doc_generation_node] generating release note documentation for updated releases in parallel..."
             )
-            result_info = call_llm(
-                [
-                    system_prompt,
-                    RepoPrompt._get_human_prompt_for_repo_updated_release_note_doc(
-                        release_note_info, repo_info, release_note_doc_path
-                    ),
-                ]
+            existing_content = ""
+            if os.path.exists(release_note_doc_path):
+                existing_content = read_file(release_note_doc_path) or ""
+                print(
+                    "   → [release_note_doc_generation_node] existing release note documentation found, new sections will be appended."
+                )
+            enriched_release_note_info = {**release_note_info, "repo_info": repo_info}
+            result_info = self._build_release_note_doc(
+                release_note_info=enriched_release_note_info,
+                max_workers=max_workers,
+                prefix_content=existing_content,
             )
             print(
                 "   → [release_note_doc_generation_node] release note documentation updated"
@@ -324,18 +419,16 @@ class RepoInfoSubGraphBuilder:
             return
         else:
             print(
-                "   → [release_note_doc_generation_node] Generating release note documentation without updates."
+                "   → [release_note_doc_generation_node] generating release note documentation for all releases in parallel..."
             )
-            result_info = call_llm(
-                [
-                    system_prompt,
-                    RepoPrompt._get_human_prompt_for_repo_release_note_doc(
-                        release_note_info, repo_info
-                    ),
-                ]
+            enriched_release_note_info = {**release_note_info, "repo_info": repo_info}
+            result_info = self._build_release_note_doc(
+                release_note_info=enriched_release_note_info,
+                max_workers=max_workers,
+                prefix_content=None,
             )
             print(
-                "   → [release_note_doc_generation_node] Release note documentation generated"
+                "   → [release_note_doc_generation_node] release note documentation generated"
             )
 
         print(
@@ -446,8 +539,8 @@ class RepoInfoSubGraphBuilder:
             self.repo_info_update_log_doc_generation_node,
         )
         repo_info_builder.add_edge(START, "commit_doc_generation_node")
-        # repo_info_builder.add_edge(START, "pr_doc_generation_node")
-        # repo_info_builder.add_edge(START, "release_note_doc_generation_node")
+        repo_info_builder.add_edge(START, "pr_doc_generation_node")
+        repo_info_builder.add_edge(START, "release_note_doc_generation_node")
         # repo_info_builder.add_edge(START, "repo_info_overview_node")
         # repo_info_builder.add_edge(
         #     "repo_info_overview_node", "overview_doc_generation_node"
@@ -458,12 +551,12 @@ class RepoInfoSubGraphBuilder:
         repo_info_builder.add_edge(
             "commit_doc_generation_node", "repo_info_update_log_node"
         )
-        # repo_info_builder.add_edge(
-        #     "pr_doc_generation_node", "repo_info_update_log_node"
-        # )
-        # repo_info_builder.add_edge(
-        #     "release_note_doc_generation_node", "repo_info_update_log_node"
-        # )
+        repo_info_builder.add_edge(
+            "pr_doc_generation_node", "repo_info_update_log_node"
+        )
+        repo_info_builder.add_edge(
+            "release_note_doc_generation_node", "repo_info_update_log_node"
+        )
         repo_info_builder.add_edge(
             "repo_info_update_log_node", "repo_info_update_log_doc_generation_node"
         )
