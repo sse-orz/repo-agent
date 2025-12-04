@@ -49,6 +49,11 @@ export interface GenerateResponseData {
   total_files: number
 }
 
+export interface WikiFilesResponse {
+  files: FileInfo[]
+  total_files: number
+}
+
 interface ListResponse {
   wikis: WikiInfo[]
   total_wikis: number
@@ -112,6 +117,18 @@ export const generateDoc = async (
 
 export const listDocs = async (): Promise<BaseResponse<ListResponse>> => {
   return request<ListResponse>({ method: 'GET', url: '/agents/list' })
+}
+
+export const getWikiFiles = async (
+  owner: string,
+  repo: string,
+  mode: 'sub' | 'moe'
+): Promise<BaseResponse<WikiFilesResponse>> => {
+  return request<WikiFilesResponse>({
+    method: 'GET',
+    url: `/agents/wikis/${owner}/${repo}`,
+    params: { mode },
+  })
 }
 
 export const generateDocStream = async (
