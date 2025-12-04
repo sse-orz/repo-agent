@@ -343,11 +343,11 @@ if __name__ == "__main__":
     # print(repo_structure)
     # print(count_tokens(str(repo_structure)))
 
-    # basic_repo_structure = get_basic_repo_structure(repo_path)
-    # print(basic_repo_structure)
-    # print(len(basic_repo_structure))
-    # print(count_tokens(str(basic_repo_structure)))
-    # print("--------------------------------")
+    basic_repo_structure = get_basic_repo_structure(repo_path)
+    print(basic_repo_structure)
+    print(len(basic_repo_structure))
+    print(count_tokens(str(basic_repo_structure)))
+    print("--------------------------------")
 
     # md_files = get_md_files(repo_path)
     # print(md_files)
@@ -382,13 +382,13 @@ if __name__ == "__main__":
     # print(count_tokens(curled_content))
     # print("--------------------------------")
 
-    release_note_info = get_updated_release_note_info(
-        owner="facebook",
-        repo="react",
-        platform="github",
-        log_path="./.logs/release_note_log.json",
-        limit=5,
-    )
-    print(json.dumps(release_note_info, indent=2, default=str))
-    print(count_tokens(json.dumps(release_note_info, indent=2, default=str)))
-    print("--------------------------------")
+    # release_note_info = get_updated_release_note_info(
+    #     owner="facebook",
+    #     repo="react",
+    #     platform="github",
+    #     log_path="./.logs/release_note_log.json",
+    #     limit=5,
+    # )
+    # print(json.dumps(release_note_info, indent=2, default=str))
+    # print(count_tokens(json.dumps(release_note_info, indent=2, default=str)))
+    # print("--------------------------------")

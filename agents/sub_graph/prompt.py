@@ -183,14 +183,20 @@ class RepoPrompt:
                 """
                 You are an expert technical documentation writer for software repositories.
 
-                Your job is to turn repository-related data (commits, PRs, releases, existing docs, etc.) into clear, structured **Markdown documentation** for developers.
+                Audience:
+                - Experienced engineers who are new to this repository and need a fast, accurate mental model.
+                - They can read code, but want a high-level, well-structured overview first.
+
+                Your job is to turn repository-related data (commits, PRs, releases, existing docs, etc.)
+                into clear, structured **Markdown documentation** for developers.
 
                 Global rules:
-                - Use Markdown headings, lists, and tables when helpful
-                - Be concise but informative; prefer summaries over raw dumps
-                - Highlight important changes, impact, and patterns
-                - Organize content into logical sections with clear titles
+                - Prefer high-signal summaries over copying or paraphrasing long text.
+                - Use Markdown headings, lists, and tables when helpful.
+                - Highlight important components, flows, and changes – not every minor detail.
+                - Organize content into logical sections with clear, consistent titles.
                 - When diagrams are requested, use valid Mermaid code blocks (```mermaid ... ```).
+                - If information is missing or unclear, omit it instead of guessing.
 
                 Critical output rules:
                 - Output ONLY the final markdown document, starting directly with the title line
@@ -202,8 +208,92 @@ class RepoPrompt:
         )
 
     @staticmethod
+    def _get_human_prompt_for_repo_overview_dir_selection(
+        repo_info: dict, basic_repo_structure: list[str], max_num_dirs: int
+    ) -> HumanMessage:
+        # call llm to select the dirs that are deserving to be the documentation source dirs
+        return HumanMessage(
+            content=dedent(
+                f"""
+                You are helping to generate an overview document for this repository.
+
+                Your task now is to choose at most {max_num_dirs} directories that are
+                the most useful as documentation sources (for example, they contain
+                important Markdown docs like README, design docs, specs, guides, etc.).
+
+                Repository information:
+                {repo_info}
+
+                Available directory structure (relative paths):
+                {basic_repo_structure}
+
+                Selection rules:
+                - STRONGLY prefer directories that are likely to contain architecture, design,
+                  or user/developer documentation (e.g., docs, documentation, design,
+                  spec, guide, manual, top-level README-related paths).
+                - You MAY also include code-centric directories that are obviously
+                  core or central modules if they are likely to have useful docs
+                  (e.g., core library / src / lib directories with README or design notes).
+                - De-prioritize or usually SKIP directories that are mostly tests or peripheral content:
+                  - tests, fuzz, cli-tests, regression, benchmarks, perf, examples, demo, sample, contrib tools.
+                  - Only include them when they clearly contain high-level design docs that are
+                    important for understanding the overall architecture.
+                - You MUST only select from the directory list above and copy the
+                  paths verbatim.
+                - If many directories are similar, pick only the most central and informative ones.
+                - If you are unsure, choose a smaller, high-quality set of directories and
+                  never invent or modify paths.
+                - Return at most {max_num_dirs} directories; fewer is allowed.
+
+                Output format:
+                - Output ONLY the chosen directory paths, one per line.
+                - No extra text, explanations, numbering, or bullets.
+                """
+            ).strip(),
+        )
+
+    @staticmethod
+    def _get_human_prompt_for_repo_single_module_overview(
+        repo_info: dict, selected_md_file: str, doc_contents: str
+    ) -> HumanMessage:
+        # call llm to generate the overview section for the single module
+        repo_name = repo_info.get("repo", "")
+        owner = repo_info.get("owner", "")
+        return HumanMessage(
+            content=dedent(
+                f"""
+                You are generating an overview section for a single module in repository '{owner}/{repo_name}'.
+
+                Module path:
+                {selected_md_file}
+
+                The following markdown contents come from documentation files under this module
+                (README, design docs, specs, guides, etc.):
+                {doc_contents}
+
+                Write a concise but informative markdown section that:
+                1. Uses a level-2 heading as the module title, mentioning the module path.
+                2. Explains the main responsibilities and purpose of this module in the overall system.
+                3. Describes how this module relates to other important parts of the repository
+                   (only when such relationships are clearly indicated in the docs).
+                4. Summarizes the key sub-components, features, or workflows inside this module.
+                5. Focuses on information that is useful for someone trying to understand
+                   the overall repository architecture.
+
+                Additional rules:
+                - Keep the section compact: a few short paragraphs and/or bullet lists.
+                - Do NOT restate the original docs line by line; aggressively summarize and synthesize.
+                - Prefer clear, consistent terminology for components and concepts.
+                - If this module is primarily for tests, fuzzing, benchmarks, examples, or small tools,
+                  keep the description brief and emphasize its supporting role rather than treating
+                  it as a core architectural component.
+                """
+            ).strip(),
+        )
+
+    @staticmethod
     def _get_human_prompt_for_repo_overview_doc(
-        repo_info: dict, doc_contents: str
+        repo_info: dict, doc_contents: str, basic_repo_structure: list[str]
     ) -> HumanMessage:
         # this func is to generate a prompt for overall repository documentation
         repo_name = repo_info.get("repo", "")
@@ -214,18 +304,43 @@ class RepoPrompt:
                 f"""
                 Generate overall documentation for repository '{owner}/{repo_name}'.
 
+                You are given:
+                - Aggregated module-level overview sections (already in markdown) that summarize
+                  important parts of the repository documentation.
+                - The repository directory structure (relative paths), which you should use only
+                  to build a concise high-level view, not to list every single directory:
+                {basic_repo_structure}
+
                 Based on:
                 - Repository information:
                 {repo_info}
 
-                - Documentation source files (content below):
+                - Aggregated module overview sections (content below):
                 {doc_contents}
 
-                Write a markdown document that includes:
-                1. Overview of repository structure and key components
-                2. Summary of existing documentation coverage
-                3. Main documentation gaps and areas for improvement
-                4. At least one Mermaid diagram for architecture or component relationships
+                Write a single, coherent markdown document that:
+                1. Starts with a short high-level introduction to the repository.
+                2. Includes a compact "Repository Structure" section with a directory tree-style
+                   code block that highlights only the most important top-level and second-level
+                   directories (core library, programs/CLI, docs, tests, contrib/tools, examples, etc.).
+                3. Explains the overall architecture and key components, grouped into clear sections.
+                4. Highlights important relationships and data/control flows between modules.
+                5. Briefly comments on documentation coverage and obvious gaps (only when they are clearly visible).
+                6. Includes at least one Mermaid diagram that visualizes architecture, chosen from for example:
+                   - System architecture or high-level flow (graph/flowchart)
+                   - Component relationships
+                   - Module dependencies
+                   - Data flow between major parts of the system
+                   Use standard Mermaid markdown syntax (```mermaid ... ```), and keep diagrams clear and readable.
+
+                Synthesis and conciseness rules:
+                - Do NOT simply concatenate the input sections.
+                - Merge overlapping information and remove duplicated explanations.
+                - Use consistent terminology for the same component or concept across the document.
+                - Put core libraries/services/modules first; group tools, CLIs, contrib, tests, and examples
+                  into later sections as supporting components.
+                - Keep the document reasonably compact and focused on what a new engineer must know to
+                  understand and safely work with the repository.
                 """
             ).strip(),
         )
@@ -234,8 +349,6 @@ class RepoPrompt:
     def _get_human_prompt_for_repo_updated_overview_doc(
         repo_info: dict,
         commit_info: dict,
-        pr_info: dict,
-        release_note_info: dict,
         overview_doc_path: str,
     ) -> HumanMessage:
         # this func is to generate a prompt for updated overall repository documentation
@@ -244,22 +357,22 @@ class RepoPrompt:
         return HumanMessage(
             content=dedent(
                 f"""
-                Update the existing repository overview documentation for '{owner}/{repo_name}'.
+                Based on the latest commit changes, generate an updated repository overview for '{owner}/{repo_name}'.
 
-                Existing doc path (for reference only, do NOT mention the path in output): {overview_doc_path}
+                (The existing overview document is stored at: {overview_doc_path}. This path is for context only
+                and MUST NOT be mentioned in the output.)
 
-                Use the updated data below:
+                Use the commit information below:
                 - Commit information:
                 {commit_info}
 
-                - PR information:
-                {pr_info}
+                Write a markdown overview that:
+                - Reflects the latest important changes from commits and their impact on architecture and key components.
+                - Preserves a clear, concise structure similar to a normal repository overview.
+                - Uses consistent terminology for components and concepts.
+                - Updates or adds Mermaid diagrams when architecture or relationships clearly change based on the commits.
 
-                - Release note information:
-                {release_note_info}
-
-                Update the markdown so it reflects the latest changes, keeps a clear structure,
-                and updates or adds Mermaid diagrams when architecture or relationships change.
+                Focus on the most relevant changes from commits; do not attempt to list every minor detail.
                 """
             ).strip(),
         )

@@ -5,7 +5,14 @@ import json
 import os
 
 from utils.file import write_file, read_file, resolve_path
-from .utils import log_state, call_llm, curl_content
+from .utils import (
+    log_state,
+    call_llm,
+    curl_content,
+    get_md_files,
+    count_tokens,
+    get_llm_max_tokens,
+)
 from .prompt import RepoPrompt
 from config import CONFIG
 
@@ -26,38 +33,137 @@ class RepoInfoSubGraphBuilder:
     def __init__(self):
         self.graph = self.build()
 
+    def _select_doc_dirs(
+        self,
+        repo_info: dict,
+        basic_repo_structure: list[str],
+        max_num_dirs: int = 100,
+    ) -> list[str]:
+        # call llm to select the dirs that are deserving to be the documentation source dirs
+        if not basic_repo_structure:
+            return []
+
+        raw_output = call_llm(
+            [
+                RepoPrompt._get_system_prompt_for_repo(),
+                RepoPrompt._get_human_prompt_for_repo_overview_dir_selection(
+                    repo_info, basic_repo_structure, max_num_dirs
+                ),
+            ]
+        )
+        chosen_dirs: list[str] = []
+        if raw_output:
+            for line in str(raw_output).splitlines():
+                path = line.strip()
+                if not path:
+                    continue
+                # only accept the dirs that are in the basic_repo_structure and not already chosen
+                if path in basic_repo_structure and path not in chosen_dirs:
+                    chosen_dirs.append(path)
+
+        return chosen_dirs
+
+    def _generate_single_overview_section(
+        self, repo_info: dict, selected_md_file: str
+    ) -> str:
+        # count the tokens of the selected_md_file
+        # if the tokens is greater than 5% of the max tokens, call llm to generate the overview section for the single module
+        # otherwise, return the content of the selected_md_file
+        doc_contents = read_file(selected_md_file) or ""
+        doc_contents_tokens = count_tokens(doc_contents)
+        if doc_contents_tokens > get_llm_max_tokens(compress_ratio=0.05):
+            result = call_llm(
+                [
+                    RepoPrompt._get_system_prompt_for_repo(),
+                    RepoPrompt._get_human_prompt_for_repo_single_module_overview(
+                        repo_info, selected_md_file, doc_contents
+                    ),
+                ]
+            )
+        else:
+            result = doc_contents
+
+        return result
+
+    def _build_overview_doc(
+        self,
+        repo_info: dict,
+        repo_path: str,
+        basic_repo_structure: list[str],
+        selected_doc_dirs: list[str],
+        max_workers: int,
+    ) -> str:
+        # use threadpool to generate the overview sections for the selected dirs in parallel
+        # combine the overview sections into the overview documentation
+        if not selected_doc_dirs:
+            return ""
+
+        # collect the md files in the selected dirs (deal with paths correctly)
+        selected_md_files = []
+        for selected_doc_dir in selected_doc_dirs:
+            doc_dir_abs_path = os.path.join(repo_path, selected_doc_dir)
+            doc_files = get_md_files(doc_dir_abs_path)
+            for doc_file in doc_files:
+                selected_md_files.append(os.path.join(doc_dir_abs_path, doc_file))
+
+        # generate the overview sections for the selected md files in parallel
+        effective_workers = min(max_workers, len(selected_md_files))
+        with ThreadPoolExecutor(max_workers=effective_workers) as executor:
+            futures = [
+                executor.submit(
+                    self._generate_single_overview_section,
+                    repo_info=repo_info,
+                    selected_md_file=selected_md_file,
+                )
+                for selected_md_file in selected_md_files
+            ]
+            module_sections = [f.result() for f in futures]
+
+        module_sections = [s.strip() for s in module_sections if s and s.strip()]
+        if not module_sections:
+            return ""
+
+        combined_module_overview = "\n\n".join(module_sections)
+
+        # call llm to generate the overview documentation for the selected dirs
+        final_overview = call_llm(
+            [
+                RepoPrompt._get_system_prompt_for_repo(),
+                RepoPrompt._get_human_prompt_for_repo_overview_doc(
+                    repo_info,
+                    combined_module_overview,
+                    basic_repo_structure,
+                ),
+            ]
+        )
+        return final_overview or combined_module_overview
+
     def repo_info_overview_node(self, state: dict):
         # this node is to process the overall repository documentation
         log_state(state)
         print("→ [repo_info_overview_node] processing overview documentation...")
         basic_info_for_repo = state.get("basic_info_for_repo", {})
         commits_updated = basic_info_for_repo.get("commits_updated", False)
-        prs_updated = basic_info_for_repo.get("prs_updated", False)
-        releases_updated = basic_info_for_repo.get("releases_updated", False)
         commit_info = state.get("commit_info", {})
-        pr_info = state.get("pr_info", {})
-        release_note_info = state.get("release_note_info", {})
         repo_info = basic_info_for_repo.get("repo_info", {})
         repo_path = basic_info_for_repo.get("repo_path", "")
-        repo_structure = basic_info_for_repo.get("repo_structure", [])
+        basic_repo_structure = basic_info_for_repo.get("basic_repo_structure", []) or []
+        max_workers = basic_info_for_repo.get("max_workers", 10)
 
         overview_doc_path = basic_info_for_repo.get("overview_doc_path", "")
         os.makedirs(os.path.dirname(overview_doc_path), exist_ok=True)
 
-        system_prompt = RepoPrompt._get_system_prompt_for_repo()
         result_info = ""
-        if commits_updated or prs_updated or releases_updated:
+        if commits_updated:
             print(
                 "   → [repo_info_overview_node] generating overall documentation with updates..."
             )
             result_info = call_llm(
                 [
-                    system_prompt,
+                    RepoPrompt._get_system_prompt_for_repo(),
                     RepoPrompt._get_human_prompt_for_repo_updated_overview_doc(
                         repo_info,
                         commit_info,
-                        pr_info,
-                        release_note_info,
                         overview_doc_path,
                     ),
                 ]
@@ -73,27 +179,17 @@ class RepoInfoSubGraphBuilder:
             print(
                 "   → [repo_info_overview_node] generating overall documentation without updates..."
             )
-            # TODO: need to fix bug here: not all md files are deserving to be the documentation source files
-            # add prefix path to doc source files
-            doc_source_files = [
-                os.path.join(repo_path, file_path)
-                for file_path in repo_structure
-                if file_path.endswith(".md")
-            ]
-            doc_contents = []
-            for file_path in doc_source_files:
-                file_path = resolve_path(file_path)
-                content = read_file(file_path)
-                if content:
-                    doc_contents.append(f"# Source File: {file_path}\n\n{content}\n\n")
-            combined_doc_content = "\n".join(doc_contents)
-            result_info = call_llm(
-                [
-                    system_prompt,
-                    RepoPrompt._get_human_prompt_for_repo_overview_doc(
-                        repo_info, combined_doc_content
-                    ),
-                ]
+            selected_doc_dirs = self._select_doc_dirs(
+                repo_info=repo_info,
+                basic_repo_structure=basic_repo_structure,
+                max_num_dirs=100,
+            )
+            result_info = self._build_overview_doc(
+                repo_info=repo_info,
+                repo_path=repo_path,
+                basic_repo_structure=basic_repo_structure,
+                selected_doc_dirs=selected_doc_dirs,
+                max_workers=max_workers,
             )
             print("   → [repo_info_overview_node] overall documentation generated")
 
@@ -541,13 +637,13 @@ class RepoInfoSubGraphBuilder:
         repo_info_builder.add_edge(START, "commit_doc_generation_node")
         repo_info_builder.add_edge(START, "pr_doc_generation_node")
         repo_info_builder.add_edge(START, "release_note_doc_generation_node")
-        # repo_info_builder.add_edge(START, "repo_info_overview_node")
-        # repo_info_builder.add_edge(
-        #     "repo_info_overview_node", "overview_doc_generation_node"
-        # )
-        # repo_info_builder.add_edge(
-        #     "overview_doc_generation_node", "repo_info_update_log_node"
-        # )
+        repo_info_builder.add_edge(START, "repo_info_overview_node")
+        repo_info_builder.add_edge(
+            "repo_info_overview_node", "overview_doc_generation_node"
+        )
+        repo_info_builder.add_edge(
+            "overview_doc_generation_node", "repo_info_update_log_node"
+        )
         repo_info_builder.add_edge(
             "commit_doc_generation_node", "repo_info_update_log_node"
         )
