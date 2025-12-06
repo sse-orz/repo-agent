@@ -10,6 +10,7 @@ from agents.base_agent import BaseAgent, AgentState
 from agents.tools import write_file_tool, edit_file_tool
 from .utils import ls_context_file_tool, read_file_tool
 from .summarization import ConversationSummarizer
+from .prompt import ModuleDocPrompt
 from utils.code_analyzer import (
     analyze_file_with_tree_sitter,
     format_tree_sitter_analysis_results,
@@ -55,33 +56,8 @@ class ModuleDocAgent(BaseAgent):
         self.wiki_base_path.mkdir(parents=True, exist_ok=True)
         self.module_analysis_base_path.mkdir(parents=True, exist_ok=True)
 
-        # System prompt for module documentation
-        self.system_prompt = """You are a technical documentation expert specializing in module-level code analysis and documentation.
-
-## Available Tools
-- `read_file_tool`: Read files (supports `start_line`/`end_line` for large files)
-- `write_file_tool`: Write complete documentation (use for new docs or full rewrites)
-- `edit_file_tool`: Apply surgical edits to existing documentation
-- `ls_context_file_tool`: List available context files
-
-## Directory Convention
-| Directory | Purpose | Action |
-|-----------|---------|--------|
-| `.cache/{repo}/module_analysis/` | Pre-generated static analysis (JSON) | READ FIRST |
-| Source files (listed in task) | Original code | READ selectively |
-| `.wikis/{repo}/modules/` | Output documentation | WRITE |
-
-## Core Principles
-1. **Analysis First**: Always read the static analysis JSON before source files; it contains pre-parsed structure
-2. **Selective Reading**: Only read source files when analysis JSON lacks needed detail; use line ranges for large files
-3. **Fail Gracefully**: If a file read fails, do not retry—continue with available information
-4. **Quality Focus**: Generate clear, professional documentation that helps developers understand quickly
-
-## Diagram Standards
-Use mermaid code blocks for architecture visualization:
-- `graph TD/LR` for module structure and dependencies
-- `sequenceDiagram` for key call chains (optional)
-"""
+        # System prompt for module documentation (from centralized prompt module)
+        self.system_prompt = ModuleDocPrompt.get_system_prompt().content
 
         tools = [
             read_file_tool,
@@ -313,46 +289,17 @@ Use mermaid code blocks for architecture visualization:
         print(f"   Static analysis cache: {analysis_path}")
         confirmed_files = analysis_data.get("existing_files", [])
 
-        confirmed_files_text = (
-            json.dumps(confirmed_files, indent=2, ensure_ascii=False)
-            if confirmed_files
-            else "[]"
+        # Use centralized prompt module
+        prompt_message = ModuleDocPrompt.get_generation_prompt(
+            module_name=module_name,
+            files=files,
+            wiki_base_path=str(self.wiki_base_path),
+            analysis_path=str(analysis_path),
+            confirmed_files=confirmed_files,
+            priority=module.get('priority', 'unknown'),
+            estimated_size=module.get('estimated_size', 'unknown'),
         )
-
-        prompt = f"""# Task: Generate Module Documentation
-
-**Module**: {module_name}
-**Output Path**: `{self.wiki_base_path / doc_filename}`
-**Priority**: {module.get('priority', 'unknown')} | **Estimated Size**: {module.get('estimated_size', 'unknown')}
-
-## Module Files
-```json
-{json.dumps(files, indent=2, ensure_ascii=False)}
-```
-
-## Static Analysis
-- **Analysis JSON**: `{analysis_path}` (read this first)
-- **Readable source files**: {confirmed_files_text}
-
-## Required Documentation Sections
-1. **Module Overview** — Purpose and responsibilities
-2. **File List** — All files with brief descriptions
-3. **Core Components** — Classes, functions, constants with signatures
-4. **Usage Examples** — How to use this module
-5. **Dependencies** — External and internal dependencies
-6. **Architecture & Diagrams** — Mermaid diagram(s) showing structure/interactions
-7. **Notes** — Important considerations or warnings
-
-## Execution Steps
-1. Read the static analysis JSON at `{analysis_path}`
-2. Selectively read key source files if more detail needed (use line ranges for large files)
-3. Generate comprehensive documentation covering all required sections
-4. Write to `{self.wiki_base_path / doc_filename}`
-
-## Constraints
-- Only read files from the "Readable source files" list or cache JSONs
-- Do not retry failed file reads—continue with available information
-"""
+        prompt = prompt_message.content
 
         try:
             # Invoke the agent
@@ -428,35 +375,15 @@ Use mermaid code blocks for architecture visualization:
             for detail in changed_details
         ]
 
-        prompt = f"""# Task: Incrementally Update Module Documentation
-
-**Module**: {module_name}
-**Target Document**: `{doc_path}`
-**Static Analysis**: `{analysis_path}` (freshly rebuilt)
-
-## Changed Files
-```json
-{json.dumps(changed_files_meta, indent=2, ensure_ascii=False)}
-```
-
-## Diff Snippets
-{diff_context}
-
-## Execution Steps
-1. Read the updated static analysis JSON at `{analysis_path}`
-2. Read the current documentation at `{doc_path}`
-3. Identify sections affected by the changes (Overview, Core Components, Usage, Dependencies, Architecture, Notes)
-4. Apply targeted edits using `edit_file_tool`:
-   - Update affected descriptions and signatures
-   - Add/update mermaid diagrams if structure changed
-   - Document removed files or deprecated APIs
-5. Only use `write_file_tool` if a near-total rewrite is necessary
-
-## Constraints
-- Preserve existing headings and formatting
-- Maintain terminology consistency with other wiki pages
-- Ensure summaries reflect the new behavior from the diffs
-"""
+        # Use centralized prompt module
+        prompt_message = ModuleDocPrompt.get_incremental_update_prompt(
+            module_name=module_name,
+            doc_path=str(doc_path),
+            analysis_path=str(analysis_path),
+            changed_files_meta=changed_files_meta,
+            diff_context=diff_context,
+        )
+        prompt = prompt_message.content
 
         try:
             initial_state = AgentState(

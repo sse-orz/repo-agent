@@ -3,18 +3,17 @@ import json
 import time
 from typing import Dict, Any, List, Optional
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, Future
-from langchain_openai import ChatOpenAI
+from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from config import CONFIG
-from agents.summary_agent import SummaryAgent
 
 from .repo_info_agent import RepoInfoAgent
 from .module_clusterer import ModuleClusterer
 from .module_doc_agent import ModuleDocAgent
 from .macro_doc_agent import MacroDocAgent
 from .incremental_update_agent import IncrementalUpdateAgent
-from .utils import save_json_to_context
+from .utils import save_json_to_context, count_tokens, get_llm_max_tokens
+from .prompt import FileFilterPrompt
 from utils.repo import clone_repo
 
 
@@ -22,20 +21,28 @@ class MoeAgent:
     """
     Main controller for MoeAgent documentation generation system.
 
-    Orchestrates a 6-stage pipeline:
+    Orchestrates a 5-stage pipeline:
     1. Repository information collection
     2. Intelligent file selection
     3. Module clustering
-    4. Incremental module documentation generation
+    4. Module documentation generation
     5. Macro documentation generation
-    6. Index/summary generation
     """
+
+    # Default ratios for different modes
+    # These control what percentage of files to select based on repository size
+    DEFAULT_RATIOS = {
+        "fast": 0.25,   # Fast mode: select 25% of files for quick analysis
+        "smart": 0.75,  # Smart mode: select 75% of files for thorough analysis
+        "full": 1.0,    # Full mode: select all files (100%)
+    }
 
     def __init__(
         self,
         owner: str = None,
         repo_name: str = None,
         wiki_path: str = None,
+        ratios: Dict[str, float] = None,
     ):
         """Initialize MoeAgent.
 
@@ -43,10 +50,13 @@ class MoeAgent:
             owner (str): Repository owner (required for path management)
             repo_name (str): Repository name (optional, inferred from path if not provided)
             wiki_path (str): Custom wiki path (optional, defaults to .wikis/{owner}_{repo_name})
+            ratios (Dict[str, float]): Custom ratios for file selection modes
+                (defaults to DEFAULT_RATIOS if not provided)
         """
         self.repo_name = repo_name
         self.owner = owner
         self.llm = CONFIG.get_llm()
+        self.ratios = ratios or self.DEFAULT_RATIOS.copy()
 
         # Create unified repo identifier using owner_repo_name format
         self.repo_identifier = f"{owner}_{repo_name}"
@@ -84,9 +94,6 @@ class MoeAgent:
             llm=self.llm,
             wiki_base_path=str(self.wiki_path),
         )
-        self.summary_agent = SummaryAgent(
-            repo_path=str(self.repo_path), wiki_path=str(self.wiki_path)
-        )
 
         # Store results from each stage
         self.repo_info = None
@@ -94,7 +101,6 @@ class MoeAgent:
         self.module_structure = None
         self.module_results = []
         self.macro_results = []
-        self.summary_result = None
 
         # Store timing information for each stage
         self.stage_timings = {}
@@ -108,57 +114,33 @@ class MoeAgent:
         print(f"Cache: {self.cache_path}")
         print(f"{'='*60}\n")
 
-    @staticmethod
-    def _get_file_filter_system_prompt() -> str:
-        """Generate system prompt for file filtering."""
-        return """You are an expert code analyst specializing in identifying relevant code files for documentation generation.
-Your role is to analyze the provided repository information and file list to select files that are most important for understanding the project.
 
-Guidelines:
-- Prioritize core source code files that define main functionality
-- Focus on entry points, APIs, and core business logic
-- Include important utility and helper modules
-- Exclude test files, mock files, and example files
-- Consider file paths to understand module structure
-- Prioritize files in src/, lib/, core/, api/, pkg/, internal/ directories"""
-
-    @staticmethod
-    def _get_file_filter_prompt(
-        repo_name: str, file_list: List[str], max_files: int
-    ) -> str:
-        """Generate user prompt for file filtering.
+    def _get_dynamic_max_files(self, total_files: int, mode: str) -> int:
+        """Calculate dynamic max files based on mode and total file count.
 
         Args:
-            repo_name: Name of the repository
-            file_list: List of file paths to filter
-            max_files: Maximum number of files to select
+            total_files: Total number of discovered files
+            mode: Selection mode (fast, smart, full)
 
         Returns:
-            str: User prompt for LLM
+            int: Calculated maximum number of files to select
         """
-        files_str = "\n".join(file_list)
-        return f"""Based on the following file list from repository '{repo_name}', select EXACTLY {max_files} most important code files for documentation.
-
-CRITICAL CONSTRAINTS:
-- Return MAXIMUM {max_files} file paths
-- Prioritize files central to the project's core functionality
-- Sort by importance (most important first)
-- Each file path must be from the provided list
-
-File List ({len(file_list)} files):
-{files_str}
-
-IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbers, or any other text."""
+        ratio = self.ratios.get(mode, self.ratios.get("fast", 0.25))
+        return max(1, int(total_files * ratio))
 
     def generate(
-        self, max_files: int = 50, max_workers: int = 5, allow_incremental: bool = True
+        self,
+        max_workers: int = 5,
+        allow_incremental: bool = True,
+        mode: str = "fast",
     ) -> Dict[str, Any]:
         """Execute the complete documentation generation pipeline.
 
         Args:
-            max_files (int): Maximum number of files to analyze
             max_workers (int): Number of parallel workers
             allow_incremental (bool): Whether to allow incremental update (default: True)
+            mode (str): File selection mode - "fast" (25%), "smart" (75%), or "full" (100%)
+                The actual file limit is calculated from ratios configuration.
 
         Returns:
             Dict[str, Any]: Complete generation results
@@ -182,23 +164,24 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                 return self._load_cached_summary()
 
         # Fallback to full documentation generation
-        print("🚀 Starting full documentation generation...")
-        return self._full_generate(max_files, max_workers)
+        print(f"🚀 Starting full documentation generation (mode: {mode})...")
+        return self._full_generate(max_workers, mode=mode)
 
     def stream(
         self,
-        max_files: int = 50,
         max_workers: int = 5,
         allow_incremental: bool = True,
         progress_callback=None,
+        mode: str = "fast",
     ) -> Dict[str, Any]:
         """Execute documentation generation pipeline with streaming progress updates.
 
         Args:
-            max_files (int): Maximum number of files to analyze
             max_workers (int): Number of parallel workers
             allow_incremental (bool): Whether to allow incremental update (default: True)
             progress_callback (callable): Callback function for progress updates
+            mode (str): File selection mode - "fast" (25%), "smart" (75%), or "full" (100%)
+                The actual file limit is calculated from ratios configuration.
 
         Returns:
             Dict[str, Any]: Complete generation results
@@ -208,7 +191,7 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
             progress_callback(
                 {
                     "stage": "started",
-                    "message": "Starting MoeAgent documentation generation",
+                    "message": f"Starting MoeAgent documentation generation (mode: {mode})",
                     "progress": 0,
                 }
             )
@@ -257,8 +240,8 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                 return self._load_cached_summary()
 
         # Fallback to full documentation generation with streaming
-        print("🚀 Starting full documentation generation with streaming...")
-        return self._full_generate(max_files, max_workers, progress_callback)
+        print(f"🚀 Starting full documentation generation with streaming (mode: {mode})...")
+        return self._full_generate(max_workers, progress_callback, mode=mode)
 
     def _ensure_repo_cloned(self):
         """Ensure the repository is cloned locally."""
@@ -311,14 +294,90 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         self.stage_timings["Stage 1: Repo Info"] = stage_time
         print(f"⏱️  Stage 1 completed in {stage_time:.2f}s")
 
-    def _file_selection(self, max_files: int):
-        """Stage 2: Intelligent File Selection."""
+    def _preprocess_files(self, all_files: List[str]) -> List[str]:
+        """Preprocess file list by removing already processed files.
+
+        Args:
+            all_files: List of all discovered file paths
+
+        Returns:
+            List[str]: Filtered file list with already processed files removed
+        """
+        # Try to load existing selection from cache
+        cache_file = self.cache_path / "selected_files.json"
+        if not cache_file.exists():
+            return all_files
+
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                cached_data = json.load(f)
+
+            existing_files = set(cached_data.get("files", []))
+            if not existing_files:
+                return all_files
+
+            # Remove already processed files
+            filtered_files = [f for f in all_files if f not in existing_files]
+            removed_count = len(all_files) - len(filtered_files)
+
+            if removed_count > 0:
+                print(f"   Preprocessor: removed {removed_count} already processed files")
+
+            return filtered_files
+
+        except Exception as e:
+            print(f"   ⚠️ Preprocessor warning: {e}")
+            return all_files
+
+    def _postprocess_files(
+        self, selected_files: List[str], all_files: List[str], effective_max_files: int
+    ) -> List[str]:
+        """Postprocess selected files: deduplicate, validate, and limit.
+
+        Args:
+            selected_files: List of files selected by LLM
+            all_files: Original list of all discovered files (for validation)
+            effective_max_files: Maximum number of files to return (calculated from ratios)
+
+        Returns:
+            List[str]: Postprocessed file list
+        """
+        all_files_set = set(all_files)
+
+        # Validate files exist in original list
+        validated_files = [f for f in selected_files if f in all_files_set]
+
+        # Deduplicate while preserving order
+        seen: set = set()
+        deduped_files: List[str] = []
+        for f in validated_files:
+            if f not in seen:
+                seen.add(f)
+                deduped_files.append(f)
+
+        # Limit to effective_max_files
+        if len(deduped_files) > effective_max_files:
+            deduped_files = deduped_files[:effective_max_files]
+
+        # Normalize path separators
+        normalized_files = [f.replace("\\", "/") for f in deduped_files]
+
+        return normalized_files
+
+    def _file_selection(self, mode: str = "fast"):
+        """Stage 2: Intelligent File Selection.
+
+        Args:
+            mode: Selection mode - "fast", "smart", or "full"
+                The file limit is calculated from ratios configuration.
+        """
         stage_start = time.time()
 
         print(f"\n{'='*60}")
         print(f"📂 STAGE 2: Intelligent File Selection")
         print(f"{'='*60}")
-        print(f"Target: Select up to {max_files} important files")
+        print(f"Mode: {mode} (ratio: {self.ratios.get(mode, 0.25)*100:.0f}%)")
+        print(f"Ratios: {self.ratios}")
 
         # Collect all code files
         code_extensions = {
@@ -390,21 +449,39 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
 
         print(f"Found {len(all_files)} code files after pre-filtering")
 
+        # Calculate effective_max_files based on mode and ratios
+        effective_max_files = self._get_dynamic_max_files(len(all_files), mode)
+        print(
+            f"   Effective max files: {effective_max_files} (mode={mode}, ratio={self.ratios.get(mode, 0.25)*100:.0f}%)"
+        )
+
+        # Preprocess: remove already processed files (for incremental updates)
+        preprocessed_files = self._preprocess_files(all_files)
+        if len(preprocessed_files) < len(all_files):
+            print(
+                f"   After preprocessing: {len(preprocessed_files)} files (removed {len(all_files) - len(preprocessed_files)} existing)"
+            )
+
         # Decide whether to use LLM filtering
-        if len(all_files) <= max_files:
+        if len(preprocessed_files) <= effective_max_files:
             # File count is within limit, use all files directly
             print(
-                f"File count ({len(all_files)}) <= max_files ({max_files}), skipping LLM filtering"
+                f"File count ({len(preprocessed_files)}) <= effective_max ({effective_max_files}), skipping LLM filtering"
             )
-            self.selected_files = all_files
+            selected_files = preprocessed_files
             selection_method = "direct"
         else:
             # Use LLM to filter files
             print(
-                f"File count ({len(all_files)}) > max_files ({max_files}), using LLM filtering..."
+                f"File count ({len(preprocessed_files)}) > effective_max ({effective_max_files}), using LLM filtering..."
             )
-            self.selected_files = self._llm_filter_files(all_files, max_files)
+            selected_files = self._llm_filter_files(preprocessed_files, effective_max_files)
             selection_method = "llm_filtered"
+
+        # Postprocess: deduplicate, validate, and limit
+        self.selected_files = self._postprocess_files(
+            selected_files, all_files, effective_max_files
+        )
 
         # Save selection
         save_json_to_context(
@@ -415,6 +492,7 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                 "files": self.selected_files,
                 "count": len(self.selected_files),
                 "total_scanned": len(all_files),
+                "preprocessed_count": len(preprocessed_files),
                 "selection_method": selection_method,
             },
         )
@@ -425,42 +503,119 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         self.stage_timings["Stage 2: File Selection"] = stage_time
         print(f"⏱️  Stage 2 completed in {stage_time:.2f}s")
 
-    def _llm_filter_files(self, all_files: List[str], max_files: int) -> List[str]:
+    def _filter_single_chunk(
+        self, chunk_files: List[str], chunk_max_files: int
+    ) -> List[str]:
+        """Filter a single chunk of files using LLM.
+
+        Args:
+            chunk_files: List of file paths in this chunk
+            chunk_max_files: Maximum number of files to return for this chunk
+
+        Returns:
+            List[str]: Filtered file paths from this chunk
+        """
+        response = self.llm.invoke(
+            [
+                FileFilterPrompt.get_system_prompt(),
+                FileFilterPrompt.get_human_prompt(self.repo_name, chunk_files, chunk_max_files),
+            ]
+        )
+        # Parse response - each line should be a file path
+        selected = []
+        for line in response.content.strip().split("\n"):
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("-"):
+                continue
+            if len(line) > 2 and line[0].isdigit() and line[1] in ".)":
+                line = line[2:].strip()
+            if line in chunk_files:
+                selected.append(line)
+        return selected
+
+    def _llm_filter_files(
+        self, all_files: List[str], max_files: int, parallel_chunks: int = 2
+    ) -> List[str]:
         """Use LLM to filter and select the most important files.
+
+        Supports parallel processing for large file lists when token count
+        exceeds LLM capacity.
 
         Args:
             all_files: List of all pre-filtered file paths
             max_files: Maximum number of files to select
+            parallel_chunks: Number of parallel chunks when splitting (default: 2)
 
         Returns:
             List[str]: Selected file paths
         """
-        from langchain_core.messages import SystemMessage, HumanMessage
-
-        system_prompt = self._get_file_filter_system_prompt()
-        user_prompt = self._get_file_filter_prompt(self.repo_name, all_files, max_files)
-
         try:
-            response = self.llm.invoke(
-                [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=user_prompt),
-                ]
-            )
+            # Check if file list tokens exceed LLM capacity
+            file_list_tokens = count_tokens(str(all_files))
+            max_tokens = get_llm_max_tokens(compress_ratio=0.90)
 
-            # Parse response - each line should be a file path
-            selected_files = []
-            for line in response.content.strip().split("\n"):
-                line = line.strip()
-                # Skip empty lines and potential headers/descriptions
-                if not line or line.startswith("#") or line.startswith("-"):
-                    continue
-                # Remove potential numbering (e.g., "1. ", "1) ")
-                if len(line) > 2 and line[0].isdigit() and line[1] in ".)":
-                    line = line[2:].strip()
-                # Validate file exists in original list
-                if line in all_files:
-                    selected_files.append(line)
+            if file_list_tokens > max_tokens:
+                # Split into chunks and process in parallel
+                print(
+                    f"   File list tokens ({file_list_tokens}) > LLM capacity ({max_tokens}), using parallel filtering..."
+                )
+                files_num = len(all_files)
+                chunk_max_files = max(1, max_files // parallel_chunks)
+                selected_files: List[str] = []
+
+                with ThreadPoolExecutor(max_workers=parallel_chunks) as executor:
+                    futures = []
+                    for i in range(parallel_chunks):
+                        start_idx = i * files_num // parallel_chunks
+                        end_idx = (i + 1) * files_num // parallel_chunks
+                        chunk = all_files[start_idx:end_idx]
+                        if not chunk:
+                            continue
+                        futures.append(
+                            executor.submit(
+                                self._filter_single_chunk, chunk, chunk_max_files
+                            )
+                        )
+
+                    for future in as_completed(futures):
+                        try:
+                            chunk_files = future.result()
+                            selected_files.extend(chunk_files)
+                        except Exception as e:
+                            print(f"   ⚠️ Error filtering chunk: {e}")
+
+                print(f"   Parallel filtering selected {len(selected_files)} files")
+            else:
+                # Single LLM call for smaller file lists
+                response = self.llm.invoke(
+                    [
+                        FileFilterPrompt.get_system_prompt(),
+                        FileFilterPrompt.get_human_prompt(self.repo_name, all_files, max_files),
+                    ]
+                )
+
+                # Parse response - each line should be a file path
+                selected_files = []
+                for line in response.content.strip().split("\n"):
+                    line = line.strip()
+                    # Skip empty lines and potential headers/descriptions
+                    if not line or line.startswith("#") or line.startswith("-"):
+                        continue
+                    # Remove potential numbering (e.g., "1. ", "1) ")
+                    if len(line) > 2 and line[0].isdigit() and line[1] in ".)":
+                        line = line[2:].strip()
+                    # Validate file exists in original list
+                    if line in all_files:
+                        selected_files.append(line)
+
+            # Deduplicate while preserving order
+            seen: set = set()
+            deduped_files: List[str] = []
+            for f in selected_files:
+                if f not in seen:
+                    seen.add(f)
+                    deduped_files.append(f)
+            selected_files = deduped_files
 
             # Ensure we don't exceed max_files
             if len(selected_files) > max_files:
@@ -596,53 +751,16 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
         self.stage_timings["Stage 5: Macro Documentation"] = stage_time
         print(f"⏱️  Stage 5 completed in {stage_time:.2f}s")
 
-    def _index_generation(self):
-        """Stage 6: Index/Summary Generation."""
-        stage_start = time.time()
-
-        print(f"\n{'='*60}")
-        print(f"📑 STAGE 6: Index Generation")
-        print(f"{'='*60}")
-
-        # Prepare document list for summary agent
-        docs = []
-
-        # Add macro docs
-        for result in self.macro_results:
-            if result["status"] in ["success", "fallback"] and result.get("path"):
-                docs.append(result["path"])
-
-        # Add module docs
-        for result in self.module_results:
-            if result["status"] in ["success", "fallback"] and result.get("doc_path"):
-                docs.append(result["doc_path"])
-
-        try:
-            self.summary_result = self.summary_agent.run(
-                docs=docs, wiki_path=str(self.wiki_path), repo_info=self.repo_info
-            )
-
-            print(
-                f"\n✅ Index generated: {self.summary_result.get('index_file', 'INDEX.md')}"
-            )
-
-        except Exception as e:
-            print(f"⚠️  Index generation failed: {e}")
-            self.summary_result = {"status": "error", "error": str(e)}
-
-        stage_time = time.time() - stage_start
-        self.stage_timings["Stage 6: Index Generation"] = stage_time
-        print(f"⏱️  Stage 6 completed in {stage_time:.2f}s")
-
     def _full_generate(
-        self, max_files: int, max_workers: int, progress_callback=None
+        self, max_workers: int, progress_callback=None, mode: str = "fast"
     ) -> Dict[str, Any]:
         """Run the full multi-stage documentation generation pipeline.
 
         Args:
-            max_files: Maximum number of files to analyze during selection.
             max_workers: Maximum number of parallel workers for module docs.
             progress_callback: Optional callback function for progress updates.
+            mode: File selection mode - "fast", "smart", or "full".
+                The file limit is calculated from ratios configuration.
 
         Returns:
             Dict[str, Any]: Aggregated results from all pipeline stages.
@@ -656,20 +774,16 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                 "progress": 10,
                 "message": "Collecting repository information",
             },
-            "file_selection": {"progress": 25, "message": "Selecting important files"},
+            "file_selection": {"progress": 30, "message": "Selecting important files"},
             "module_clustering": {
-                "progress": 40,
+                "progress": 45,
                 "message": "Clustering files into modules",
             },
             "module_docs": {
-                "progress": 70,
+                "progress": 60,
                 "message": "Generating module documentation",
             },
             "macro_docs": {"progress": 85, "message": "Generating macro documentation"},
-            "index_generation": {
-                "progress": 95,
-                "message": "Generating index and summary",
-            },
         }
 
         def _notify(stage: str):
@@ -690,7 +804,7 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
 
             # Stage 2: Intelligent File Selection
             _notify("file_selection")
-            self._file_selection(max_files)
+            self._file_selection(mode=mode)
 
             # Stage 3: Module Clustering
             _notify("module_clustering")
@@ -711,10 +825,6 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
             # Stage 5: Macro Documentation Generation
             _notify("macro_docs")
             self._macro_documentation()
-
-            # Stage 6: Index Generation
-            _notify("index_generation")
-            self._index_generation()
 
             # Calculate total time
             total_time = time.time() - start_time
@@ -830,6 +940,7 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
             "wiki_path": str(self.wiki_path),
             "cache_path": str(self.cache_path),
             "is_zero_code_repo": is_zero_code_repo,  # Flag for zero-code repositories
+            "ratios": self.ratios,  # File selection ratios configuration
             "total_time": total_time,
             "stage_timings": self.stage_timings,  # Add stage timings
             "stages": {
@@ -885,14 +996,6 @@ IMPORTANT: Output ONLY file paths, one per line. No descriptions, headers, numbe
                         skipped_docs if is_zero_code_repo else []
                     ),  # List of skipped documents
                 },
-                "6_index": {
-                    "status": (
-                        self.summary_result.get("status", "unknown")
-                        if self.summary_result
-                        else "error"
-                    ),
-                    "time": self.stage_timings.get("Stage 6: Index Generation", 0),
-                },
             },
         }
 
@@ -924,14 +1027,23 @@ def test_moe_agent():
     print("MoeAgent - Intelligent Documentation Generation System")
     print("=" * 60 + "\n")
 
-    # Create MoeAgent instance
+    custom_ratios = {
+        "fast": 0.25,    # 25% for fast mode
+        "smart": 0.50,   # 50% for smart mode
+        "full": 1.0,     # 100% for full mode
+        "minimal": 0.10, # Custom 10% mode
+    }
+
+    # Example 1: Create MoeAgent with default ratios
     agent = MoeAgent(
         owner="cloudwego",
         repo_name="eino",
+        wiki_path=".wikis/moe/cloudwego_eino",
+        ratios=custom_ratios,
     )
 
-    # Generate documentation
-    results = agent.generate(max_files=30, max_workers=4)
+    # Generate documentation using "smart" mode (75% file selection)
+    results = agent.generate(max_workers=4, mode="fast")
 
     # Print summary
     print("\n" + "=" * 60)
@@ -939,6 +1051,7 @@ def test_moe_agent():
     print("=" * 60)
     print(f"Repository: {results['repo_name']}")
     print(f"Total Time: {results['total_time']:.2f}s")
+    print(f"Ratios: {results.get('ratios', {})}")
     print(f"\nStages:")
     for stage_name, stage_result in results["stages"].items():
         status_icon = "✅" if stage_result.get("status") == "success" else "❌"
