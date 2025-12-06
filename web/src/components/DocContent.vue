@@ -1,6 +1,7 @@
 <template>
   <main class="doc">
     <div class="doc-inner" ref="docInnerRef">
+      <div v-if="showTop" class="subtitle-top" aria-hidden="true">{{ currentTitle }}</div>
       <ProgressBar
         v-if="isStreaming && progressLogs.length > 0"
         :progress="progress"
@@ -9,7 +10,6 @@
       />
       <div v-html="content"></div>
     </div>
-    <div v-if="showTop" class="fade fade-top" aria-hidden="true"></div>
     <div v-if="showBottom" class="fade fade-bottom" aria-hidden="true"></div>
   </main>
 </template>
@@ -36,6 +36,7 @@ const props = withDefaults(defineProps<Props>(), {
 const docInnerRef = ref<HTMLElement | null>(null)
 const showTop = ref(false)
 const showBottom = ref(false)
+const currentTitle = ref('')
 
 const updateFades = () => {
   const el = docInnerRef.value
@@ -49,13 +50,38 @@ const emit = defineEmits<{
   (e: 'scroll', event: Event): void
 }>()
 
+const updateTitle = () => {
+  const docInner = docInnerRef.value
+  if (!docInner) return
+
+  //获取1,2级标题元素
+  const headings = docInner.querySelectorAll("h1,h2")
+  
+  let nearest = null
+  const containerTop = docInner.getBoundingClientRect().top
+
+  headings.forEach(h => {
+    const hTop = h.getBoundingClientRect().top
+
+    // 如果标题已经滚过顶部（<= 0），它是候选
+    if (hTop <= containerTop + 5) {  
+      nearest = h
+    }
+  })
+
+  // 如果找到了 nearest，就用它的文字；如果没找到（比如没滚动或者没有 h 标签），就清空
+  currentTitle.value = nearest ? nearest.textContent : ""
+}
+
 onMounted(() => {
   nextTick(() => {
     updateFades()
+    updateTitle()
     const el = docInnerRef.value
     if (!el) return
     const scrollHandler = () => {
       updateFades()
+      updateTitle()
       emit('scroll', new Event('scroll'))
     }
     el.addEventListener('scroll', scrollHandler, { passive: true })
@@ -104,6 +130,12 @@ defineExpose({
 </script>
 
 <style scoped>
+.doc,
+.doc-inner,
+.doc-inner :deep(*):not(code):not(pre):not(.mermaid) {
+  font-family: "Myriad", "Noto Serif SC", serif !important;
+}
+
 .doc {
   /* 固定文档列宽度（包含左右 margin 和内边距） */
   flex: 0 0 900px;
@@ -150,9 +182,14 @@ defineExpose({
 .doc-inner :deep(h4),
 .doc-inner :deep(h5),
 .doc-inner :deep(h6) {
-  margin-top: 1.2em;
-  margin-bottom: 0.4em;
+  margin-top: 1.1em;
+  margin-bottom: 0.45em;
   color: var(--title-color);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 4px;
+  text-align: left;
+  letter-spacing: 0.4px;
 }
 
 .doc-inner :deep(p) {
@@ -280,15 +317,26 @@ defineExpose({
   position: absolute;
   left: 0;
   right: 0;
-  height: 48px;
+  height: 30px;
   pointer-events: none;
   z-index: 8;
 }
-
-.fade-top {
+.subtitle-top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--container-bg);
+  padding: 10px 20px;
+  margin-bottom: 10px;
+  font-size: 20px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--title-color);
+}
+/* .fade-top {
   top: 0;
   background: linear-gradient(to bottom, var(--container-bg), transparent);
-}
+} */
 
 .fade-bottom {
   bottom: 0;
