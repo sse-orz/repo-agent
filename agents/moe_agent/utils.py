@@ -2,10 +2,12 @@ import json
 import subprocess
 from github import Github, Auth
 import requests
+import tiktoken
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from langchain.tools import tool
 from utils.file import write_file, read_file, resolve_path
+from config import CONFIG
 
 
 # ========================== Context Tools ==========================
@@ -718,3 +720,87 @@ def git_get_current_head_sha(repo_path: str) -> str:
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         raise Exception(f"Failed to get current HEAD: {e.stderr}")
+
+
+# ========================== Token Management ==========================
+
+
+def count_tokens(content: str) -> int:
+    """Count the number of tokens in a string using tiktoken.
+
+    Args:
+        content (str): The string to count tokens for.
+
+    Returns:
+        int: The number of tokens in the string.
+    """
+    encoding = tiktoken.get_encoding("cl100k_base")
+    return len(encoding.encode(content))
+
+
+def get_llm_max_tokens(compress_ratio: float = 0.90) -> int:
+    """Get the maximum tokens allowed for the configured LLM model.
+
+    Args:
+        compress_ratio (float): Ratio to compress the max tokens (default 0.90).
+            This leaves headroom for output tokens.
+
+    Returns:
+        int: Maximum input tokens allowed (compressed by ratio).
+    """
+    model_name = CONFIG.LLM_MODEL
+    tokens = 128_000  # default fallback
+
+    match model_name:
+        case "gpt-4o":
+            tokens = 128_000
+        case "gpt-4o-mini":
+            tokens = 128_000
+        case "gpt-4-turbo":
+            tokens = 128_000
+        case "claude-3-5-sonnet-20241022":
+            tokens = 200_000
+        case "claude-3-opus-20240229":
+            tokens = 200_000
+        case "deepseek-chat":
+            tokens = 128_000
+        case "gemini-2.5-pro":
+            tokens = 1_000_000
+        case "qwen2.5:7b":
+            tokens = 32_000
+        case "MiniMax-M2":
+            tokens = 128_000
+        case "GLM-4.5":
+            tokens = 128_000
+        case _:
+            # Try to infer from model name patterns
+            if "gpt-4" in model_name.lower():
+                tokens = 128_000
+            elif "claude" in model_name.lower():
+                tokens = 200_000
+            elif "gemini" in model_name.lower():
+                tokens = 1_000_000
+            elif "qwen" in model_name.lower():
+                tokens = 32_000
+
+    return int(tokens * compress_ratio)
+
+
+def compare_size_between_content_and_analysis(
+    content: str, formatted_analysis: str
+) -> str:
+    """Compare the size between raw content and formatted analysis.
+
+    Args:
+        content (str): Raw file content.
+        formatted_analysis (str): Formatted analysis result.
+
+    Returns:
+        str: "content" if content is smaller or equal, "analysis" otherwise.
+    """
+    content_size = len(content)
+    analysis_size = len(formatted_analysis)
+    if content_size <= analysis_size:
+        return "content"
+    else:
+        return "analysis"

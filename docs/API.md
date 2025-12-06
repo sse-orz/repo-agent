@@ -106,11 +106,10 @@ _Moe mode (`"mode": "moe"`):_
 
 - `started` (0%): Starting MoeAgent documentation generation
 - `repo_info` (10%): Collecting repository information
-- `file_selection` (25%): Selecting important files
-- `module_clustering` (40%): Clustering files into modules
-- `module_docs` (70%): Generating module documentation
+- `file_selection` (30%): Selecting important files
+- `module_clustering` (45%): Clustering files into modules
+- `module_docs` (60%): Generating module documentation
 - `macro_docs` (85%): Generating macro documentation
-- `index_generation` (95%): Generating index and summary
 - `completed` (100%): Documentation generation completed successfully
 
 ### 3. List Generated Documentation
@@ -133,7 +132,8 @@ Get the list of all generated wiki documentation.
         "wiki_path": "string",
         "wiki_url": "string",
         "total_files": 0,
-        "generated_at": "string"
+        "generated_at": "string",
+        "mode": "string" // Generation mode: "sub" or "moe"
       }
     ],
     "total_wikis": 0

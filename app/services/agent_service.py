@@ -195,20 +195,16 @@ class AgentService:
             owner=request.owner, repo_name=request.repo, wiki_path=wiki_path
         )
 
-        max_files = 100 if request.mode == "smart" else 30
-
         if progress_callback:
             moe_agent.stream(
-                max_files=max_files,
-                max_workers=request.max_workers,
                 allow_incremental=not request.need_update,
                 progress_callback=progress_callback,
+                mode=request.mode,
             )
         else:
             moe_agent.generate(
-                max_files=max_files,
-                max_workers=request.max_workers,
                 allow_incremental=not request.need_update,
+                mode=request.mode,
             )
 
     def list_wikis(self) -> ListWikisResponseData:

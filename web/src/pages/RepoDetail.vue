@@ -659,16 +659,20 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
               })
             }
           } else if (files.length > 1) {
-            const listHtml = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
-              .map((f) => {
-                const rec = f as Record<string, unknown>
-                return `<li><a href="#" data-url="${escapeHtml(String(rec.url ?? ''))}">${escapeHtml(
-                  String(rec.path ?? rec.name ?? rec.url ?? 'file')
-                )}</a></li>`
-              })
-              .join('')}</ul>`
-            docContent.value = listHtml
-            // Update TOC with markdown files only
+            // Only update docContent if user hasn't selected a document to read
+            // This prevents overriding the user's current reading document
+            if (!selectedUrl.value) {
+              const listHtml = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
+                .map((f) => {
+                  const rec = f as Record<string, unknown>
+                  return `<li><a href="#" data-url="${escapeHtml(String(rec.url ?? ''))}">${escapeHtml(
+                    String(rec.path ?? rec.name ?? rec.url ?? 'file')
+                  )}</a></li>`
+                })
+                .join('')}</ul>`
+              docContent.value = listHtml
+            }
+            // Update TOC with markdown files only (always update sidebar)
             const index = findSectionIndexById(section.id)
             if (index >= 0 && tocSections.value[index]) {
               tocSections.value[index].items = buildTocItems(files as unknown[])
@@ -755,13 +759,16 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
         // Populate TOC with markdown files only
         section.items = buildTocItems(files as unknown[])
       } else if (Array.isArray(files) && files.length > 1) {
-        docContent.value = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
-          .map((f) => {
-            const rec = f as Record<string, unknown>
-            return `<li>${escapeHtml(String(rec.path ?? rec.name ?? rec.url ?? 'file'))}</li>`
-          })
-          .join('')}</ul>`
-        // Update TOC with markdown files only
+        // Only update docContent if user hasn't selected a document to read
+        if (!selectedUrl.value) {
+          docContent.value = `<h3>Generated Files (${files.length})</h3><ul>${(files as unknown[])
+            .map((f) => {
+              const rec = f as Record<string, unknown>
+              return `<li>${escapeHtml(String(rec.path ?? rec.name ?? rec.url ?? 'file'))}</li>`
+            })
+            .join('')}</ul>`
+        }
+        // Update TOC with markdown files only (always update sidebar)
         section.items = buildTocItems(files as unknown[])
       } else {
         docContent.value = `<pre>${escapeHtml(JSON.stringify(data || lastEvent, null, 2))}</pre>`

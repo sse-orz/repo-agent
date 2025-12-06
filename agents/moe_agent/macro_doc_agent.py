@@ -10,68 +10,15 @@ from agents.base_agent import BaseAgent, AgentState
 from agents.tools import write_file_tool, edit_file_tool
 from .utils import ls_context_file_tool, read_file_tool
 from .summarization import ConversationSummarizer
+from .prompt import MacroDocPrompt
 
 
 class MacroDocAgent(BaseAgent):
     """Agent for generating macro-level project documentation."""
 
-    # Document types and their specifications
-    DOC_SPECS = {
-        "README.md": {
-            "title": "README",
-            "sections": [
-                "Project name and description",
-                "Main features and capabilities",
-                "Technology stack",
-                "Quick start guide",
-                "Installation instructions",
-                "Basic usage examples",
-            ],
-            "audience": "new users and developers",
-        },
-        "ARCHITECTURE.md": {
-            "title": "Architecture",
-            "sections": [
-                "System architecture overview",
-                "Directory structure explanation",
-                "Main components and their responsibilities",
-                "Data flow and interactions",
-                "Design patterns and principles",
-                "Module dependencies",
-            ],
-            "audience": "developers and architects",
-        },
-        "DEVELOPMENT.md": {
-            "title": "Development Guide",
-            "sections": [
-                "Development environment setup",
-                "Build and compilation instructions",
-                "Testing guidelines and commands",
-                "Debugging tips",
-                "Contribution guidelines",
-                "Code style and standards",
-            ],
-            "audience": "contributors and maintainers",
-        },
-        "API.md": {
-            "title": "API Reference",
-            "sections": [
-                "Main APIs and interfaces",
-                "Function/method signatures",
-                "Parameters and return values",
-                "Usage examples for each API",
-                "Error handling",
-                "Best practices",
-            ],
-            "audience": "API users and integrators",
-        },
-    }
-    DIAGRAM_REQUIREMENTS = {
-        "README.md": "Include a high-level system architecture diagram using ```mermaid graph LR``` that shows main components, services, and data stores plus their relationships.",
-        "ARCHITECTURE.md": "Include at least two diagrams: (1) an overall system architecture diagram (modules/services and their relationships) and (2) a key data flow or call chain flowchart.",
-        "DEVELOPMENT.md": "Include a development/build/test process flowchart (e.g., CI/CD) using ```mermaid flowchart```.",
-        "API.md": "Include a typical request sequence diagram using ```mermaid sequenceDiagram``` (e.g., Client → API → Service → DB).",
-    }
+    # Document types and their specifications (from centralized prompt module)
+    DOC_SPECS = MacroDocPrompt.DOC_SPECS
+    DIAGRAM_REQUIREMENTS = MacroDocPrompt.DIAGRAM_REQUIREMENTS
 
     def __init__(
         self,
@@ -106,34 +53,8 @@ class MacroDocAgent(BaseAgent):
         # Ensure directories exist
         self.wiki_base_path.mkdir(parents=True, exist_ok=True)
 
-        system_prompt = SystemMessage(
-            content="""You are a technical documentation expert specializing in macro-level project documentation (README, ARCHITECTURE, DEVELOPMENT, API) for software repositories.
-
-## Available Tools
-- `ls_context_file_tool`: Discover available context files in a directory
-- `read_file_tool`: Read context files (JSON analysis data)
-- `write_file_tool`: Write final documentation (call EXACTLY ONCE per task)
-- `edit_file_tool`: Edit existing documentation files
-
-## Directory Convention
-| Directory | Purpose | Action |
-|-----------|---------|--------|
-| `.cache/{repo}/` | Pre-analyzed JSON context (repo_info, module_analysis) | READ |
-| `.repos/{repo}/` | Original source code | DO NOT READ (use .cache instead) |
-| `.wikis/{repo}/` | Output documentation | WRITE (your target) |
-
-## Core Principles
-1. **Gather First, Write Once**: Collect all needed information before writing; call `write_file_tool` exactly once with complete content
-2. **Path Discipline**: Always verify write path starts with `.wikis/` and matches the assigned filename
-3. **Stop After Write**: After successful write, task is complete—no further tool calls
-
-## Quality Standards
-- Follow Markdown best practices with proper heading hierarchy
-- Include concrete examples and code snippets where appropriate
-- Tailor content to the specified target audience
-- Use mermaid diagrams for architecture visualization
-"""
-        )
+        # Use centralized prompt module for system prompt
+        system_prompt = MacroDocPrompt.get_system_prompt()
 
         tools = [
             read_file_tool,
@@ -191,49 +112,14 @@ class MacroDocAgent(BaseAgent):
 
         doc_path = self.wiki_base_path / doc_type
 
-        spec = self.DOC_SPECS[doc_type]
-
-        # Build prompt (doc-type specific instructions moved here)
-        target_file_path = str(self.wiki_base_path / doc_type)
-
-        prompt = f"""# Task: Generate {doc_type}
-
-**Repository**: {self.repo_identifier}
-**Output Path**: `{target_file_path}`
-**Target Audience**: {spec['audience']}
-
-## Required Sections
-{chr(10).join(f"- {section}" for section in spec['sections'])}
-
-## Context Resources
-Start by exploring available context:
-```
-ls_context_file_tool('.cache/{self.repo_identifier}/')
-```
-
-Key context files:
-- `repo_info.json` — Repository metadata and structure
-- `module_structure.json` — Module organization and dependencies
-- `module_analysis/*.json` — Static analysis per module
-
-## Execution Steps
-1. **Explore**: List context files in `.cache/{self.repo_identifier}/`
-2. **Gather**: Read relevant JSON context files to understand the project
-3. **Generate**: Create comprehensive {spec['title']} documentation covering all required sections
-4. **Write**: Call `write_file_tool` with path `{target_file_path}` and complete content
-5. **Stop**: Task complete after successful write
-
-"""
-
-        diagram_req = self.DIAGRAM_REQUIREMENTS.get(doc_type, "")
-        if diagram_req:
-            prompt += f"\n\n## Diagram Requirements\n{diagram_req}\n"
-            prompt += "All diagrams must use ```mermaid code blocks; no images are required.\n"
-
-        if repo_info:
-            prompt += f"\n**Repository Info**:\n```json\n{json.dumps(repo_info, indent=2)}\n```\n"
-
-        prompt += "\nBegin documentation generation now."
+        # Use centralized prompt module
+        prompt_message = MacroDocPrompt.get_generation_prompt(
+            doc_type=doc_type,
+            repo_identifier=self.repo_identifier,
+            wiki_base_path=str(self.wiki_base_path),
+            repo_info=repo_info,
+        )
+        prompt = prompt_message.content
 
         try:
             # Invoke the agent workflow
@@ -405,46 +291,15 @@ Key context files:
                 results.append(self.generate_single_doc(doc_type, repo_info))
                 continue
 
-            diagram_req = self.DIAGRAM_REQUIREMENTS.get(doc_type, "")
-            prompt = f"""# Task: Evaluate and Update {doc_type}
-
-**Repository**: {self.repo_identifier}
-**Target Document**: `{doc_path}`
-**Change Details**: `{change_cache_path}`
-
-## Phase 1: Analyze Changes
-1. Read `{change_cache_path}` to understand all code changes (files, diffs, statistics)
-2. Read the current `{doc_path}` document
-3. Determine if updates are needed:
-   - Do changes affect documented content?
-   - Are there new features, bug fixes, or architectural changes?
-   - Would current documentation mislead readers?
-
-## Phase 2: Take Action
-
-**If NO update needed:**
-- Explain why (e.g., "Changes only affect internal implementation not covered in {doc_type}")
-
-**If UPDATE needed:**
-- Use `edit_file_tool` for surgical edits to affected sections
-- Update mermaid diagrams if architecture/flows changed
-- Document new behaviors, fixed bugs, or deprecated APIs
-- Preserve existing structure and headings
-
-## Additional Context
-- `.cache/{self.repo_identifier}/repo_info.json` — Repository metadata
-- `.cache/{self.repo_identifier}/module_structure.json` — Module organization
-- `.cache/{self.repo_identifier}/module_analysis/` — Per-module static analysis
-
-## Standards
-- Prefer `edit_file_tool` over full rewrites
-- Keep headings stable for link consistency
-- Highlight breaking changes and security fixes
-- {diagram_req or "Keep diagrams consistent with current system state"}
-"""
-
-            if repo_info:
-                prompt += f"\n### Repo Info Snapshot\n```json\n{json.dumps(repo_info, indent=2)}\n```\n"
+            # Use centralized prompt module
+            prompt_message = MacroDocPrompt.get_incremental_update_prompt(
+                doc_type=doc_type,
+                repo_identifier=self.repo_identifier,
+                doc_path=str(doc_path),
+                change_cache_path=str(change_cache_path),
+                repo_info=repo_info,
+            )
+            prompt = prompt_message.content
 
             try:
                 initial_state = AgentState(
