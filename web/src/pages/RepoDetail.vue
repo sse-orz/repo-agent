@@ -1272,7 +1272,7 @@ const openRepoInNewTab = () => {
   width: 100vw;
   height: 100vh;
   background: rgba(0, 0, 0, 0.8);
-  z-index: 4;
+  z-index: 2000;
   display: flex;
   align-items: center;
   justify-content: center;
