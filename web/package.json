@@ -13,6 +13,7 @@
   "dependencies": {
     "@kangc/v-md-editor": "^2.3.18",
     "axios": "^1.13.2",
+    "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.0",
     "markdown-it-anchor": "^9.2.0",
     "mermaid": "^10.9.5",

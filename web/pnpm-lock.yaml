@@ -14,12 +14,18 @@ importers:
       axios:
         specifier: ^1.13.2
         version: 1.13.2
+      highlight.js:
+        specifier: ^11.11.1
+        version: 11.11.1
       markdown-it:
         specifier: ^14.1.0
         version: 14.1.0
       markdown-it-anchor:
         specifier: ^9.2.0
         version: 9.2.0(@types/markdown-it@14.1.2)(markdown-it@14.1.0)
+      mermaid:
+        specifier: ^10.9.5
+        version: 10.9.5
       vue:
         specifier: ^3.4.0
         version: 3.5.25(typescript@5.9.3)
@@ -1423,6 +1429,10 @@ packages:
 
   highlight.js@10.7.3:
     resolution: {integrity: sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A==}
+
+  highlight.js@11.11.1:
+    resolution: {integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==}
+    engines: {node: '>=12.0.0'}
 
   iconv-lite@0.6.3:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
@@ -3673,6 +3683,8 @@ snapshots:
       function-bind: 1.1.2
 
   highlight.js@10.7.3: {}
+
+  highlight.js@11.11.1: {}
 
   iconv-lite@0.6.3:
     dependencies:
