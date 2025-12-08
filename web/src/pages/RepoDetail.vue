@@ -488,7 +488,6 @@ const zoomStyle = computed(() => ({
 const chatVisible = ref(false)
 const toggleChat = () => {
   chatVisible.value = !chatVisible.value
-  document.body.style.overflow = chatVisible.value ? 'hidden' : ''
 }
 
 const attachZoomListeners = () => {
@@ -1310,7 +1309,7 @@ const openRepoInNewTab = () => {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 80px; /* sits above the AskBox */
+  bottom: 75px; /* sits above the AskBox */
   min-width: 160px;
   height: 44px;
   padding: 6px 18px;

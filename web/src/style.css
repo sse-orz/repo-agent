@@ -18,6 +18,7 @@
   --menu-bg: white;
   --hover-bg: #f9f9f9;
   --card-bg: white;
+  --subcard-bg: #9bd6ef;
   --shadow-color: rgba(0, 0, 0, 0.1);
   --focus-color: rgba(0, 0, 0, 0.2);
 }
@@ -36,6 +37,7 @@
   --menu-bg: #333;
   --hover-bg: #444;
   --card-bg: #333;
+  --subcard-bg: #145c72;
   --shadow-color: rgba(0, 0, 0, 0.3);
   --focus-color: rgba(255, 255, 255, 0.2);
 }

@@ -321,16 +321,16 @@ defineExpose({ receiveMessage, abortStream })
   box-shadow: 0 6px 14px rgba(0,0,0,0.06);
 }
 .message-row.assistant .bubble {
-  background: #e9ecef; /* light blue */
-  color: #0b2b34;
+  background: var(--card-bg);
+  color: var(--text-color);
   border-top-left-radius: 6px;
   border-top-right-radius: 14px;
   border-bottom-right-radius: 14px;
   border-bottom-left-radius: 14px;
 }
 .message-row.user .bubble {
-  background: #9bd6ef; /* light gray */
-  color: #1f2d36;
+  background: var(--subcard-bg);
+  color: var(--text-color);
   border-top-right-radius: 6px;
 }
 .bubble-text {
@@ -464,13 +464,13 @@ defineExpose({ receiveMessage, abortStream })
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 3px solid rgba(11,43,52,0.18);
+  border: 3px solid var(--subtitle-color);
   border-right-color: transparent; /* create a gap on the right */
   box-sizing: border-box;
   animation: spin 0.95s linear infinite;
 }
 .node-text {
-  color: #0b2b34;
+  color: var(--subtitle-color);
   font-size: 13px;
   opacity: 0.95;
 }
