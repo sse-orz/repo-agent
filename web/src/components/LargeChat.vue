@@ -325,7 +325,7 @@ defineExpose({ receiveMessage, abortStream })
   height: calc(100vh - 120px);
   display: flex;
   flex-direction: column;
-  z-index: 4;
+  z-index: 1100;
   padding-bottom: 96px; /* leave space for page AskBox */
 }
 .chat-container {
