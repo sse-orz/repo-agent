@@ -12,8 +12,6 @@
           </div>
         </div>
       </div>
-
-      <!-- input handled by RepoDetail AskBox when LargeChat is visible -->
     </div>
   </div>
 </template>
@@ -154,7 +152,7 @@ defineExpose({ receiveMessage })
   height: 100%;
   display: flex;
   flex-direction: column;
-  z-index: 1200;
+  z-index: 800;
   padding-bottom: 96px; /* leave space for page AskBox */
 }
 .chat-container {

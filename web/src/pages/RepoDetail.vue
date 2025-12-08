@@ -1277,7 +1277,7 @@ const openRepoInNewTab = () => {
   justify-content: center;
   font-size: 15px;
   color: var(--text-color);
-  z-index: 3000;
+  z-index: 1000;
   cursor: pointer;
   box-shadow: 0 8px 22px rgba(0,0,0,0.06);
 }
@@ -1298,14 +1298,13 @@ const openRepoInNewTab = () => {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  z-index: 2500; /* sit above other content */
+  z-index: 1000; /* sit above other content */
   pointer-events: auto;
 }
 
 /* Ensure AskBox sits above the chat overlay so it remains clickable */
 .askbox-wrapper {
   position: relative;
-  z-index: 4000;
   pointer-events: auto;
 }
 

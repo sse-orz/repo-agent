@@ -87,9 +87,9 @@ class RAGAgent:
         return sources
 
     @staticmethod
-    def _create_judge_prompt(question: str, context: str) -> SystemMessage:
+    def _create_judge_prompt(question: str, context: str) -> HumanMessage:
         """Create prompt to judge document sufficiency."""
-        return SystemMessage(
+        return HumanMessage(
             content=dedent(
                 f"""
                 Evaluate whether the retrieved documents are sufficient to answer the user's question.
@@ -112,9 +112,9 @@ class RAGAgent:
         )
 
     @staticmethod
-    def _create_intent_check_prompt(question: str, repo_name: str) -> SystemMessage:
+    def _create_intent_check_prompt(question: str, repo_name: str) -> HumanMessage:
         """Create prompt to check if question is repository-related."""
-        return SystemMessage(
+        return HumanMessage(
             content=dedent(
                 f"""
                 Decide if the question is specifically about the repository "{repo_name}".
@@ -135,9 +135,9 @@ class RAGAgent:
         )
 
     @staticmethod
-    def _create_rewrite_prompt(original_question: str, repo_name: str) -> SystemMessage:
+    def _create_rewrite_prompt(original_question: str, repo_name: str) -> HumanMessage:
         """Create prompt to rewrite question for better retrieval."""
-        return SystemMessage(
+        return HumanMessage(
             content=dedent(
                 f"""
                 Refine the user's question about the repository "{repo_name}" so it is clearer
@@ -256,7 +256,7 @@ class RAGAgent:
 
         return graph.compile(checkpointer=self.memory)
 
-    def _invoke_llm(self, prompt: SystemMessage) -> str:
+    def _invoke_llm(self, prompt: HumanMessage) -> str:
         """Invoke LLM with prompt and return normalized response."""
         llm = CONFIG.get_llm()
         return llm.invoke([prompt]).content.lower().strip()
