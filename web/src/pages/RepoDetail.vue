@@ -1333,7 +1333,7 @@ const openRepoInNewTab = () => {
   justify-content: center;
   font-size: 15px;
   color: var(--text-color);
-  z-index: 4;
+  z-index: 1201;
   cursor: pointer;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.06);
 }
