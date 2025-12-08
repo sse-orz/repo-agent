@@ -52,7 +52,7 @@ const md = new MarkdownIt({
       try {
         return hljs.highlight(str, { language: lang }).value
       } catch (__) {
-        return ''
+        return md.utils.escapeHtml(str)
       }
     }
     return '' // use external default escaping
