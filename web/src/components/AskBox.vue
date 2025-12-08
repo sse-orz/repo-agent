@@ -98,9 +98,8 @@ const currentModeLabel = computed(
 
 const handleSend = () => {
   if (!props.modelValue) return
+  // emit send first, then clear input
   emit('send')
-  // clear local input immediately so the UI resets even if parent
-  // doesn't update the bound value synchronously
   emit('update:modelValue', '')
 }
 
