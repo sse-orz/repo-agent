@@ -1356,7 +1356,7 @@ const openRepoInNewTab = () => {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  z-index: 4;
+  z-index: 1150;
   pointer-events: auto;
 }
 
