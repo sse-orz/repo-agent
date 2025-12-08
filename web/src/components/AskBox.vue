@@ -38,8 +38,8 @@
           </div>
         </div>
       </div>
-      <button class="send-btn" @click="handleSend" title="Send question">
-        <i class="fas fa-arrow-right"></i>
+      <button class="send-btn" @click="props.isLoading ? handleAbort() : handleSend()" :title="props.isLoading ? 'Abort request' : 'Send question'">
+        <i :class="props.isLoading ? 'fas fa-stop-circle' : 'fas fa-arrow-right'"></i>
       </button>
     </div>
   </div>
@@ -52,11 +52,13 @@ interface Props {
   modelValue: string
   placeholder?: string
   mode?: 'fast' | 'smart'
+  isLoading?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   placeholder: 'Try to ask me...',
   mode: 'fast',
+  isLoading: false,
 })
 
 const emit = defineEmits<{
@@ -65,6 +67,7 @@ const emit = defineEmits<{
   (e: 'new-repo'): void
   (e: 'update:mode', value: 'fast' | 'smart'): void
   (e: 'mode-change', value: 'fast' | 'smart'): void
+  (e: 'abort'): void
 }>()
 
 const showModeMenu = ref(false)
@@ -117,6 +120,10 @@ const selectMode = (value: 'fast' | 'smart') => {
   emit('update:mode', value)
   emit('mode-change', value)
   showModeMenu.value = false
+}
+
+const handleAbort = () => {
+  emit('abort')
 }
 </script>
 

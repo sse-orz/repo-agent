@@ -32,15 +32,19 @@
 
       <!-- Chat overlays the content area when visible -->
       <transition name="slide-up">
-        <div v-if="chatVisible" class="chat-replace">
-          <LargeChat
-            ref="largeChatRef"
-            :owner="owner"
-            :repo="repoName"
-            :platform="repoPlatform"
-            mode="fast"
-            @new-repo="handleNewRepo"
-          />
+        <div class="chat-replace" v-show="chatVisible">
+          <!-- 把 v-show 放在覆盖层上，避免未显示时遮挡背景交互 -->
+          <keep-alive>
+            <LargeChat
+              ref="largeChatRef"
+              :owner="owner"
+              :repo="repoName"
+              :platform="repoPlatform"
+              :mode="generationMode === 'moe' ? 'smart' : 'fast'"
+              @new-repo="handleNewRepo"
+              @streaming="(v) => isChatStreaming = v"
+            />
+          </keep-alive>
         </div>
       </transition>
     </div>
@@ -59,12 +63,13 @@
       <AskBox
         v-model="query"
         :placeholder="placeholder"
+        :is-loading="isChatStreaming"
         @send="handleSend"
         @new-repo="handleNewRepo"
+        @abort="handleAbort"
       />
     </div>
 
-    <!-- removed overlay block: LargeChat now replaces content area when expanded -->
     <div
       v-if="zoomModalVisible"
       class="zoom-modal"
@@ -154,6 +159,7 @@ const largeChatRef = ref<InstanceType<typeof LargeChat> | null>(null)
 const selected = ref<{ section: number | null; item: number | null }>({ section: null, item: null })
 const selectedUrl = ref<string | null>(null)
 const isStreaming = ref(false)
+const isChatStreaming = ref(false)
 const progressLogs = ref<string[]>([])
 const streamController = ref<AbortController | null>(null)
 const currentProgress = ref<number>(0)
@@ -1034,11 +1040,25 @@ if (themeContext?.isDarkMode) {
 
 onMounted(async () => {
   updateHighlightStyle()
-  
+
   if (repoId.value && lastHandledRepoId !== repoId.value) {
     lastHandledRepoId = repoId.value
     selectRepoById(repoId.value)
   }
+
+  // Ensure chat storage is cleared on full page unload (reload/close)
+  const beforeUnloadHandler = () => {
+    try {
+      const key = owner.value && repoName.value ? `largechat:${owner.value}:${repoName.value}` : null
+      if (key) sessionStorage.removeItem(key)
+    } catch (e) {
+      console.warn('[RepoDetail] clear sessionStorage on unload failed', e)
+    }
+  }
+  window.addEventListener('beforeunload', beforeUnloadHandler)
+
+  // store handler so we can remove it on unmount
+  ;(window as any).__repoDetail_beforeUnloadHandler = beforeUnloadHandler
 })
 
 onUnmounted(() => {
@@ -1050,6 +1070,20 @@ onUnmounted(() => {
   if (streamController.value) {
     streamController.value.abort()
     streamController.value = null
+  }
+  // Clear LargeChat sessionStorage for current repo when RepoDetail is destroyed
+  try {
+    const key = owner.value && repoName.value ? `largechat:${owner.value}:${repoName.value}` : null
+    if (key) sessionStorage.removeItem(key)
+  } catch (e) {
+    console.warn('[RepoDetail] clear sessionStorage on unmount failed', e)
+  }
+
+  // Remove beforeunload listener if added
+  const handler = (window as any).__repoDetail_beforeUnloadHandler
+  if (handler) {
+    window.removeEventListener('beforeunload', handler)
+    delete (window as any).__repoDetail_beforeUnloadHandler
   }
 })
 
@@ -1153,6 +1187,17 @@ const handleSend = async () => {
   }
 }
 
+const handleAbort = () => {
+  try {
+    const inst = largeChatRef.value as any
+    if (inst && typeof inst.abortStream === 'function') {
+      inst.abortStream()
+    }
+  } catch (err) {
+    console.warn('Failed to abort stream', err)
+  }
+}
+
 const handleNewRepo = () => {
   router.push('/')
 }
@@ -1216,7 +1261,7 @@ const openRepoInNewTab = () => {
   width: 100vw;
   height: 100vh;
   background: rgba(0, 0, 0, 0.8);
-  z-index: 2000;
+  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1277,7 +1322,7 @@ const openRepoInNewTab = () => {
   justify-content: center;
   font-size: 15px;
   color: var(--text-color);
-  z-index: 1000;
+  z-index: 4;
   cursor: pointer;
   box-shadow: 0 8px 22px rgba(0,0,0,0.06);
 }
@@ -1298,7 +1343,7 @@ const openRepoInNewTab = () => {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  z-index: 1000; /* sit above other content */
+  z-index: 4;
   pointer-events: auto;
 }
 
