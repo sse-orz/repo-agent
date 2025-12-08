@@ -116,19 +116,6 @@ const streamRagAnswer = async (question: string) => {
   }
 }
 
-const handleSend = () => {
-  const text = input.value && input.value.trim()
-  if (!text) return
-  messages.value.push({ role: 'user', text })
-  emit('send', text)
-  input.value = ''
-  scrollToBottom()
-
-  appendAssistantPlaceholder()
-  scrollToBottom()
-  void streamRagAnswer(text)
-}
-
 // Expose a method to allow parent to programmatically send a message
 const receiveMessage = (text: string) => {
   if (!text) return

@@ -9,7 +9,7 @@
         <i class="fas fa-comment-dots"></i>
       </div>
       <input
-        :model-value="modelValue"
+        :value="modelValue"
         class="ask-input"
         type="text"
         :placeholder="placeholder"
@@ -92,6 +92,9 @@ const currentModeLabel = computed(
 const handleSend = () => {
   if (!props.modelValue) return
   emit('send')
+  // clear local input immediately so the UI resets even if parent
+  // doesn't update the bound value synchronously
+  emit('update:modelValue', '')
 }
 
 const handleInput = (event: Event) => {
