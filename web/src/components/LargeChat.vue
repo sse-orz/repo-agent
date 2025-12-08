@@ -55,7 +55,7 @@ const md = new MarkdownIt({
         return md.utils.escapeHtml(str)
       }
     }
-    return '' // use external default escaping
+    return md.utils.escapeHtml(str)
   },
 })
 
