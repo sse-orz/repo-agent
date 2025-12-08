@@ -267,7 +267,7 @@ const streamRagAnswer = async (question: string) => {
     }
   } finally {
     abortController = null
-    // 流结束后清理进度
+    // Clean up progress after stream ends
     currentNode.value = null
     isStreaming.value = false
     emit('streaming', false)
