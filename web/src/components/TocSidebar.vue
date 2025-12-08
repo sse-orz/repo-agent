@@ -152,10 +152,10 @@ const displayItems = (section: TocSection) => {
 // Find the currently active file item from the sections tree
 const activeFileItem = computed(() => {
   if (!props.selectedUrl) return null
-  
+
   for (const section of props.sections) {
     if (!section.items) continue
-    
+
     // Helper to search recursively in items
     const findInItems = (items: FileItem[]): FileItem | null => {
       for (const item of items) {
@@ -167,7 +167,7 @@ const activeFileItem = computed(() => {
       }
       return null
     }
-    
+
     const found = findInItems(section.items)
     if (found) return found
   }

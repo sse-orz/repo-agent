@@ -34,7 +34,12 @@
         </div>
 
         <!-- History tiles -->
-        <div v-for="item in groupedWikis" :key="`${item.owner}/${item.repo}`" class="repo-card" @click="goDetail(item)">
+        <div
+          v-for="item in groupedWikis"
+          :key="`${item.owner}/${item.repo}`"
+          class="repo-card"
+          @click="goDetail(item)"
+        >
           <div class="repo-main">
             <h2 class="repo-name" :title="`${item.owner} / ${item.repo}`">
               {{ item.owner }} / {{ item.repo }}

@@ -42,7 +42,7 @@
               :platform="repoPlatform"
               :mode="generationMode === 'moe' ? 'smart' : 'fast'"
               @new-repo="handleNewRepo"
-              @streaming="(v) => isChatStreaming = v"
+              @streaming="(v) => (isChatStreaming = v)"
             />
           </keep-alive>
         </div>
@@ -104,7 +104,12 @@ import TocSidebar from '../components/TocSidebar.vue'
 import DocContent from '../components/DocContent.vue'
 import AskBox from '../components/AskBox.vue'
 import LargeChat from '../components/LargeChat.vue'
-import { generateDocStream, getWikiFiles, resolveBackendStaticUrl, type BaseResponse } from '../utils/request'
+import {
+  generateDocStream,
+  getWikiFiles,
+  resolveBackendStaticUrl,
+  type BaseResponse,
+} from '../utils/request'
 import MarkdownIt from 'markdown-it'
 import anchor from 'markdown-it-anchor'
 import mermaid from 'mermaid'
@@ -344,7 +349,9 @@ const md = new MarkdownIt({
     if (lang && hljs.getLanguage(lang)) {
       try {
         return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`
-      } catch (__) {}
+      } catch (__) {
+        return `<pre class="hljs"><code>${escapeHtml(str)}</code></pre>`
+      }
     }
     return `<pre class="hljs"><code>${escapeHtml(str)}</code></pre>`
   },
@@ -634,7 +641,7 @@ async function loadDocumentation(section: TocSection, needUpdate = false) {
         }
 
         // Check for generation complete flag
-        if ((data as Record<string, unknown>)?. generation_complete === true) {
+        if ((data as Record<string, unknown>)?.generation_complete === true) {
           currentProgress.value = 100
           progressLogs.value.push('✅ Documentation generation complete')
           if (pollInterval.value) {
@@ -870,9 +877,9 @@ async function initializeDocumentation(section: TocSection) {
     progressLogs.value = ['Checking for existing documentation...']
     currentProgress.value = 10
     isStreaming.value = true
-    
+
     const response = await getWikiFiles(section.owner, section.repo, generationMode.value)
-    
+
     if (response.code === 200 && response.data.files.length > 0) {
       // Documentation exists, load it directly
       currentProgress.value = 100
@@ -1048,7 +1055,8 @@ onMounted(async () => {
   // Ensure chat storage is cleared on full page unload (reload/close)
   const beforeUnloadHandler = () => {
     try {
-      const key = owner.value && repoName.value ? `largechat:${owner.value}:${repoName.value}` : null
+      const key =
+        owner.value && repoName.value ? `largechat:${owner.value}:${repoName.value}` : null
       if (key) sessionStorage.removeItem(key)
     } catch (e) {
       console.warn('[RepoDetail] clear sessionStorage on unload failed', e)
@@ -1057,7 +1065,9 @@ onMounted(async () => {
   window.addEventListener('beforeunload', beforeUnloadHandler)
 
   // store handler so we can remove it on unmount
-  ;(window as any).__repoDetail_beforeUnloadHandler = beforeUnloadHandler
+  ;(
+    window as unknown as { __repoDetail_beforeUnloadHandler?: () => void }
+  ).__repoDetail_beforeUnloadHandler = beforeUnloadHandler
 })
 
 onUnmounted(() => {
@@ -1079,10 +1089,12 @@ onUnmounted(() => {
   }
 
   // Remove beforeunload listener if added
-  const handler = (window as any).__repoDetail_beforeUnloadHandler
+  const handler = (window as unknown as { __repoDetail_beforeUnloadHandler?: () => void })
+    .__repoDetail_beforeUnloadHandler
   if (handler) {
     window.removeEventListener('beforeunload', handler)
-    delete (window as any).__repoDetail_beforeUnloadHandler
+    delete (window as unknown as { __repoDetail_beforeUnloadHandler?: () => void })
+      .__repoDetail_beforeUnloadHandler
   }
 })
 
@@ -1176,7 +1188,7 @@ const handleSend = async () => {
   chatVisible.value = true
   await nextTick()
   try {
-    const inst = largeChatRef.value as any
+    const inst = largeChatRef.value as unknown as { receiveMessage?: (text: string) => void }
     if (inst && typeof inst.receiveMessage === 'function') {
       console.debug('[RepoDetail] forwarding to LargeChat.receiveMessage')
       inst.receiveMessage(text)
@@ -1188,7 +1200,7 @@ const handleSend = async () => {
 
 const handleAbort = () => {
   try {
-    const inst = largeChatRef.value as any
+    const inst = largeChatRef.value as unknown as { abortStream?: () => void }
     if (inst && typeof inst.abortStream === 'function') {
       inst.abortStream()
     }
@@ -1323,9 +1335,11 @@ const openRepoInNewTab = () => {
   color: var(--text-color);
   z-index: 4;
   cursor: pointer;
-  box-shadow: 0 8px 22px rgba(0,0,0,0.06);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.06);
 }
-.chat-toggle-btn:hover { transform: translateX(-50%) scale(1.03) }
+.chat-toggle-btn:hover {
+  transform: translateX(-50%) scale(1.03);
+}
 
 .chat-toggle-btn .toggle-label {
   display: inline-block;
@@ -1358,7 +1372,9 @@ const openRepoInNewTab = () => {
   opacity: 0;
 }
 .slide-up-enter-active {
-  transition: transform 320ms cubic-bezier(.2,.9,.2,1), opacity 240ms ease;
+  transition:
+    transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1),
+    opacity 240ms ease;
 }
 .slide-up-enter-to {
   transform: translateY(0);
@@ -1369,7 +1385,9 @@ const openRepoInNewTab = () => {
   opacity: 1;
 }
 .slide-up-leave-active {
-  transition: transform 260ms cubic-bezier(.2,.9,.2,1), opacity 200ms ease;
+  transition:
+    transform 260ms cubic-bezier(0.2, 0.9, 0.2, 1),
+    opacity 200ms ease;
 }
 .slide-up-leave-to {
   transform: translateY(100%);

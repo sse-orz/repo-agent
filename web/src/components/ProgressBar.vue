@@ -3,11 +3,14 @@
     <!-- 顶部状态栏：包含阶段文字和百分比 -->
     <div class="progress-header">
       <div class="stages-wrapper">
-        <span 
-          v-for="(stage, index) in stages" 
+        <span
+          v-for="(stage, index) in stages"
           :key="index"
           class="stage-text"
-          :class="{ 'active-stage': currentStageIndex === index, 'passed-stage': currentStageIndex > index }"
+          :class="{
+            'active-stage': currentStageIndex === index,
+            'passed-stage': currentStageIndex > index,
+          }"
         >
           {{ stage }}
         </span>
@@ -42,7 +45,7 @@ interface Props {
   progress?: number
   logs?: string[]
   // 新增：用于控制是否进入迷你悬浮模式 (当文档有内容时设为 true)
-  isMini?: boolean 
+  isMini?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -63,7 +66,7 @@ let animationFrame: number | null = null
 // 格式化显示的百分比
 const displayPercent = computed(() => Math.floor(displayProgress.value))
 
-// 计算当前处于哪个阶段 
+// 计算当前处于哪个阶段
 const currentStageIndex = computed(() => {
   const p = displayProgress.value
   if (p < 20) return 0
@@ -82,7 +85,7 @@ const updateProgress = () => {
   if (current < target) {
     const diff = target - current
     displayProgress.value += diff * 0.1 + 0.05
-  } 
+  }
   //虚假进度逻辑
   else if (current >= target && target < 99 && current < target + 5) {
     displayProgress.value += 0.03
@@ -99,11 +102,14 @@ const updateProgress = () => {
 }
 
 // 监听真实进度变化，唤醒动画
-watch(() => props.progress, (newVal) => {
-  if (newVal >= 100) {
-    displayProgress.value = 100
+watch(
+  () => props.progress,
+  (newVal) => {
+    if (newVal >= 100) {
+      displayProgress.value = 100
+    }
   }
-})
+)
 
 onMounted(() => {
   displayProgress.value = Math.max(0, props.progress) // 初始同步
@@ -121,7 +127,7 @@ onUnmounted(() => {
   padding: 16px 0;
   width: 100%;
   max-width: none;
-  margin: 0; 
+  margin: 0;
   transition: all 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
   background: transparent;
   z-index: 100;
@@ -130,7 +136,7 @@ onUnmounted(() => {
 /* --- Mini 模式 (右上角悬浮) --- */
 .progress-container.is-mini {
   position: fixed;
-  top: 90px;  
+  top: 90px;
   right: 20px;
 
   width: 180px;
@@ -170,7 +176,7 @@ onUnmounted(() => {
   font-weight: 700;
   color: var(--title-color, #38916e);
   transform: scale(1.1);
-  text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 /* 已过阶段：略微变暗 */
@@ -184,7 +190,7 @@ onUnmounted(() => {
 .is-mini .stage-text:not(.active-stage) {
   display: none;
 }
-.is-mini .stage-text.active-stage{
+.is-mini .stage-text.active-stage {
   font-size: 14px;
   color: #d6d2d2;
 }
@@ -199,7 +205,7 @@ onUnmounted(() => {
 /* --- 进度条 --- */
 .progress-bar-wrapper {
   width: 100%;
-  height: 8px; 
+  height: 8px;
   background: var(--border-color, #eee);
   border-radius: 4px;
   overflow: hidden;
@@ -232,7 +238,9 @@ onUnmounted(() => {
 }
 
 @keyframes shimmer {
-  100% { transform: translateX(100%); }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 /* --- 日志区域 --- */
@@ -280,14 +288,23 @@ onUnmounted(() => {
 
 .mini-log-text {
   white-space: normal; /* 允许换行 */
-  overflow: visible; 
+  overflow: visible;
   word-break: break-word;
 }
 
 @keyframes pulse {
-  0% { opacity: 0.5; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.2); }
-  100% { opacity: 0.5; transform: scale(0.8); }
+  0% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
 }
 
 /* 暗色模式简单适配 (如果父组件提供了CSS变量) */

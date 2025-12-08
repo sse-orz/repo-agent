@@ -38,7 +38,11 @@
           </div>
         </div>
       </div>
-      <button class="send-btn" @click="props.isLoading ? handleAbort() : handleSend()" :title="props.isLoading ? 'Abort request' : 'Send question'">
+      <button
+        class="send-btn"
+        @click="props.isLoading ? handleAbort() : handleSend()"
+        :title="props.isLoading ? 'Abort request' : 'Send question'"
+      >
         <i :class="props.isLoading ? 'fas fa-stop-circle' : 'fas fa-arrow-right'"></i>
       </button>
     </div>

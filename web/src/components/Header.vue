@@ -10,80 +10,78 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue'
 
 // --- 配置项 ---
 // 这里放你想展示的多段文本
 const textArray = [
-  "Help you read and understand repositories quickly", 
-  "Now let's explore your code. ^ ^" // 优化后的引导语
-];
-const typingSpeed = 60;     // 打字基础速度 (ms)
-const deletingSpeed = 30;    // 删除速度 (ms) - 稍微调快了一点，让过渡更利索
-const pauseDuration = 1500;  // 句子打完后的停留时间 (ms)
+  'Help you read and understand repositories quickly',
+  "Now let's explore your code. ^ ^", // 优化后的引导语
+]
+const typingSpeed = 60 // 打字基础速度 (ms)
+const deletingSpeed = 30 // 删除速度 (ms) - 稍微调快了一点，让过渡更利索
+const pauseDuration = 1500 // 句子打完后的停留时间 (ms)
 
 // --- 状态管理 ---
-const displayText = ref('');
-const isFinished = ref(false); // 标记是否彻底完成了所有对话
-let textIndex = 0;   // 当前在打第几句话
-let charIndex = 0;   // 当前字符索引
-let isDeleting = false; // 是否处于删除状态
-let timer = null;
+const displayText = ref('')
+const isFinished = ref(false) // 标记是否彻底完成了所有对话
+let textIndex = 0 // 当前在打第几句话
+let charIndex = 0 // 当前字符索引
+let isDeleting = false // 是否处于删除状态
+let timer = null
 
 // --- 打字机核心逻辑 ---
 const typeEffect = () => {
   // 获取当前要处理的那一句话
-  const currentFullText = textArray[textIndex];
-  
+  const currentFullText = textArray[textIndex]
+
   if (isDeleting) {
     // 删除逻辑
-    displayText.value = currentFullText.substring(0, charIndex - 1);
-    charIndex--;
+    displayText.value = currentFullText.substring(0, charIndex - 1)
+    charIndex--
   } else {
     // 输入逻辑
-    displayText.value = currentFullText.substring(0, charIndex + 1);
-    charIndex++;
+    displayText.value = currentFullText.substring(0, charIndex + 1)
+    charIndex++
   }
 
   // 计算下一次的延迟
-  let delta = typingSpeed;
-  if (!isDeleting) delta += Math.random() * 30; // 打字随机延迟
-  if (isDeleting) delta = deletingSpeed;         // 删除固定速度
+  let delta = typingSpeed
+  if (!isDeleting) delta += Math.random() * 30 // 打字随机延迟
+  if (isDeleting) delta = deletingSpeed // 删除固定速度
 
   // --- 关键的状态流转逻辑 ---
 
   // 1. 如果当前句子打完了
   if (!isDeleting && displayText.value === currentFullText) {
-    
     // 判断是否是最后一句
     if (textIndex === textArray.length - 1) {
       // 是最后一句 -> 停止！
-      isFinished.value = true;
-      return; // 直接返回，不再调用 setTimeout，逻辑结束
+      isFinished.value = true
+      return // 直接返回，不再调用 setTimeout，逻辑结束
     } else {
       // 不是最后一句 -> 停顿后开始删除
-      delta = pauseDuration;
-      isDeleting = true;
+      delta = pauseDuration
+      isDeleting = true
     }
-    
   } else if (isDeleting && displayText.value === '') {
     // 2. 如果当前句子删完了
-    isDeleting = false;
-    textIndex++; // 切换到下一句话
-    delta = 500; // 稍微停顿再开始打下一句
+    isDeleting = false
+    textIndex++ // 切换到下一句话
+    delta = 500 // 稍微停顿再开始打下一句
   }
 
   // 递归调用
-  timer = setTimeout(typeEffect, delta);
-};
+  timer = setTimeout(typeEffect, delta)
+}
 
 onMounted(() => {
-  typeEffect();
-});
+  typeEffect()
+})
 
 onUnmounted(() => {
-  if (timer) clearTimeout(timer);
-});
+  if (timer) clearTimeout(timer)
+})
 </script>
 
 <style scoped>
@@ -120,12 +118,17 @@ onUnmounted(() => {
 }
 
 .cursor-stop {
-   animation: none;
-   opacity: 0; 
+  animation: none;
+  opacity: 0;
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 </style>

@@ -35,8 +35,8 @@ const hoverMode = (mode: 'sub' | 'moe') => {
   hoveredMode.value = mode
 }
 const modeIntroduction = {
-  sub: "适用于更高精度的文本生成",
-  moe: "多专家路由，适合复杂任务",
+  sub: '适用于更高精度的文本生成',
+  moe: '多专家路由，适合复杂任务',
 }
 </script>
 
@@ -71,20 +71,19 @@ const modeIntroduction = {
         </button>
         <div v-if="showModeMenu" class="mode-menu">
           <div
-          v-for="option in modeOptions"
-          :key="option.value"
-          class="mode-option"
-          :class="{ active: option.value === selectedMode }"
-          @click="selectMode(option.value)"
-          @mouseenter="hoverMode(option.value)"
-          @mouseleave="hoverMode(null)"
-          
-        >
-          {{ option.label }}
-        </div>
-        <!-- 介绍文本 -->
-        <div v-if="hoveredMode" class="mode-introduction">
-          {{ modeIntroduction[hoveredMode] }}
+            v-for="option in modeOptions"
+            :key="option.value"
+            class="mode-option"
+            :class="{ active: option.value === selectedMode }"
+            @click="selectMode(option.value)"
+            @mouseenter="hoverMode(option.value)"
+            @mouseleave="hoverMode(null)"
+          >
+            {{ option.label }}
+          </div>
+          <!-- 介绍文本 -->
+          <div v-if="hoveredMode" class="mode-introduction">
+            {{ modeIntroduction[hoveredMode] }}
           </div>
         </div>
       </div>
@@ -222,16 +221,14 @@ const modeIntroduction = {
   font-weight: 600;
 }
 .mode-introduction {
-
   left: 100%;
   padding: 10px 12px;
-
 
   background: var(--container-bg);
   border: 1px solid var(--border-color);
   border-radius: 8px;
 
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 
   color: var(--text-color);
   font-size: 12px;

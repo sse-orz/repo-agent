@@ -15,9 +15,21 @@
           </template>
 
           <div class="bubble">
-            <div class="bubble-text" v-html="(m.role === 'assistant' && (!m.text || !m.text.trim())) ? 'Loading...' : (m.role === 'assistant' ? md.render(m.text) : m.text)"></div>
+            <div
+              class="bubble-text"
+              v-html="
+                m.role === 'assistant' && (!m.text || !m.text.trim())
+                  ? 'Loading...'
+                  : m.role === 'assistant'
+                    ? md.render(m.text)
+                    : m.text
+              "
+            ></div>
           </div>
-          <div v-if="m.role === 'assistant' && canRetry && idx === lastAssistantIndex" class="retry-row">
+          <div
+            v-if="m.role === 'assistant' && canRetry && idx === lastAssistantIndex"
+            class="retry-row"
+          >
             <button class="retry-btn" @click="retryStream" title="Retry">
               <i class="fas fa-redo"></i>
             </button>
@@ -40,14 +52,22 @@ const md = new MarkdownIt({
     if (lang && hljs.getLanguage(lang)) {
       try {
         return hljs.highlight(str, { language: lang }).value
-      } catch (__) {}
+      } catch (__) {
+        return ''
+      }
     }
     return '' // use external default escaping
-  }
+  },
 })
 
 const props = withDefaults(
-  defineProps<{ placeholder?: string; owner?: string; repo?: string; platform?: string; mode?: 'fast' | 'smart' }>(),
+  defineProps<{
+    placeholder?: string
+    owner?: string
+    repo?: string
+    platform?: string
+    mode?: 'fast' | 'smart'
+  }>(),
   { placeholder: 'Try to ask me...', platform: 'github', mode: 'fast' }
 )
 const emit = defineEmits<{
@@ -187,27 +207,52 @@ const streamRagAnswer = async (question: string) => {
           const d = event.data ?? event
 
           // 如果 data 中包含 node 字段，作为当前进度显示
-          const node = d && typeof d === 'object' ? (d as any).node ?? (d as any).data?.node ?? null : null
+          let node: unknown = null
+          if (d && typeof d === 'object') {
+            const obj = d as unknown as Record<string, unknown>
+            if ('node' in obj) node = obj.node ?? null
+            else if ('data' in obj && obj.data && typeof obj.data === 'object') {
+              node = (obj.data as Record<string, unknown>).node ?? null
+            }
+          }
           if (node) {
             currentNode.value = String(node)
           }
 
           // prefer answer field
-          const ans = d && typeof d === 'object' ? (d as any).answer ?? (d as any).text ?? '' : String(d || '')
+          let ans = ''
+          if (d && typeof d === 'object') {
+            const obj = d as unknown as Record<string, unknown>
+            const candidate = 'answer' in obj ? obj.answer : 'text' in obj ? obj.text : ''
+            ans = candidate === undefined || candidate === null ? '' : String(candidate)
+          } else {
+            ans = String(d || '')
+          }
+
           if (ans !== undefined && ans !== null) {
             updateLastAssistant(String(ans))
             scrollToBottom()
           }
         } catch (err) {
           // fallback to message
-          updateLastAssistant(event.message ?? JSON.stringify(event))
+          try {
+            // event may be a MessageEvent with message property
+            // access safely without using `any`
+            const maybe = event as unknown as Record<string, unknown>
+            const msg = 'message' in maybe ? maybe.message : JSON.stringify(event)
+            updateLastAssistant(String(msg))
+          } catch (e) {
+            updateLastAssistant(String(event))
+          }
           scrollToBottom()
         }
       },
       { signal: abortController.signal }
     )
   } catch (err) {
-    if ((err as any)?.name === 'AbortError') {
+    const errName =
+      err && typeof err === 'object' && 'name' in err ? (err as { name?: string }).name : undefined
+    if (errName === 'AbortError') {
       updateLastAssistant('Request aborted.')
       currentNode.value = null
       isStreaming.value = false
@@ -318,7 +363,7 @@ defineExpose({ receiveMessage, abortStream })
   max-width: 85%;
   padding: 12px 16px;
   border-radius: 14px;
-  box-shadow: 0 6px 14px rgba(0,0,0,0.06);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.06);
 }
 .message-row.assistant .bubble {
   background: var(--card-bg);
@@ -338,11 +383,11 @@ defineExpose({ receiveMessage, abortStream })
   overflow-wrap: break-word;
   word-break: break-word;
   line-height: 1.3;
-  font-family: "Myriad", "Noto Serif SC", serif !important;
+  font-family: 'Myriad', 'Noto Serif SC', serif !important;
 }
 
 .bubble-text :deep(*):not(code):not(pre):not(.mermaid) {
-  font-family: "Myriad", "Noto Serif SC", serif !important;
+  font-family: 'Myriad', 'Noto Serif SC', serif !important;
 }
 
 .bubble-text :deep(*) {
@@ -508,6 +553,8 @@ defineExpose({ receiveMessage, abortStream })
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

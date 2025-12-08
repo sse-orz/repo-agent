@@ -6,7 +6,7 @@
         v-if="isStreaming && progressLogs.length > 0"
         :progress="progress"
         :logs="progressLogs"
-        :isMini="hasLoadedAnyFile" 
+        :isMini="hasLoadedAnyFile"
       />
       <div v-html="content"></div>
     </div>
@@ -55,22 +55,22 @@ const updateTitle = () => {
   if (!docInner) return
 
   //获取1,2级标题元素
-  const headings = docInner.querySelectorAll("h1,h2")
-  
+  const headings = docInner.querySelectorAll('h1,h2')
+
   let nearest = null
   const containerTop = docInner.getBoundingClientRect().top
 
-  headings.forEach(h => {
+  headings.forEach((h) => {
     const hTop = h.getBoundingClientRect().top
 
     // 如果标题已经滚过顶部（<= 0），它是候选
-    if (hTop <= containerTop + 5) {  
+    if (hTop <= containerTop + 5) {
       nearest = h
     }
   })
 
   // 如果找到了 nearest，就用它的文字；如果没找到（比如没滚动或者没有 h 标签），就清空
-  currentTitle.value = nearest ? nearest.textContent : ""
+  currentTitle.value = nearest ? nearest.textContent : ''
 }
 
 onMounted(() => {
@@ -133,7 +133,7 @@ defineExpose({
 .doc,
 .doc-inner,
 .doc-inner :deep(*):not(code):not(pre):not(.mermaid) {
-  font-family: "Myriad", "Noto Serif SC", serif !important;
+  font-family: 'Myriad', 'Noto Serif SC', serif !important;
 }
 
 .doc {
@@ -292,7 +292,6 @@ defineExpose({
   border-radius: 8px;
   overflow-x: auto;
 }
-
 
 .doc-inner :deep(.mermaid-zoom-btn) {
   position: absolute;
