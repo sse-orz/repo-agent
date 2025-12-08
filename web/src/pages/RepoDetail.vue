@@ -33,7 +33,7 @@
       <!-- Chat overlays the content area when visible -->
       <transition name="slide-up">
         <div class="chat-replace" v-show="chatVisible">
-          <!-- 把 v-show 放在覆盖层上，避免未显示时遮挡背景交互 -->
+          <!-- v-show on overlay prevents blocking background interactions when hidden -->
           <keep-alive>
             <LargeChat
               ref="largeChatRef"
