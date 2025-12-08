@@ -16,15 +16,14 @@
 
           <div class="bubble">
             <div
+              v-if="m.role === 'assistant'"
               class="bubble-text"
-              v-html="
-                m.role === 'assistant' && (!m.text || !m.text.trim())
-                  ? 'Loading...'
-                  : m.role === 'assistant'
-                    ? md.render(m.text)
-                    : m.text
-              "
+              v-html="(!m.text || !m.text.trim()) ? 'Loading...' : md.render(m.text)"
             ></div>
+            <div
+              v-else
+              class="bubble-text"
+            >{{ m.text }}</div>
           </div>
           <div
             v-if="m.role === 'assistant' && canRetry && idx === lastAssistantIndex"
