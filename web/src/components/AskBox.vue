@@ -1,8 +1,5 @@
 <template>
   <div class="ask-row">
-    <button class="new-repo" @click="handleNewRepo" aria-label="New repo">
-      <span class="plus">+</span>
-    </button>
 
     <div class="ask-box">
       <div class="ask-icon-wrapper">
@@ -46,6 +43,9 @@
         <i :class="props.isLoading ? 'fas fa-stop-circle' : 'fas fa-arrow-right'"></i>
       </button>
     </div>
+    <button class="new-repo" @click="handleNewRepo" aria-label="New repo">
+      <span class="plus">+</span>
+    </button>
   </div>
 </template>
 
@@ -139,7 +139,7 @@ const handleAbort = () => {
   width: min(720px, 90%);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap:10px;
   z-index: 1200;
 }
 

@@ -1,7 +1,8 @@
 <template>
   <main class="doc">
+    <div v-if="showTop" class="subtitle-top" aria-hidden="true">{{ currentTitle }}</div>
     <div class="doc-inner" ref="docInnerRef">
-      <div v-if="showTop" class="subtitle-top" aria-hidden="true">{{ currentTitle }}</div>
+      <div v-if="showTop" class="fade fade-top" aria-hidden="true"></div>
       <ProgressBar
         v-if="isStreaming && progressLogs.length > 0"
         :progress="progress"
@@ -10,7 +11,6 @@
       />
       <div v-html="content"></div>
     </div>
-    <div v-if="showBottom" class="fade fade-bottom" aria-hidden="true"></div>
   </main>
 </template>
 
@@ -195,6 +195,7 @@ defineExpose({
 .doc-inner :deep(p) {
   margin-top: 0.15em;
   margin-bottom: 0.35em;
+  font-size: 20px;
 }
 
 .doc-inner :deep(ul),
@@ -202,11 +203,13 @@ defineExpose({
   margin-top: 0.25em;
   margin-bottom: 0.5em;
   padding-left: 1.5em;
+  font-size: 18px;
 }
 
 .doc-inner :deep(li) {
   margin-top: 0.05em;
   margin-bottom: 0.05em;
+  font-size: 18px;
 }
 
 .doc-inner :deep(pre) {
@@ -313,10 +316,10 @@ defineExpose({
 }
 
 .fade {
-  position: absolute;
+  position: sticky;
   left: 0;
   right: 0;
-  height: 30px;
+  height: 15px;
   pointer-events: none;
   z-index: 8;
 }
@@ -332,10 +335,10 @@ defineExpose({
   border-bottom: 1px solid var(--border-color);
   color: var(--title-color);
 }
-/* .fade-top {
+.fade-top {
   top: 0;
   background: linear-gradient(to bottom, var(--container-bg), transparent);
-} */
+}
 
 .fade-bottom {
   bottom: 0;
