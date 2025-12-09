@@ -50,25 +50,28 @@
     </div>
 
     <!-- Chat toggle button (Expand / Close) -->
-    <button
-      class="chat-toggle-btn"
-      @click="toggleChat"
-      :title="chatVisible ? 'Close Chat' : 'Expand Chat'"
-      :aria-pressed="chatVisible"
-    >
-      <span class="toggle-label">{{ chatVisible ? 'Close ↓' : 'Expand ↑' }}</span>
-    </button>
+    <div class="chat-bar">
+      <!-- Chat toggle button -->
+      <button
+        class="chat-toggle-btn"
+        @click="toggleChat"
+        :title="chatVisible ? 'Close Chat' : 'Expand Chat'"
+        :aria-pressed="chatVisible"
+      >
+        <span class="toggle-label">{{ chatVisible ? 'Close ↓' : 'Expand ↑' }}</span>
+      </button>
 
-    <div class="askbox-wrapper">
-      <AskBox
-        v-model="query"
-        :placeholder="placeholder"
-        :is-loading="isChatStreaming"
-        @send="handleSend"
-        @new-repo="handleNewRepo"
-        @abort="handleAbort"
-      />
-    </div>
+      <div class="askbox-wrapper">
+        <AskBox
+          v-model="query"
+          :placeholder="placeholder"
+          :is-loading="isChatStreaming"
+          @send="handleSend"
+          @new-repo="handleNewRepo"
+          @abort="handleAbort"
+        />
+      </div>
+</div>
 
     <div
       v-if="zoomModalVisible"
@@ -1318,10 +1321,8 @@ const openRepoInNewTab = () => {
 
 /* Chat overlay and toggle button */
 .chat-toggle-btn {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 75px; /* sits above the AskBox */
+  transform: translateX(100%);
+  bottom: 80px;
   min-width: 160px;
   height: 44px;
   padding: 6px 18px;
@@ -1337,9 +1338,7 @@ const openRepoInNewTab = () => {
   cursor: pointer;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.06);
 }
-.chat-toggle-btn:hover {
-  transform: translateX(-50%) scale(1.03);
-}
+
 
 .chat-toggle-btn .toggle-label {
   display: inline-block;
@@ -1360,6 +1359,11 @@ const openRepoInNewTab = () => {
   pointer-events: auto;
 }
 
+.chat-bar {
+  /* display: flex; */
+  align-items: center;
+  gap: 8px; /* button 和 AskBox 之间的间距 */
+}
 /* Ensure AskBox sits above the chat overlay so it remains clickable */
 .askbox-wrapper {
   position: relative;
