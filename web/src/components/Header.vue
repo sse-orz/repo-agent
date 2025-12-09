@@ -88,6 +88,8 @@ onUnmounted(() => {
 .header {
   text-align: center;
   margin-bottom: 40px;
+  opacity: 0;
+  animation: slideUpFade 0.8s ease-out forwards;
 }
 
 .title {

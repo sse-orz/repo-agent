@@ -13,7 +13,7 @@
 
       <div v-else class="grid">
         <!-- Add repo tile -->
-        <div class="repo-card add-repo-card" @click="goHome">
+        <div class="repo-card add-repo-card" @click="goHome" style="animation-delay: 0s">
           <div class="repo-main">
             <div>
               <h2 class="repo-name">Add repo</h2>
@@ -35,9 +35,10 @@
 
         <!-- History tiles -->
         <div
-          v-for="item in groupedWikis"
+          v-for="(item, index) in groupedWikis"
           :key="`${item.owner}/${item.repo}`"
           class="repo-card"
+          :style="{ animationDelay: `${(index + 1) * 0.05}s` }"
           @click="goDetail(item)"
         >
           <div class="repo-main">
@@ -261,6 +262,17 @@ onMounted(() => {
   gap: 20px;
 }
 
+@keyframes flyIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .repo-card {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
@@ -273,6 +285,8 @@ onMounted(() => {
   transition: all 0.2s ease;
   box-shadow: 0 2px 8px var(--shadow-color);
   min-height: 120px;
+  opacity: 0; /* start invisible */
+  animation: flyIn 0.4s ease-out forwards;
 }
 
 .repo-card:hover {

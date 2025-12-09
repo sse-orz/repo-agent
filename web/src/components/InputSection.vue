@@ -12,7 +12,7 @@ const modelMode = defineModel('mode', { type: String })
 
 const showModeMenu = ref(false)
 const selectedMode = ref<'sub' | 'moe'>(
-  modelMode.value === 'sub' || modelMode.value === 'moe' ? modelMode.value : 'sub'
+  modelMode.value === 'sub' || modelMode.value === 'moe' ? modelMode.value : 'sub',
 )
 
 const modeOptions = [
@@ -101,6 +101,11 @@ const modeIntroduction = {
   width: 100%;
   max-width: 700px;
   margin: 0 auto 60px;
+  opacity: 0;
+  animation: slideUpFade 0.8s ease-out forwards;
+  animation-delay: 0.1s;
+  position: relative;
+  z-index: 10;
 }
 
 .input-group {
@@ -197,6 +202,17 @@ const modeIntroduction = {
   overflow: hidden;
 }
 
+@keyframes fadeInSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .mode-option {
   padding: 10px 16px;
   cursor: pointer;
@@ -204,6 +220,15 @@ const modeIntroduction = {
   color: var(--secondary-text, #666);
   transition: all 0.2s ease;
   border-bottom: 1px solid var(--border-color, #f5f5f5);
+  opacity: 0; /* start hidden */
+  animation: fadeInSlide 0.2s ease-out forwards;
+}
+
+.mode-option:nth-child(1) {
+  animation-delay: 0.05s;
+}
+.mode-option:nth-child(2) {
+  animation-delay: 0.1s;
 }
 
 .mode-option:last-child {

@@ -41,6 +41,9 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   gap: 32px;
   transition: background-color 0.3s;
+  opacity: 0;
+  animation: slideUpFade 0.8s ease-out forwards;
+  animation-delay: 0.2s;
 }
 
 .card-content {

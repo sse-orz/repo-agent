@@ -84,7 +84,7 @@ watch(
     if (newMode === 'fast' || newMode === 'smart') {
       selectedMode.value = newMode
     }
-  }
+  },
 )
 
 const modeOptions = [
@@ -93,7 +93,7 @@ const modeOptions = [
 ]
 
 const currentModeLabel = computed(
-  () => modeOptions.find((opt) => opt.value === selectedMode.value)?.label || selectedMode.value
+  () => modeOptions.find((opt) => opt.value === selectedMode.value)?.label || selectedMode.value,
 )
 
 const handleSend = () => {
@@ -235,6 +235,17 @@ const handleAbort = () => {
   overflow: hidden;
 }
 
+@keyframes fadeInSlide {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .mode-option {
   padding: 8px 14px;
   cursor: pointer;
@@ -242,6 +253,15 @@ const handleAbort = () => {
   color: var(--secondary-text, #666);
   transition: all 0.2s ease;
   border-bottom: 1px solid var(--border-color, #f5f5f5);
+  opacity: 0; /* start hidden */
+  animation: fadeInSlide 0.2s ease-out forwards;
+}
+
+.mode-option:nth-child(1) {
+  animation-delay: 0.05s;
+}
+.mode-option:nth-child(2) {
+  animation-delay: 0.1s;
 }
 
 .mode-option:last-child {
@@ -309,5 +329,10 @@ const handleAbort = () => {
   font-size: 20px;
   line-height: 1;
   color: var(--text-color);
+  transition: transform 0.3s ease;
+}
+
+.new-repo:hover .plus {
+  transform: rotate(90deg);
 }
 </style>
