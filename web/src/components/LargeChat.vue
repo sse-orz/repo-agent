@@ -25,6 +25,24 @@
               class="bubble-text"
             >{{ m.text }}</div>
           </div>
+
+          <!-- Sources section: show after streaming completes for assistant messages -->
+          <div
+            v-if="m.role === 'assistant' && m.sources && m.sources.length > 0 && !(idx === lastAssistantIndex && isStreaming)"
+            class="sources-section"
+          >
+            <div class="sources-title">
+              <i class="fas fa-book-open"></i>
+              <span>References</span>
+            </div>
+            <ul class="sources-list">
+              <li v-for="(src, i) in m.sources" :key="i" class="source-item">
+                <i class="fas fa-file-alt"></i>
+                <span class="source-path">{{ formatSourcePath(src) }}</span>
+              </li>
+            </ul>
+          </div>
+
           <div
             v-if="m.role === 'assistant' && canRetry && idx === lastAssistantIndex"
             class="retry-row"
@@ -46,7 +64,7 @@ import { askRagStream } from '../utils/request'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
 
-const md = new MarkdownIt({
+const md: MarkdownIt = new MarkdownIt({
   highlight: function (str, lang) {
     if (lang && hljs.getLanguage(lang)) {
       try {
@@ -75,10 +93,10 @@ const emit = defineEmits<{
   (e: 'streaming', v: boolean): void
 }>()
 
-type Msg = { role: 'user' | 'assistant'; text: string }
+type Msg = { role: 'user' | 'assistant'; text: string; sources?: string[] }
 
 const messages = ref<Msg[]>([
-  { role: 'assistant', text: 'Hello, is there anything I can help with? ' },
+  { role: 'assistant', text: 'Hello, is there anything I can help with? ', sources: [] },
 ])
 
 // Storage key derived from owner/repo so messages persist while RepoDetail stays mounted
@@ -144,7 +162,7 @@ const scrollToBottom = async () => {
 }
 
 const appendAssistantPlaceholder = () => {
-  messages.value.push({ role: 'assistant', text: 'Loading...' })
+  messages.value.push({ role: 'assistant', text: '', sources: [] })
 }
 
 const updateLastAssistant = (text: string) => {
@@ -160,7 +178,33 @@ const updateLastAssistant = (text: string) => {
     }
   }
   // no assistant found, push new
-  messages.value.push({ role: 'assistant', text: text && text.trim() ? text : 'Loading...' })
+  messages.value.push({ role: 'assistant', text: text && text.trim() ? text : '', sources: [] })
+}
+
+// Append delta token to the last assistant message
+const appendToLastAssistant = (delta: string) => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const msg = messages.value[i]
+    if (!msg) continue
+    if (msg.role === 'assistant') {
+      msg.text = (msg.text || '') + delta
+      return
+    }
+  }
+  // no assistant found, push new
+  messages.value.push({ role: 'assistant', text: delta, sources: [] })
+}
+
+// Update sources for the last assistant message
+const updateLastAssistantSources = (sources: string[]) => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const msg = messages.value[i]
+    if (!msg) continue
+    if (msg.role === 'assistant') {
+      msg.sources = sources
+      return
+    }
+  }
 }
 
 onUnmounted(() => {
@@ -205,20 +249,45 @@ const streamRagAnswer = async (question: string) => {
         try {
           const d = event.data ?? event
 
-          // 如果 data 中包含 node 字段，作为当前进度显示
+          // Extract node field for progress display
           let node: unknown = null
+          let delta: string | null = null
+          let sources: string[] | null = null
+
           if (d && typeof d === 'object') {
             const obj = d as unknown as Record<string, unknown>
             if ('node' in obj) node = obj.node ?? null
             else if ('data' in obj && obj.data && typeof obj.data === 'object') {
               node = (obj.data as Record<string, unknown>).node ?? null
             }
+
+            // Extract delta for true token streaming
+            if ('delta' in obj && obj.delta) {
+              delta = String(obj.delta)
+            }
+
+            // Extract sources
+            if ('sources' in obj && Array.isArray(obj.sources)) {
+              sources = obj.sources as string[]
+            }
           }
+
           if (node) {
             currentNode.value = String(node)
           }
 
-          // prefer answer field
+          // Handle delta-based streaming
+          if (delta) {
+            appendToLastAssistant(delta)
+            scrollToBottom()
+            // Update sources if provided
+            if (sources && sources.length > 0) {
+              updateLastAssistantSources(sources)
+            }
+            return
+          }
+
+          // Fallback: use answer field for full replacement
           let ans = ''
           if (d && typeof d === 'object') {
             const obj = d as unknown as Record<string, unknown>
@@ -228,15 +297,18 @@ const streamRagAnswer = async (question: string) => {
             ans = String(d || '')
           }
 
-          if (ans !== undefined && ans !== null) {
+          if (ans !== undefined && ans !== null && ans.trim()) {
             updateLastAssistant(String(ans))
             scrollToBottom()
+          }
+
+          // Update sources if provided (for non-delta events)
+          if (sources && sources.length > 0) {
+            updateLastAssistantSources(sources)
           }
         } catch (err) {
           // fallback to message
           try {
-            // event may be a MessageEvent with message property
-            // access safely without using `any`
             const maybe = event as unknown as Record<string, unknown>
             const msg = 'message' in maybe ? maybe.message : JSON.stringify(event)
             updateLastAssistant(String(msg))
@@ -309,6 +381,16 @@ const retryStream = () => {
   canRetry.value = false
   scrollToBottom()
   void streamRagAnswer(lastUserMessage.value)
+}
+
+// Format source path for display (extract filename or last path segment)
+const formatSourcePath = (src: string): string => {
+  if (!src) return 'Unknown source'
+  // Handle both forward and backslashes
+  const parts = src.split(/[/\\]/)
+  const filename = parts[parts.length - 1] || src
+  // Remove .md extension if present
+  return filename.replace(/\.md$/i, '')
 }
 
 defineExpose({ receiveMessage, abortStream })
@@ -555,5 +637,67 @@ defineExpose({ receiveMessage, abortStream })
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Sources section styling */
+.sources-section {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--hover-bg, rgba(0, 0, 0, 0.03));
+  border-radius: 10px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  max-width: 85%;
+}
+
+.sources-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--subtitle-color, #666);
+  margin-bottom: 8px;
+}
+
+.sources-title i {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.sources-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.source-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--secondary-text, #888);
+  padding: 4px 8px;
+  background: var(--card-bg, #fff);
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.source-item:hover {
+  background: var(--subcard-bg, #f5f5f5);
+}
+
+.source-item i {
+  font-size: 11px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.source-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

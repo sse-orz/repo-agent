@@ -40,7 +40,7 @@
               :owner="owner"
               :repo="repoName"
               :platform="repoPlatform"
-              :mode="generationMode === 'moe' ? 'smart' : 'fast'"
+              :mode="chatMode"
               @new-repo="handleNewRepo"
               @streaming="(v) => (isChatStreaming = v)"
             />
@@ -66,6 +66,7 @@
           v-model="query"
           :placeholder="placeholder"
           :is-loading="isChatStreaming"
+          v-model:mode="chatMode"
           @send="handleSend"
           @new-repo="handleNewRepo"
           @abort="handleAbort"
@@ -164,6 +165,7 @@ const docContent = ref('<p>Select a repository to view documentation.</p>')
 const tocSections = ref<TocSection[]>([])
 const query = ref('')
 const largeChatRef = ref<InstanceType<typeof LargeChat> | null>(null)
+const chatMode = ref<'fast' | 'smart'>('fast')
 const selected = ref<{ section: number | null; item: number | null }>({ section: null, item: null })
 const selectedUrl = ref<string | null>(null)
 const isStreaming = ref(false)
@@ -1018,6 +1020,9 @@ watch(
 
     repoId.value = id
 
+    // Reset chat mode based on route query when switching repo
+    chatMode.value = generationMode.value === 'moe' ? 'smart' : 'fast'
+
     if (!id) {
       progressLogs.value = []
       currentProgress.value = 0
@@ -1049,6 +1054,9 @@ if (themeContext?.isDarkMode) {
 
 onMounted(async () => {
   updateHighlightStyle()
+
+  // Initialize chat mode from route query on first load
+  chatMode.value = generationMode.value === 'moe' ? 'smart' : 'fast'
 
   if (repoId.value && lastHandledRepoId !== repoId.value) {
     lastHandledRepoId = repoId.value

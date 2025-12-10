@@ -33,6 +33,10 @@ class RAGStreamStepData(BaseModel):
         ...,
         description="Latest partial / final answer text (may be empty in early steps)",
     )
+    delta: Optional[str] = Field(
+        None,
+        description="Incremental token for streaming output. When present, frontend should append this to the current answer instead of replacing.",
+    )
     node: Optional[str] = Field(
         ...,
         description='Current RAG node name, e.g. "Intent", "Rewrite", "Retrieve", "Judge", "Generate"',

@@ -70,6 +70,7 @@ export interface RagAskRequest {
 
 export interface RagAskResponseData {
   answer: string
+  delta?: string // Incremental token for streaming output. When present, append to current answer.
   node?: string // Current node name, e.g. "Intent" / "Rewrite" / "Retrieve" / "Judge" / "Generate"
   sources?: string[] // Referenced document sources used for the answer
 }

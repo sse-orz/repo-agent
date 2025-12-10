@@ -1,6 +1,7 @@
 import os
+from collections import defaultdict
 from datetime import datetime
-from typing import TypedDict, List, Annotated, Sequence
+from typing import TypedDict, List, Annotated, Sequence, Tuple, Dict
 from textwrap import dedent
 
 from langchain_chroma import Chroma
@@ -11,28 +12,41 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import StateGraph, START, END
+from sentence_transformers import CrossEncoder
 
 from config import CONFIG
+from app.models.rag import RAGAnswerData, RAGStreamStepData
+
+
+# Type alias for accumulated document: (Document, similarity_score, retrieval_round)
+AccumulatedDoc = Tuple[Document, float, int]
 
 
 class RAGState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    query: str
     question: str
+    original_question: str 
     documents: List[Document]
+    accumulated_docs: List[AccumulatedDoc]  # Accumulated docs across retrieval rounds
     answer: str
     is_sufficient: bool
     retrieval_count: int
     is_repo_related: bool
     repo_name: str
+    repo_dir: str  # Key for vectorstore lookup
 
 
 class RAGAgent:
     """RAG Agent for repository-related question answering with intelligent retrieval.
 
     Two modes:
-    - fast：default mode, less retrieval attempts, faster response
-    - smart：more retrieval attempts, larger history window, better effect
+    - fast: default mode, less retrieval attempts, faster response
+    - smart: more retrieval attempts, larger history window, better effect
+    
+    Features:
+    - Accumulative retrieval: Documents from all retrieval rounds are accumulated
+    - RRF fusion: Reciprocal Rank Fusion to merge multi-round results
+    - Cross-Encoder reranking: Fine-grained reranking using cross-encoder model
     """
 
     def __init__(
@@ -43,6 +57,12 @@ class RAGAgent:
         retrieval_k: int = 5,
         history_window_size: int = 10,
         mode: str = "fast",
+        # RRF and reranking parameters
+        rrf_k: int = 60,
+        rerank_top_n: int = 20,
+        final_top_k: int = 10,
+        use_cross_encoder: bool = True,
+        cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     ):
         # normalize mode
         mode = (mode or "fast").lower()
@@ -54,6 +74,15 @@ class RAGAgent:
             max_retrieval_attempts = 5
             retrieval_k = 10
             history_window_size = 20
+            rerank_top_n = 30
+        else:  # fast mode
+            max_retrieval_attempts = 3
+            retrieval_k = 5
+            history_window_size = 10
+            rerank_top_n = 20
+        
+        # final_top_k always equals retrieval_k
+        final_top_k = retrieval_k
 
         self.wikis_dir = wikis_dir
         self.embeddings_model_name = embeddings_model_name
@@ -63,6 +92,15 @@ class RAGAgent:
         self.mode = mode
         self.memory = InMemorySaver()
         self.vectorstores = {}
+        
+        # RRF and reranking settings
+        self.rrf_k = rrf_k
+        self.rerank_top_n = rerank_top_n
+        self.final_top_k = final_top_k
+        self.use_cross_encoder = use_cross_encoder
+        self.cross_encoder_model = cross_encoder_model
+        self._cross_encoder = None  # Lazy-loaded
+        
         self.app = self._build_graph()
 
     @staticmethod
@@ -123,11 +161,16 @@ class RAGAgent:
                 {question}
 
                 Answer "yes" if the question is about:
+                - This repository in general (introduction, overview, what it does, etc.)
                 - This repository's codebase, architecture, or design
                 - Specific files, modules, classes, or functions in this repo
                 - How to use, configure, or extend this repo
+                - Understanding or learning about this repository
 
-                Otherwise (general programming, other projects, chit-chat, etc.), answer "no".
+                Answer "no" only if the question is:
+                - About general programming concepts unrelated to this repo
+                - About other projects or repositories
+                - Pure chit-chat with no connection to this repository
 
                 Reply with ONLY "yes" or "no".
                 """
@@ -230,12 +273,12 @@ class RAGAgent:
         graph = StateGraph(RAGState)
 
         # Add nodes
-        graph.add_node("check_intent", self.check_intent_node)
-        graph.add_node("rewrite", self.rewrite_node)
-        graph.add_node("retrieve", self.retrieve_node)
-        graph.add_node("judge", self.judge_node)
-        graph.add_node("generate_rag", self.generate_rag_node)
-        graph.add_node("generate_direct", self.generate_direct_node)
+        graph.add_node("check_intent", self._check_intent_node)
+        graph.add_node("rewrite", self._rewrite_node)
+        graph.add_node("retrieve", self._retrieve_node)
+        graph.add_node("judge", self._judge_node)
+        graph.add_node("generate_rag", self._generate_rag_node)
+        graph.add_node("generate_direct", self._generate_direct_node)
 
         # Add edges
         graph.add_edge(START, "check_intent")
@@ -257,21 +300,22 @@ class RAGAgent:
         return graph.compile(checkpointer=self.memory)
 
     def _invoke_llm(self, prompt: HumanMessage) -> str:
-        """Invoke LLM with prompt and return normalized response."""
+        """Invoke LLM with prompt and return response."""
         llm = CONFIG.get_llm()
-        return llm.invoke([prompt]).content.lower().strip()
+        return llm.invoke([prompt]).content.strip()
 
-    def check_intent_node(self, state: RAGState) -> RAGState:
+    def _check_intent_node(self, state: RAGState) -> RAGState:
         """Determine if question is repository-related."""
         question = state["question"]
         repo_name = state["repo_name"]
 
         prompt = self._create_intent_check_prompt(question, repo_name)
         judgment = self._invoke_llm(prompt)
-        is_repo_related = "yes" in judgment
+        is_repo_related = "yes" in judgment.lower()
 
         return {
             "is_repo_related": is_repo_related,
+            "original_question": question,  # Preserve original question
             "messages": state["messages"]
             + [
                 SystemMessage(
@@ -280,7 +324,7 @@ class RAGAgent:
             ],
         }
 
-    def rewrite_node(self, state: RAGState) -> RAGState:
+    def _rewrite_node(self, state: RAGState) -> RAGState:
         """Refine question for better retrieval."""
         original_question = state["question"]
         repo_name = state["repo_name"]
@@ -298,10 +342,14 @@ class RAGAgent:
             ],
         }
 
-    def judge_node(self, state: RAGState) -> RAGState:
-        """Judge if retrieved documents are sufficient."""
-        question = state["question"]
-        docs = state["documents"]
+    def _judge_node(self, state: RAGState) -> RAGState:
+        """Judge if accumulated documents are sufficient.
+        
+        Uses accumulated_docs (all documents from all retrieval rounds) for judgment.
+        If documents are insufficient, retry with larger k .
+        """
+        original_question = state.get("original_question", state["question"])
+        accumulated_docs: List[AccumulatedDoc] = state.get("accumulated_docs") or []
         retrieval_count = state.get("retrieval_count", 0)
 
         if retrieval_count >= self.max_retrieval_attempts:
@@ -311,84 +359,318 @@ class RAGAgent:
                 "messages": state["messages"]
                 + [
                     SystemMessage(
-                        content=f"[Judge]: Max attempts ({retrieval_count + 1}) reached"
+                        content=f"[Judge]: Max attempts ({retrieval_count + 1}) reached, "
+                        f"using {len(accumulated_docs)} accumulated docs"
                     )
                 ],
             }
 
-        if not docs:
+        if not accumulated_docs:
+            # No documents found, retry with larger k
             return {
                 "is_sufficient": False,
                 "retrieval_count": retrieval_count + 1,
                 "messages": state["messages"]
-                + [SystemMessage(content="[Judge]: No documents, retrieving more")],
+                + [
+                    SystemMessage(
+                        content=f"[Judge]: No documents found, retrying with larger k"
+                    )
+                ],
             }
 
-        context = "\n".join([doc.page_content for doc in docs])
-        prompt = self._create_judge_prompt(question, context)
+        # Build context from ALL accumulated documents for judgment
+        # Sort by score to prioritize high-quality docs in context
+        sorted_docs = sorted(accumulated_docs, key=lambda x: x[1], reverse=True)
+        context = "\n".join([doc.page_content for doc, _, _ in sorted_docs])
+        
+        prompt = self._create_judge_prompt(original_question, context)
         judgment = self._invoke_llm(prompt)
         is_sufficient = any(
-            word in judgment for word in ["yes", "sufficient", "enough"]
+            word in judgment.lower() for word in ["yes", "sufficient", "enough"]
         )
 
+        if not is_sufficient:
+            # Documents insufficient, retry with larger k
+            return {
+                "is_sufficient": False,
+                "retrieval_count": retrieval_count + 1,
+                "messages": state["messages"]
+                + [
+                    SystemMessage(
+                        content=f"[Judge]: Insufficient (attempt {retrieval_count + 1}), "
+                        f"accumulated {len(accumulated_docs)} docs, retrying with larger k"
+                    )
+                ],
+            }
+
         return {
-            "is_sufficient": is_sufficient,
+            "is_sufficient": True,
             "retrieval_count": retrieval_count + 1,
             "messages": state["messages"]
             + [
                 SystemMessage(
-                    content=f"[Judge]: {'Sufficient' if is_sufficient else 'Insufficient'} (attempt {retrieval_count + 1})"
+                    content=f"[Judge]: Sufficient (attempt {retrieval_count + 1}), "
+                    f"accumulated {len(accumulated_docs)} docs"
                 )
             ],
         }
 
-    def retrieve_node(self, state: RAGState) -> RAGState:
-        """Retrieve relevant documents from vectorstore."""
+    def _retrieve_node(self, state: RAGState) -> RAGState:
+        """Retrieve relevant documents from vectorstore and accumulate results.
+        
+        Uses similarity_search_with_score to get similarity scores.
+        Accumulates documents across retrieval rounds instead of overwriting.
+        Deduplicates by source, keeping the highest-scored version.
+        
+        On retry, k is scaled up: k * (retrieval_count + 1)
+        """
         question = state["question"]
-        repo_name = state["repo_name"]
-
-        if repo_name and repo_name in self.vectorstores:
-            docs = self.vectorstores[repo_name].similarity_search(
-                question, k=self.retrieval_k
+        repo_dir = state["repo_dir"]
+        retrieval_count = state.get("retrieval_count", 0)
+        
+        # Scale k based on retrieval round: k, 2k, 3k, ...
+        current_k = self.retrieval_k * (retrieval_count + 1)
+        
+        # Get existing accumulated docs
+        accumulated_docs: List[AccumulatedDoc] = list(
+            state.get("accumulated_docs") or []
+        )
+        
+        # Retrieve with scores
+        if repo_dir and repo_dir in self.vectorstores:
+            docs_with_scores = self.vectorstores[repo_dir].similarity_search_with_score(
+                question, k=current_k
             )
         else:
-            docs = self._fallback_search(question)
-
+            docs_with_scores = self._fallback_search_with_score(question, k=current_k)
+        
+        # Build a map of source -> best (doc, score, round) for deduplication
+        source_to_best: Dict[str, AccumulatedDoc] = {}
+        
+        # First, add existing accumulated docs to the map
+        for doc, score, round_num in accumulated_docs:
+            source = self._get_doc_source(doc)
+            if source not in source_to_best or score > source_to_best[source][1]:
+                source_to_best[source] = (doc, score, round_num)
+        
+        # Then, add new docs (current round)
+        # Note: Chroma returns (doc, distance), lower distance = more similar
+        # We convert distance to similarity score: score = 1 / (1 + distance)
+        for doc, distance in docs_with_scores:
+            similarity_score = 1.0 / (1.0 + distance)
+            source = self._get_doc_source(doc)
+            if source not in source_to_best or similarity_score > source_to_best[source][1]:
+                source_to_best[source] = (doc, similarity_score, retrieval_count)
+        
+        # Convert back to list
+        new_accumulated_docs = list(source_to_best.values())
+        
+        # Also update documents for backward compatibility (will be replaced in generate)
+        current_docs = [doc for doc, _, _ in new_accumulated_docs]
+        
+        new_docs_count = len(docs_with_scores)
+        total_unique = len(new_accumulated_docs)
+        
         return {
-            "documents": docs,
+            "documents": current_docs,
+            "accumulated_docs": new_accumulated_docs,
             "messages": state["messages"]
-            + [SystemMessage(content=f"[Retrieve]: Found {len(docs)} documents")],
+            + [
+                SystemMessage(
+                    content=f"[Retrieve]: Found {new_docs_count} docs (round {retrieval_count}, k={current_k}), "
+                    f"total unique: {total_unique}"
+                )
+            ],
         }
 
-    def _fallback_search(self, question: str) -> List[Document]:
-        """Search across all vectorstores when specific repo not found."""
-        docs = []
-        for vs in self.vectorstores.values():
-            docs.extend(vs.similarity_search(question, k=3))
-        return docs
+    @staticmethod
+    def _get_doc_source(doc: Document) -> str:
+        """Extract source identifier from document for deduplication."""
+        metadata = getattr(doc, "metadata", {}) or {}
+        return (
+            metadata.get("source")
+            or metadata.get("file_path")
+            or metadata.get("path")
+            or metadata.get("absolute_source")
+            or str(id(doc))  # Fallback to object id
+        )
 
-    def generate_rag_node(self, state: RAGState) -> RAGState:
-        """Generate answer using RAG context."""
-        question = state["question"]
-        docs = state["documents"]
-        context = "\n".join([doc.page_content for doc in docs])
+    def _fallback_search_with_score(
+        self, question: str, k: int = 3
+    ) -> List[Tuple[Document, float]]:
+        """Search across all vectorstores when specific repo not found."""
+        docs_with_scores = []
+        # Distribute k across vectorstores
+        per_store_k = max(1, k // max(1, len(self.vectorstores)))
+        for vs in self.vectorstores.values():
+            docs_with_scores.extend(vs.similarity_search_with_score(question, k=per_store_k))
+        return docs_with_scores
+
+    def _rrf_fusion(
+        self, accumulated_docs: List[AccumulatedDoc]
+    ) -> List[Tuple[Document, float]]:
+        """Apply Reciprocal Rank Fusion to merge multi-round retrieval results.
+        
+        RRF formula: score(d) = Σ 1/(k + rank_i)
+        where k is a constant (default 60) and rank_i is the rank in each round.
+        
+        Args:
+            accumulated_docs: List of (Document, similarity_score, retrieval_round)
+            
+        Returns:
+            List of (Document, rrf_score) sorted by RRF score descending
+        """
+        if not accumulated_docs:
+            return []
+        
+        # Group documents by retrieval round
+        rounds: Dict[int, List[Tuple[Document, float]]] = defaultdict(list)
+        for doc, score, round_num in accumulated_docs:
+            rounds[round_num].append((doc, score))
+        
+        # Sort each round by similarity score (descending) to get ranks
+        for round_num in rounds:
+            rounds[round_num].sort(key=lambda x: x[1], reverse=True)
+        
+        # Calculate RRF score for each document
+        # Use source as key to handle same doc appearing in multiple rounds
+        source_to_doc: Dict[str, Document] = {}
+        rrf_scores: Dict[str, float] = defaultdict(float)
+        
+        for round_num, docs_in_round in rounds.items():
+            for rank, (doc, _) in enumerate(docs_in_round, start=1):
+                source = self._get_doc_source(doc)
+                source_to_doc[source] = doc
+                # RRF formula: 1 / (k + rank)
+                rrf_scores[source] += 1.0 / (self.rrf_k + rank)
+        
+        # Build result list sorted by RRF score
+        result = [
+            (source_to_doc[source], rrf_score)
+            for source, rrf_score in rrf_scores.items()
+        ]
+        result.sort(key=lambda x: x[1], reverse=True)
+        
+        return result
+
+    def _get_cross_encoder(self) -> CrossEncoder:
+        """Lazy-load the CrossEncoder model."""
+        if self._cross_encoder is None:
+            print(f"Loading CrossEncoder model: {self.cross_encoder_model}")
+            self._cross_encoder = CrossEncoder(self.cross_encoder_model)
+        return self._cross_encoder
+
+    def _rerank_with_cross_encoder(
+        self, question: str, docs_with_scores: List[Tuple[Document, float]]
+    ) -> List[Tuple[Document, float]]:
+        """Rerank documents using Cross-Encoder for fine-grained relevance scoring.
+        
+        Args:
+            question: The user's question
+            docs_with_scores: List of (Document, rrf_score) from RRF fusion
+            
+        Returns:
+            List of (Document, cross_encoder_score) sorted by score descending
+        """
+        if not docs_with_scores:
+            return []
+        
+        if not self.use_cross_encoder:
+            # Skip cross-encoder, just return top-N by RRF score
+            return docs_with_scores[: self.rerank_top_n]
+        
+        # Take top-N candidates for reranking (cross-encoder is expensive)
+        candidates = docs_with_scores[: self.rerank_top_n]
+        
+        # Prepare query-document pairs for cross-encoder
+        pairs = [(question, doc.page_content) for doc, _ in candidates]
+        
+        # Get cross-encoder scores
+        cross_encoder = self._get_cross_encoder()
+        scores = cross_encoder.predict(pairs)
+        
+        # Build result with cross-encoder scores
+        result = [
+            (doc, float(score))
+            for (doc, _), score in zip(candidates, scores)
+        ]
+        
+        # Sort by cross-encoder score (descending)
+        result.sort(key=lambda x: x[1], reverse=True)
+        
+        return result
+
+    def _select_final_documents(
+        self, question: str, accumulated_docs: List[AccumulatedDoc]
+    ) -> List[Document]:
+        """Select final documents for answer generation.
+        
+        Pipeline:
+        1. RRF fusion to merge multi-round results
+        2. Cross-Encoder reranking for fine-grained relevance
+        3. Truncate to final_top_k
+        
+        Args:
+            question: The user's original question
+            accumulated_docs: All accumulated documents from retrieval rounds
+            
+        Returns:
+            List of top-K documents for answer generation
+        """
+        if not accumulated_docs:
+            return []
+        
+        # Step 1: RRF fusion
+        rrf_results = self._rrf_fusion(accumulated_docs)
+        
+        # Step 2: Cross-Encoder reranking
+        reranked_results = self._rerank_with_cross_encoder(question, rrf_results)
+        
+        # Step 3: Truncate to final_top_k
+        final_docs = [doc for doc, _ in reranked_results[: self.final_top_k]]
+        
+        return final_docs
+
+    def _generate_rag_node(self, state: RAGState) -> RAGState:
+        """Generate answer using RAG context with RRF fusion and Cross-Encoder reranking.
+        
+        Pipeline:
+        1. Get accumulated documents from all retrieval rounds
+        2. Apply RRF fusion to merge results
+        3. Rerank with Cross-Encoder for fine-grained relevance
+        4. Select top-K documents for answer generation
+        """
+        original_question = state.get("original_question", state["question"])
+        accumulated_docs: List[AccumulatedDoc] = state.get("accumulated_docs") or []
         history = self._get_history(state)
 
+        # Select final documents using RRF + Cross-Encoder pipeline
+        final_docs = self._select_final_documents(original_question, accumulated_docs)
+        
+        # Build context from final selected documents
+        context = "\n".join([doc.page_content for doc in final_docs])
+
         system_prompt = self._get_answer_system_prompt()
-        user_prompt = self._create_rag_generation_prompt(history, context, question)
+        user_prompt = self._create_rag_generation_prompt(
+            history, context, original_question
+        )
         llm = CONFIG.get_llm()
         answer = llm.invoke([system_prompt, user_prompt]).content
 
         return {
             "answer": answer,
+            "documents": final_docs,  # Update documents with final selection
             "messages": state["messages"]
             + [
                 AIMessage(content=answer),
-                SystemMessage(content="[Generate]: Generated RAG answer"),
+                SystemMessage(
+                    content=f"[Generate]: Generated RAG answer using {len(final_docs)} "
+                    f"docs (from {len(accumulated_docs)} accumulated)"
+                ),
             ],
         }
 
-    def generate_direct_node(self, state: RAGState) -> RAGState:
+    def _generate_direct_node(self, state: RAGState) -> RAGState:
         """Generate answer directly without RAG."""
         question = state["question"]
         history = self._get_history(state)
@@ -425,10 +707,10 @@ class RAGAgent:
             ]
         )
 
-    def _init_vectorstores(self, repo_dir: str):
-        """Initialize vectorstores for the given repository.
+    def _load_vectorstores(self, repo_dir: str):
+        """Load vectorstores for the given repository (internal implementation).
 
-        support the following directory structures:
+        Support the following directory structures:
         - `.wikis/{owner_repo}/...`
         - `.wikis/sub/{owner_repo}/...`
         - `.wikis/moe/{owner_repo}/...`
@@ -551,23 +833,194 @@ class RAGAgent:
             f.write(f"State: {state}\n")
             f.write("-" * 40 + "\n")
 
+    def _build_initial_state(self, question: str, repo_name: str, repo_dir: str) -> RAGState:
+        """Build initial RAGState for a query."""
+        return {
+            "messages": [],
+            "question": question,
+            "original_question": question,
+            "documents": [],
+            "accumulated_docs": [],
+            "answer": "",
+            "is_sufficient": False,
+            "retrieval_count": 0,
+            "is_repo_related": False,
+            "repo_name": repo_name,
+            "repo_dir": repo_dir,
+        }
+
+    # =========================================================================
+    # Public API methods
+    # =========================================================================
+
+    def init_repo(self, repo_dir: str) -> None:
+        """Initialize vectorstore for a repository.
+        
+        Args:
+            repo_dir: Repository directory name (e.g., "owner_repo")
+        """
+        if repo_dir in self.vectorstores:
+            # Already initialized, skip
+            return
+        self.vectorstores = self._load_vectorstores(repo_dir)
+
+    def ask(self, question: str, repo_name: str, repo_dir: str) -> RAGAnswerData:
+        """Synchronously answer a question about a repository.
+        
+        Args:
+            question: User's question
+            repo_name: Repository name for display (e.g., "github:owner/repo")
+            repo_dir: Repository directory key for vectorstore lookup (e.g., "owner_repo")
+            
+        Returns:
+            RAGAnswerData with answer and sources
+        """
+        state = self._build_initial_state(question, repo_name, repo_dir)
+        thread_id = f"{repo_dir}-api"
+
+        final_state = self.app.invoke(
+            state,
+            config={
+                "configurable": {"thread_id": thread_id},
+                "recursion_limit": 100,
+            },
+        )
+
+        answer = final_state.get("answer", "") or ""
+        sources = self._extract_sources_from_docs(final_state.get("documents") or [])
+        return RAGAnswerData(answer=answer, sources=sources)
+
+    def stream(self, question: str, repo_name: str, repo_dir: str):
+        """Stream the RAG answering process step by step with true token streaming.
+        
+        For the Generate phase, uses LLM streaming to yield tokens incrementally,
+        providing a typewriter effect for the answer.
+        
+        Args:
+            question: User's question
+            repo_name: Repository name for display (e.g., "github:owner/repo")
+            repo_dir: Repository directory key for vectorstore lookup (e.g., "owner_repo")
+            
+        Yields:
+            RAGStreamStepData for each step in the process.
+            During Generate phase, yields incremental tokens via the `delta` field.
+        """
+        state = self._build_initial_state(question, repo_name, repo_dir)
+        thread_id = f"{repo_dir}-api"
+
+        # Track state for streaming generation
+        last_state = None
+        
+        for s in self.app.stream(
+            state,
+            stream_mode="values",
+            config={
+                "configurable": {"thread_id": thread_id},
+                "recursion_limit": 100,
+            },
+        ):
+            node = self._extract_node_name_from_state(s)
+            
+            # For Generate node, we'll handle streaming separately
+            if node == "Generate":
+                last_state = s
+                # Don't yield the pre-computed answer, we'll stream it below
+                continue
+            
+            # For non-Generate nodes, yield state without sources
+            # (sources are only finalized after RRF+reranking in Generate phase)
+            answer = s.get("answer", "") or ""
+            yield RAGStreamStepData(answer=answer, delta=None, node=node, sources=[])
+            last_state = s
+        
+        # Now handle the Generate phase with true token streaming
+        if last_state is not None:
+            yield from self._stream_generation(last_state)
+
+    def _stream_generation(self, state: RAGState):
+        """Stream the answer generation token by token.
+        
+        Args:
+            state: The final state from the graph containing all needed context
+            
+        Yields:
+            RAGStreamStepData with delta field for each token
+        """
+        is_repo_related = state.get("is_repo_related", False)
+        original_question = state.get("original_question", state.get("question", ""))
+        accumulated_docs: List[AccumulatedDoc] = state.get("accumulated_docs") or []
+        history = self._get_history(state)
+        
+        llm = CONFIG.get_llm()
+        system_prompt = self._get_answer_system_prompt()
+        
+        if is_repo_related:
+            # RAG-based generation with context
+            final_docs = self._select_final_documents(original_question, accumulated_docs)
+            context = "\n".join([doc.page_content for doc in final_docs])
+            user_prompt = self._create_rag_generation_prompt(
+                history, context, original_question
+            )
+            sources = self._extract_sources_from_docs(final_docs)
+        else:
+            # Direct generation without RAG context
+            user_prompt = self._create_direct_generation_prompt(history, original_question)
+            sources = []
+            final_docs = []
+        
+        # Stream the LLM response token by token
+        accumulated_answer = ""
+        for chunk in llm.stream([system_prompt, user_prompt]):
+            token = chunk.content if hasattr(chunk, "content") else str(chunk)
+            if token:
+                accumulated_answer += token
+                yield RAGStreamStepData(
+                    answer=accumulated_answer,
+                    delta=token,
+                    node="Generate",
+                    sources=sources
+                )
+        
+        # Final yield with complete answer (no delta, indicates completion)
+        if accumulated_answer:
+            yield RAGStreamStepData(
+                answer=accumulated_answer,
+                delta=None,
+                node="Generate",
+                sources=sources
+            )
+
+    @staticmethod
+    def _extract_node_name_from_state(state: dict) -> str | None:
+        """Extract current node name from the latest system message like '[Judge]: ...'."""
+        messages = state.get("messages") or []
+        for msg in reversed(messages):
+            content = getattr(msg, "content", None)
+            if not isinstance(content, str):
+                continue
+            if content.startswith("[") and "]" in content:
+                return content[1 : content.index("]")]
+        return None
+
     def run(self) -> str:
         """Interactive CLI for querying repositories."""
         repo_input = input('Repository name (e.g., "owner/repo"): ')
         repo_dir = repo_input.replace("/", "_")
-        self.vectorstores = self._init_vectorstores(repo_dir)
+        self.init_repo(repo_dir)
 
         thread_id = f"{repo_dir}-chat"
         app_state = {
             "messages": [],
-            "query": "",
             "question": "",
+            "original_question": "",
             "documents": [],
+            "accumulated_docs": [],
             "answer": "",
             "is_sufficient": False,
             "retrieval_count": 0,
             "is_repo_related": False,
             "repo_name": repo_input,
+            "repo_dir": repo_dir,
         }
         file_name = f"{thread_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self._log_state(app_state, file_name)
@@ -582,8 +1035,10 @@ class RAGAgent:
                 HumanMessage(content=user_input)
             ]
             app_state["question"] = user_input
+            app_state["original_question"] = user_input
             app_state["is_sufficient"] = False
             app_state["retrieval_count"] = 0
+            app_state["accumulated_docs"] = []  # Reset accumulated docs for new query
             app_state = self._stream_and_print(
                 self.app.stream(
                     app_state,
