@@ -27,12 +27,12 @@
 
     <!-- 日志区域：Full模式显示列表，Mini模式只显示最新一条 -->
     <div class="log-container">
-      <div v-if="!isMini && logs.length > 0" class="stream-log full-log">
-        <p v-for="(log, index) in logs" :key="index">{{ log }}</p>
+      <div v-if="!isMini && filteredLogs.length > 0" class="stream-log full-log">
+        <p v-for="(log, index) in filteredLogs" :key="index">{{ log }}</p>
       </div>
-      <div v-else-if="isMini && logs.length > 0" class="stream-log mini-log">
-        <span class="mini-log-dot">●</span>
-        <span class="mini-log-text">{{ logs[logs.length - 1] }}</span>
+      <div v-else-if="isMini && filteredLogs.length > 0" class="stream-log mini-log">
+        <span class="mini-log-dot"> ● </span>
+        <span class="mini-log-text">{{ filteredLogs[filteredLogs.length - 1] }}</span>
       </div>
     </div>
   </div>
@@ -73,6 +73,35 @@ const currentStageIndex = computed(() => {
   if (p < 50) return 1
   if (p < 90) return 2
   return 3
+})
+
+// 过滤日志，移除包含URL、IP地址等敏感信息的日志
+const filteredLogs = computed(() => {
+  return props.logs.filter((log) => {
+    const logLower = log.toLowerCase()
+    // 过滤包含URL的日志
+    if (logLower.includes('http://') || logLower.includes('https://')) {
+      return false
+    }
+    // 过滤包含localhost的日志
+    if (logLower.includes('localhost')) {
+      return false
+    }
+    // 过滤包含IP地址格式的日志（IPv4）
+    if (/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(log)) {
+      return false
+    }
+    // 过滤包含端口号的日志（如 :8000, :3000）
+    if (/:\d{4,5}/.test(log)) {
+      return false
+    }
+    // 过滤包含"loading file from"等可能泄露路径的日志
+    if (logLower.includes('loading file from') || logLower.includes('file from')) {
+      return false
+    }
+    // 只保留进度相关的信息
+    return true
+  })
 })
 
 // --- 动画与虚假进度逻辑 ---
@@ -139,7 +168,7 @@ onUnmounted(() => {
   top: 90px;
   right: 20px;
 
-  width: 180px;
+  width: 260px;
   padding: 16px;
 
   background: var(--bg-color, #ffffff);
@@ -192,7 +221,8 @@ onUnmounted(() => {
 }
 .is-mini .stage-text.active-stage {
   font-size: 14px;
-  color: #d6d2d2;
+  color: var(--title-color, #333);
+  font-weight: 600;
 }
 
 .progress-percent {
@@ -215,9 +245,16 @@ onUnmounted(() => {
 
 .progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, #9facb6, #709493);
+  width: 0%;
+  background: linear-gradient(90deg, #4a90e2, #5ba3f5);
   border-radius: 4px;
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
+  margin: 0;
+  padding: 0;
+  transition: width 0.3s ease;
+  direction: ltr;
 }
 
 /* 进度条光效动画 */
@@ -307,11 +344,44 @@ onUnmounted(() => {
   }
 }
 
-/* 暗色模式简单适配 (如果父组件提供了CSS变量) */
-@media (prefers-color-scheme: dark) {
-  .progress-container.is-mini {
-    background: #1e1e1e;
-    border-color: #333;
-  }
+/* Mini模式下的日志文字颜色适配 */
+.is-mini .stream-log {
+  color: var(--secondary-text, #666);
+}
+
+.is-mini .mini-log-dot {
+  color: var(--title-color, #38916e);
+}
+
+/* 暗色模式适配 */
+.dark .progress-container.is-mini {
+  background: #1e1e1e;
+  border-color: #333;
+}
+
+.dark .is-mini .stage-text.active-stage {
+  color: #d6d2d2;
+}
+
+.dark .is-mini .progress-percent {
+  color: #e0e0e0;
+}
+
+.dark .is-mini .stream-log {
+  color: #999;
+}
+
+.dark .is-mini .mini-log-dot {
+  color: #50d8b2;
+}
+
+/* 暗色模式下进度条使用更亮的青色 */
+.dark .progress-bar {
+  background: linear-gradient(90deg, #50d8b2, #6ae5c7);
+}
+
+/* 亮色模式下进度条使用蓝色系 */
+.progress-bar {
+  background: linear-gradient(90deg, #4a90e2, #5ba3f5);
 }
 </style>
