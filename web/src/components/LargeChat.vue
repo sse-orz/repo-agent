@@ -18,17 +18,19 @@
             <div
               v-if="m.role === 'assistant'"
               class="bubble-text"
-              v-html="(!m.text || !m.text.trim()) ? 'Loading...' : md.render(m.text)"
+              v-html="!m.text || !m.text.trim() ? 'Loading...' : md.render(m.text)"
             ></div>
-            <div
-              v-else
-              class="bubble-text"
-            >{{ m.text }}</div>
+            <div v-else class="bubble-text">{{ m.text }}</div>
           </div>
 
           <!-- Sources section: show after streaming completes for assistant messages -->
           <div
-            v-if="m.role === 'assistant' && m.sources && m.sources.length > 0 && !(idx === lastAssistantIndex && isStreaming)"
+            v-if="
+              m.role === 'assistant' &&
+              m.sources &&
+              m.sources.length > 0 &&
+              !(idx === lastAssistantIndex && isStreaming)
+            "
             class="sources-section"
           >
             <div class="sources-title">

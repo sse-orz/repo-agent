@@ -193,11 +193,12 @@ const handleToggle = (item: FileItem) => {
   flex: 0 0 300px;
   max-width: 300px;
   min-width: 300px;
-  padding: 24px 16px;
-  margin-bottom: 100px;
+  padding: 24px 16px 24px 16px;
+  margin-bottom: 0;
   overflow: hidden; /* Changed to hidden to manage scroll in content */
   display: flex;
   flex-direction: column;
+  height: calc(100% - 100px);
 }
 
 .toc-tabs {

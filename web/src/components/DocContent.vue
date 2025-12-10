@@ -142,17 +142,22 @@ defineExpose({
   max-width: 900px;
   border-left: 1px solid var(--border-color);
   min-height: 0;
-  margin: 20px 40px 100px 0;
+  margin: 24px 40px 0 0;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: calc(100% - 100px);
 }
 
 .doc-inner {
   /* make the inner doc area the only scrollable region */
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
   /* 左右内边距形成 markdown 内容与文档列边界之间的 margin */
-  padding: 0 40px;
+  padding: 0 40px 20px 40px;
   background: transparent;
   line-height: 1.3;
   /* preserve newlines inside v-html content and allow long words to wrap */
@@ -334,6 +339,7 @@ defineExpose({
   font-weight: 600;
   border-bottom: 1px solid var(--border-color);
   color: var(--title-color);
+  flex-shrink: 0;
 }
 .fade-top {
   top: 0;

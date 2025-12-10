@@ -12,7 +12,7 @@ const modelMode = defineModel('mode', { type: String })
 
 const showModeMenu = ref(false)
 const selectedMode = ref<'sub' | 'moe'>(
-  modelMode.value === 'sub' || modelMode.value === 'moe' ? modelMode.value : 'sub',
+  modelMode.value === 'sub' || modelMode.value === 'moe' ? modelMode.value : 'sub'
 )
 
 const modeOptions = [
