@@ -426,6 +426,15 @@ defineExpose({ receiveMessage, abortStream })
   background: transparent;
   /* ensure this element can shrink below its content so overflow works inside flex layout */
   min-height: 0;
+  /* 隐藏滚动条但保持滚动功能 */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.messages::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+  width: 0;
+  height: 0;
 }
 .message-row {
   display: flex;

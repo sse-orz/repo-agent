@@ -200,7 +200,7 @@ defineExpose({
 .doc-inner :deep(p) {
   margin-top: 0.15em;
   margin-bottom: 0.35em;
-  font-size: 20px;
+  font-size: 16px;
 }
 
 .doc-inner :deep(ul),
@@ -208,13 +208,13 @@ defineExpose({
   margin-top: 0.25em;
   margin-bottom: 0.5em;
   padding-left: 1.5em;
-  font-size: 18px;
+  font-size: 15px;
 }
 
 .doc-inner :deep(li) {
   margin-top: 0.05em;
   margin-bottom: 0.05em;
-  font-size: 18px;
+  font-size: 15px;
 }
 
 .doc-inner :deep(pre) {
