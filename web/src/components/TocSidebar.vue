@@ -6,14 +6,14 @@
         :class="{ active: activeTab === 'files' }"
         @click="activeTab = 'files'"
       >
-        文件
+        Files
       </button>
       <button
         class="toc-tab-btn"
         :class="{ active: activeTab === 'outline' }"
         @click="activeTab = 'outline'"
       >
-        大纲
+        Outline
       </button>
     </div>
 
@@ -77,8 +77,8 @@
           </div>
         </div>
         <div v-else class="toc-empty">
-          <span v-if="!activeFileItem">请选择一个文件</span>
-          <span v-else>当前文件无大纲</span>
+          <span v-if="!activeFileItem">Please select a file</span>
+          <span v-else>The current file has no outline</span>
         </div>
       </nav>
     </div>
