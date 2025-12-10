@@ -58,7 +58,7 @@
         :title="chatVisible ? 'Close Chat' : 'Expand Chat'"
         :aria-pressed="chatVisible"
       >
-        <span class="toggle-label">{{ chatVisible ? 'Close ↓' : 'Expand ↑' }}</span>
+        <i :class="chatVisible ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"></i>
       </button>
 
       <div class="askbox-wrapper">
@@ -72,7 +72,7 @@
           @abort="handleAbort"
         />
       </div>
-</div>
+    </div>
 
     <div
       v-if="zoomModalVisible"
@@ -1250,7 +1250,6 @@ const openRepoInNewTab = () => {
   flex: 1 1 auto;
   overflow: hidden;
   border-top: 1px solid var(--border-color);
-  padding-top: 16px;
   margin-top: 8px;
   max-width: 1340px;
   margin-left: auto;
@@ -1329,28 +1328,31 @@ const openRepoInNewTab = () => {
 
 /* Chat overlay and toggle button */
 .chat-toggle-btn {
-  transform: translateX(100%);
-  bottom: 80px;
-  min-width: 160px;
-  height: 44px;
-  padding: 6px 18px;
-  border-radius: 10px;
-  background: var(--card-bg, #fff);
-  border: 1.5px solid var(--border-color, #123);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  border: 2px solid var(--border-color);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
-  color: var(--text-color);
-  z-index: 1201;
   cursor: pointer;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px var(--shadow-color);
+  transition: all 0.2s ease;
+  color: var(--text-color);
+  flex-shrink: 0;
+  z-index: 1201;
 }
 
+.chat-toggle-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--border-color);
+  transform: scale(1.05);
+}
 
-.chat-toggle-btn .toggle-label {
-  display: inline-block;
-  font-weight: 600;
+.chat-toggle-btn i {
+  font-size: 16px;
+  transition: transform 0.2s ease;
 }
 
 .chat-replace {
@@ -1368,14 +1370,28 @@ const openRepoInNewTab = () => {
 }
 
 .chat-bar {
-  /* display: flex; */
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 24px;
+  width: min(720px, 90%);
+  display: flex;
   align-items: center;
-  gap: 8px; /* button 和 AskBox 之间的间距 */
+  gap: 10px; /* button 和 AskBox 之间的间距 */
+  z-index: 1200;
 }
 /* Ensure AskBox sits above the chat overlay so it remains clickable */
 .askbox-wrapper {
-  position: relative;
+  flex: 1 1 auto;
   pointer-events: auto;
+}
+
+.askbox-wrapper :deep(.ask-row) {
+  position: relative;
+  left: auto;
+  transform: none;
+  bottom: auto;
+  width: 100%;
 }
 
 /* Slide up / down animation similar to MacOS open/close */

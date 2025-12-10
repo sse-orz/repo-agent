@@ -43,10 +43,7 @@ const handleToggle = async (event: MouseEvent) => {
   try {
     await transition.ready
 
-    const clipPath = [
-      `circle(0px at ${x}px ${y}px)`,
-      `circle(${endRadius}px at ${x}px ${y}px)`,
-    ]
+    const clipPath = [`circle(0px at ${x}px ${y}px)`, `circle(${endRadius}px at ${x}px ${y}px)`]
 
     // If was Light (false) -> Going Dark (true)
     // New view (Dark) expands
@@ -59,7 +56,7 @@ const handleToggle = async (event: MouseEvent) => {
           duration: 400,
           easing: 'ease-in',
           pseudoElement: '::view-transition-new(root)',
-        },
+        }
       )
     } else {
       // Was Dark (true) -> Going Light (false)
@@ -73,7 +70,7 @@ const handleToggle = async (event: MouseEvent) => {
           easing: 'ease-out',
           pseudoElement: '::view-transition-old(root)',
           fill: 'forwards',
-        },
+        }
       )
     }
   } finally {

@@ -1,6 +1,5 @@
 <template>
   <div class="ask-row">
-
     <div class="ask-box">
       <div class="ask-icon-wrapper">
         <i class="fas fa-comment-dots"></i>
@@ -84,7 +83,7 @@ watch(
     if (newMode === 'fast' || newMode === 'smart') {
       selectedMode.value = newMode
     }
-  },
+  }
 )
 
 const modeOptions = [
@@ -93,7 +92,7 @@ const modeOptions = [
 ]
 
 const currentModeLabel = computed(
-  () => modeOptions.find((opt) => opt.value === selectedMode.value)?.label || selectedMode.value,
+  () => modeOptions.find((opt) => opt.value === selectedMode.value)?.label || selectedMode.value
 )
 
 const handleSend = () => {
@@ -139,7 +138,7 @@ const handleAbort = () => {
   width: min(720px, 90%);
   display: flex;
   align-items: center;
-  gap:10px;
+  gap: 10px;
   z-index: 1200;
 }
 
