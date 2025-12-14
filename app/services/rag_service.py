@@ -22,38 +22,38 @@ class RAGService:
 
     def ask(self, request: RAGQueryRequest) -> RAGAnswerData:
         """Run a single-turn RAG query and return the final answer plus sources.
-        
+
         Args:
             request: RAG query request containing question and repo info
-            
+
         Returns:
             RAGAnswerData with answer and sources
         """
         # Recreate agent per request to respect mode configuration (fast / smart)
         self.rag_agent = RAGAgent(mode=request.mode)
-        
+
         # Initialize vectorstore for the repository
         repo_dir = self._get_repo_dir(request.owner, request.repo)
         self.rag_agent.init_repo(repo_dir)
-        
+
         repo_name = self._get_repo_name(request)
         return self.rag_agent.ask(request.question, repo_name, repo_dir)
 
     def stream(self, request: RAGQueryRequest) -> Iterable[RAGStreamStepData]:
         """Stream RAG answering process, yielding answer and node name for each step.
-        
+
         Args:
             request: RAG query request containing question and repo info
-            
+
         Yields:
             RAGStreamStepData for each step in the process
         """
         # Recreate agent per request to respect mode configuration (fast / smart)
         self.rag_agent = RAGAgent(mode=request.mode)
-        
+
         # Initialize vectorstore for the repository
         repo_dir = self._get_repo_dir(request.owner, request.repo)
         self.rag_agent.init_repo(repo_dir)
-        
+
         repo_name = self._get_repo_name(request)
         yield from self.rag_agent.stream(request.question, repo_name, repo_dir)
