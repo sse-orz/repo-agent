@@ -544,4 +544,3 @@ class CodeAnalysisPrompt:
                 """
             ).strip()
         )
-

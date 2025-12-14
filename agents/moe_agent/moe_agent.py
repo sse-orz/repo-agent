@@ -32,9 +32,9 @@ class MoeAgent:
     # Default ratios for different modes
     # These control what percentage of files to select based on repository size
     DEFAULT_RATIOS = {
-        "fast": 0.25,   # Fast mode: select 25% of files for quick analysis
+        "fast": 0.25,  # Fast mode: select 25% of files for quick analysis
         "smart": 0.75,  # Smart mode: select 75% of files for thorough analysis
-        "full": 1.0,    # Full mode: select all files (100%)
+        "full": 1.0,  # Full mode: select all files (100%)
     }
 
     def __init__(
@@ -113,7 +113,6 @@ class MoeAgent:
         print(f"Wiki: {self.wiki_path}")
         print(f"Cache: {self.cache_path}")
         print(f"{'='*60}\n")
-
 
     def _get_dynamic_max_files(self, total_files: int, mode: str) -> int:
         """Calculate dynamic max files based on mode and total file count.
@@ -240,7 +239,9 @@ class MoeAgent:
                 return self._load_cached_summary()
 
         # Fallback to full documentation generation with streaming
-        print(f"🚀 Starting full documentation generation with streaming (mode: {mode})...")
+        print(
+            f"🚀 Starting full documentation generation with streaming (mode: {mode})..."
+        )
         return self._full_generate(max_workers, progress_callback, mode=mode)
 
     def _ensure_repo_cloned(self):
@@ -321,7 +322,9 @@ class MoeAgent:
             removed_count = len(all_files) - len(filtered_files)
 
             if removed_count > 0:
-                print(f"   Preprocessor: removed {removed_count} already processed files")
+                print(
+                    f"   Preprocessor: removed {removed_count} already processed files"
+                )
 
             return filtered_files
 
@@ -475,7 +478,9 @@ class MoeAgent:
             print(
                 f"File count ({len(preprocessed_files)}) > effective_max ({effective_max_files}), using LLM filtering..."
             )
-            selected_files = self._llm_filter_files(preprocessed_files, effective_max_files)
+            selected_files = self._llm_filter_files(
+                preprocessed_files, effective_max_files
+            )
             selection_method = "llm_filtered"
 
         # Postprocess: deduplicate, validate, and limit
@@ -518,7 +523,9 @@ class MoeAgent:
         response = self.llm.invoke(
             [
                 FileFilterPrompt.get_system_prompt(),
-                FileFilterPrompt.get_human_prompt(self.repo_name, chunk_files, chunk_max_files),
+                FileFilterPrompt.get_human_prompt(
+                    self.repo_name, chunk_files, chunk_max_files
+                ),
             ]
         )
         # Parse response - each line should be a file path
@@ -590,7 +597,9 @@ class MoeAgent:
                 response = self.llm.invoke(
                     [
                         FileFilterPrompt.get_system_prompt(),
-                        FileFilterPrompt.get_human_prompt(self.repo_name, all_files, max_files),
+                        FileFilterPrompt.get_human_prompt(
+                            self.repo_name, all_files, max_files
+                        ),
                     ]
                 )
 
@@ -1028,10 +1037,10 @@ def test_moe_agent():
     print("=" * 60 + "\n")
 
     custom_ratios = {
-        "fast": 0.25,    # 25% for fast mode
-        "smart": 0.50,   # 50% for smart mode
-        "full": 1.0,     # 100% for full mode
-        "minimal": 0.10, # Custom 10% mode
+        "fast": 0.25,  # 25% for fast mode
+        "smart": 0.50,  # 50% for smart mode
+        "full": 1.0,  # 100% for full mode
+        "minimal": 0.10,  # Custom 10% mode
     }
 
     # Example 1: Create MoeAgent with default ratios

@@ -107,7 +107,11 @@ class RepoInfoSubGraphBuilder:
                 selected_md_files.append(os.path.join(doc_dir_abs_path, doc_file))
 
         # generate the overview sections for the selected md files in parallel
+        if not selected_md_files:
+            return ""
+        
         effective_workers = min(max_workers, len(selected_md_files))
+        effective_workers = max(1, effective_workers)  # Ensure at least 1 worker
         with ThreadPoolExecutor(max_workers=effective_workers) as executor:
             futures = [
                 executor.submit(
@@ -244,6 +248,7 @@ class RepoInfoSubGraphBuilder:
             return prefix_content or ""
 
         effective_workers = min(max_workers, len(commits))
+        effective_workers = max(1, effective_workers)  # Ensure at least 1 worker
         with ThreadPoolExecutor(max_workers=effective_workers) as executor:
             futures = [
                 executor.submit(
@@ -353,6 +358,7 @@ class RepoInfoSubGraphBuilder:
             return prefix_content or ""
 
         effective_workers = min(max_workers, len(prs))
+        effective_workers = max(1, effective_workers)  # Ensure at least 1 worker
         with ThreadPoolExecutor(max_workers=effective_workers) as executor:
             futures = [
                 executor.submit(
@@ -454,6 +460,7 @@ class RepoInfoSubGraphBuilder:
             return prefix_content or ""
 
         effective_workers = min(max_workers, len(releases))
+        effective_workers = max(1, effective_workers)  # Ensure at least 1 worker
         with ThreadPoolExecutor(max_workers=effective_workers) as executor:
             futures = [
                 executor.submit(
