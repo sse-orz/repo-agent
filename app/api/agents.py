@@ -137,24 +137,23 @@ async def get_wiki_files(
     agent_service: AgentService = Depends(get_agent_service),
 ) -> BaseResponse:
     """Get currently generated wiki files for a repository.
-    
+
     This endpoint is used for progressive loading to query files that have
     been generated so far, without waiting for the entire generation to complete.
     """
     wiki_info = agent_service.get_wiki_info(owner, repo, mode)
-    
+
     if not wiki_info:
         return BaseResponse(
             code=200,
             message="No wiki files found yet",
-            data=WikiFilesResponse(files=[], total_files=0)
+            data=WikiFilesResponse(files=[], total_files=0),
         )
-    
+
     return BaseResponse(
         code=200,
         message="Success",
         data=WikiFilesResponse(
-            files=wiki_info.files,
-            total_files=wiki_info.total_files
-        )
+            files=wiki_info.files, total_files=wiki_info.total_files
+        ),
     )

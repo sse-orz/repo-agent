@@ -18,6 +18,7 @@ wheels/
 .tmp/
 .graphs/
 .chroma_dbs/
+.evaluate/
 node_modules/
 _book/
 SUMMARY.md

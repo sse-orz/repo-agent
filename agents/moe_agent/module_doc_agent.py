@@ -296,8 +296,8 @@ class ModuleDocAgent(BaseAgent):
             wiki_base_path=str(self.wiki_base_path),
             analysis_path=str(analysis_path),
             confirmed_files=confirmed_files,
-            priority=module.get('priority', 'unknown'),
-            estimated_size=module.get('estimated_size', 'unknown'),
+            priority=module.get("priority", "unknown"),
+            estimated_size=module.get("estimated_size", "unknown"),
         )
         prompt = prompt_message.content
 
