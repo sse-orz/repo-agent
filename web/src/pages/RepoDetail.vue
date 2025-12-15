@@ -58,7 +58,25 @@
         :title="chatVisible ? 'Close Chat' : 'Expand Chat'"
         :aria-pressed="chatVisible"
       >
-        <i :class="chatVisible ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"></i>
+      <div class="video-circle">
+        <img
+          v-if="!chatVisible"
+          :src="facePoster"
+          class="toggle-poster"
+          alt="chat closed"
+        />
+        <video
+          v-else
+          ref="toggleVideo"
+          class="toggle-video"
+          :src="faceVideo"
+          autoplay
+          muted
+          playsinline
+        ></video>
+
+        </div>
+        <!-- <i :class="chatVisible ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"></i> -->
       </button>
 
       <div class="askbox-wrapper">
@@ -120,6 +138,9 @@ import mermaid from 'mermaid'
 import hljs from 'highlight.js'
 import highlightLight from 'highlight.js/styles/github.css?inline'
 import highlightDark from 'highlight.js/styles/atom-one-dark.css?inline'
+
+import faceVideo from '../../../assets/facevideo.mp4'
+import facePoster from '../../../assets/faceimg.jpg'
 
 interface HeadingItem {
   level: number
@@ -498,8 +519,17 @@ const zoomStyle = computed(() => ({
 
 // Chat overlay visibility
 const chatVisible = ref(false)
-const toggleChat = () => {
+const toggleVideo = ref(null)
+const toggleChat = async () => {
   chatVisible.value = !chatVisible.value
+
+  if (chatVisible.value) {
+    await nextTick()
+    if (toggleVideo.value) {
+      toggleVideo.value.playbackRate = 0.75
+      toggleVideo.value.play()
+    }
+  }
 }
 
 const attachZoomListeners = () => {
@@ -1328,8 +1358,8 @@ const openRepoInNewTab = () => {
 
 /* Chat overlay and toggle button */
 .chat-toggle-btn {
-  width: 40px;
-  height: 40px;
+  width: 50px;
+  height: 50px;
   border-radius: 50%;
   background: var(--card-bg);
   border: 2px solid var(--border-color);
@@ -1353,6 +1383,29 @@ const openRepoInNewTab = () => {
 .chat-toggle-btn i {
   font-size: 16px;
   transition: transform 0.2s ease;
+}
+
+.video-circle {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden; 
+}
+
+.toggle-video
+{
+  width: 75%;
+  height: 75%;
+  object-fit:cover;
+  transform: translateY(4px);
+  pointer-events: none;
+}
+.toggle-poster {
+  width: 110%;
+  height: 110%;
+  transform: translateY(-4px);
+  object-fit:cover;
+  pointer-events: none;
 }
 
 .chat-replace {
