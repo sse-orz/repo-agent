@@ -3,7 +3,7 @@
     <div class="repo-link" @click="handleClick">
       <i :class="platform === 'github' ? 'fab fa-github' : 'fab fa-git-alt'"></i>
       <span class="repo-link-text">{{ repoName }}</span>
-      <i class="fas fa-external-link-alt small-icon"></i>
+      <!-- <i class="fas fa-external-link-alt small-icon"></i> -->
     </div>
   </div>
 </template>

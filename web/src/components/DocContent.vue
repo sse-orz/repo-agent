@@ -57,11 +57,11 @@ const updateTitle = () => {
   //获取1,2级标题元素
   const headings = docInner.querySelectorAll('h1,h2')
 
-  let nearest = null
+  let nearest: Element | null = null
   const containerTop = docInner.getBoundingClientRect().top
 
   headings.forEach((h) => {
-    const hTop = h.getBoundingClientRect().top
+    const hTop = (h as HTMLElement).getBoundingClientRect().top
 
     // 如果标题已经滚过顶部（<= 0），它是候选
     if (hTop <= containerTop + 5) {
@@ -70,7 +70,7 @@ const updateTitle = () => {
   })
 
   // 如果找到了 nearest，就用它的文字；如果没找到（比如没滚动或者没有 h 标签），就清空
-  currentTitle.value = nearest ? nearest.textContent : ''
+  currentTitle.value = nearest ? (nearest as HTMLElement).textContent || '' : ''
 }
 
 onMounted(() => {
@@ -307,13 +307,23 @@ defineExpose({
   right: 10px;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 5px 10px;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.2s;
   z-index: 10;
   color: var(--text-color);
+}
+
+.doc-inner :deep(.mermaid-zoom-btn svg) {
+  width: 16px;
+  height: 16px;
 }
 
 .doc-inner :deep(.mermaid-container:hover .mermaid-zoom-btn) {
