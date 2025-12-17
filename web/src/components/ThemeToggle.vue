@@ -83,8 +83,8 @@ const handleToggle = async (event: MouseEvent) => {
 
 <style scoped>
 .theme-toggle {
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
+  background: transparent;
+  border: none;
   cursor: pointer;
   font-size: 16px;
   width: 40px;
@@ -93,13 +93,16 @@ const handleToggle = async (event: MouseEvent) => {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  transition: all 0.3s ease;
+  transition:
+    background 0.25s ease,
+    transform 0.25s ease,
+    color 0.25s ease;
   color: var(--text-color);
-  box-shadow: 0 2px 8px var(--shadow-color);
+  box-shadow: none;
 }
 
 .theme-toggle:hover {
-  background: var(--hover-bg);
+  background: rgba(0, 0, 0, 0.06);
   transform: scale(1.05);
 }
 

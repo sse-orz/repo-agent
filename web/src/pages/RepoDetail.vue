@@ -58,25 +58,7 @@
         :title="chatVisible ? 'Close Chat' : 'Expand Chat'"
         :aria-pressed="chatVisible"
       >
-      <div class="video-circle">
-        <img
-          v-if="!chatVisible"
-          :src="facePoster"
-          class="toggle-poster"
-          alt="chat closed"
-        />
-        <video
-          v-else
-          ref="toggleVideo"
-          class="toggle-video"
-          :src="faceVideo"
-          autoplay
-          muted
-          playsinline
-        ></video>
-
-        </div>
-        <!-- <i :class="chatVisible ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"></i> -->
+        <i :class="chatVisible ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"></i>
       </button>
 
       <div class="askbox-wrapper">
@@ -138,9 +120,6 @@ import mermaid from 'mermaid'
 import hljs from 'highlight.js'
 import highlightLight from 'highlight.js/styles/github.css?inline'
 import highlightDark from 'highlight.js/styles/atom-one-dark.css?inline'
-
-import faceVideo from '../../../assets/facevideo.mp4'
-import facePoster from '../../../assets/faceimg.jpg'
 
 interface HeadingItem {
   level: number
@@ -414,7 +393,12 @@ md.renderer.rules.fence = (
   const info = (token.info || '').trim()
   if (info === 'mermaid') {
     const content = token.content || ''
-    return `<div class="mermaid-container"><div class="mermaid">${escapeHtml(content)}</div><button class="mermaid-zoom-btn" title="Zoom" aria-label="Zoom diagram"><i class="fas fa-search-plus"></i></button></div>`
+    const zoomIconSvg =
+      '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+      '<path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L19 20.5 20.5 19 15.5 14zm-6 0C8.01 14 6 11.99 6 9.5S8.01 5 10.5 5 15 7.01 15 9.5 12.99 14 10.5 14zm1-7h-2v2H8v2h1.5v1.5h2V11H13V9.5h-1.5V7z"/></svg>'
+    return `<div class="mermaid-container"><div class="mermaid">${escapeHtml(
+      content
+    )}</div><button class="mermaid-zoom-btn" title="Zoom" aria-label="Zoom diagram">${zoomIconSvg}</button></div>`
   }
   return defaultFence(tokens, idx, options, env, self)
 }
@@ -475,7 +459,7 @@ const lastTranslate = ref({ x: 0, y: 0 })
 const openZoomModal = (html: string) => {
   zoomSvgHtml.value = html
   zoomModalVisible.value = true
-  zoomScale.value = 1
+  zoomScale.value = 1.5
   zoomTranslate.value = { x: 0, y: 0 }
   lastTranslate.value = { x: 0, y: 0 }
   document.body.style.overflow = 'hidden'
@@ -519,17 +503,8 @@ const zoomStyle = computed(() => ({
 
 // Chat overlay visibility
 const chatVisible = ref(false)
-const toggleVideo = ref(null)
 const toggleChat = async () => {
   chatVisible.value = !chatVisible.value
-
-  if (chatVisible.value) {
-    await nextTick()
-    if (toggleVideo.value) {
-      toggleVideo.value.playbackRate = 0.75
-      toggleVideo.value.play()
-    }
-  }
 }
 
 const attachZoomListeners = () => {
@@ -1358,8 +1333,8 @@ const openRepoInNewTab = () => {
 
 /* Chat overlay and toggle button */
 .chat-toggle-btn {
-  width: 50px;
-  height: 50px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: var(--card-bg);
   border: 2px solid var(--border-color);
@@ -1381,31 +1356,9 @@ const openRepoInNewTab = () => {
 }
 
 .chat-toggle-btn i {
-  font-size: 16px;
+  font-size: 20px;
+  line-height: 1;
   transition: transform 0.2s ease;
-}
-
-.video-circle {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  overflow: hidden; 
-}
-
-.toggle-video
-{
-  width: 75%;
-  height: 75%;
-  object-fit:cover;
-  transform: translateY(4px);
-  pointer-events: none;
-}
-.toggle-poster {
-  width: 110%;
-  height: 110%;
-  transform: translateY(-4px);
-  object-fit:cover;
-  pointer-events: none;
 }
 
 .chat-replace {

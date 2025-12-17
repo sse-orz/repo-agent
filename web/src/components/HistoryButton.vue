@@ -1,6 +1,11 @@
 <template>
-  <button class="history-button" @click="goHistory" aria-label="View generated repositories">
-    <span class="label">History</span>
+  <button
+    class="history-button"
+    @click="goHistory"
+    aria-label="View generated repositories"
+    title="History"
+  >
+    <i class="fas fa-clock-rotate-left"></i>
   </button>
 </template>
 
@@ -16,24 +21,30 @@ const goHistory = () => {
 
 <style scoped>
 .history-button {
+  width: 40px;
   height: 40px;
-  padding: 0 18px;
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 500;
   color: var(--text-color);
-  box-shadow: 0 2px 8px var(--shadow-color);
-  transition: all 0.3s ease;
+  box-shadow: none;
+  transition:
+    background 0.25s ease,
+    transform 0.25s ease,
+    color 0.25s ease;
 }
 
 .history-button:hover {
-  background: var(--hover-bg);
+  background: rgba(0, 0, 0, 0.06);
   transform: translateY(-1px);
+}
+
+.history-button i {
+  font-size: 16px;
+  line-height: 1;
 }
 </style>
