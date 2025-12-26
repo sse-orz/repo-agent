@@ -51,6 +51,7 @@ class RepoInfoSubGraphBuilder:
                 ),
             ]
         )
+        # print(f"DEBUG: raw_output for doc dir selection:\n{raw_output}\n")
         chosen_dirs: list[str] = []
         if raw_output:
             for line in str(raw_output).splitlines():
@@ -60,7 +61,7 @@ class RepoInfoSubGraphBuilder:
                 # only accept the dirs that are in the basic_repo_structure and not already chosen
                 if path in basic_repo_structure and path not in chosen_dirs:
                     chosen_dirs.append(path)
-
+        # print(f"DEBUG: chosen_dirs for doc dir selection:\n{chosen_dirs}\n")
         return chosen_dirs
 
     def _generate_single_overview_section(
@@ -72,6 +73,7 @@ class RepoInfoSubGraphBuilder:
         doc_contents = read_file(selected_md_file) or ""
         doc_contents_tokens = count_tokens(doc_contents)
         if doc_contents_tokens > get_llm_max_tokens(compress_ratio=0.05):
+            # print(f"DEBUG: Generating overview section for {selected_md_file} with {doc_contents_tokens} tokens")
             result = call_llm(
                 [
                     RepoPrompt._get_system_prompt_for_repo(),
@@ -99,17 +101,18 @@ class RepoInfoSubGraphBuilder:
             return ""
 
         # collect the md files in the selected dirs (deal with paths correctly)
+        # TODO: when project has no md files, selected_md_files will be empty, which causes empty overview doc
         selected_md_files = []
         for selected_doc_dir in selected_doc_dirs:
             doc_dir_abs_path = os.path.join(repo_path, selected_doc_dir)
             doc_files = get_md_files(doc_dir_abs_path)
             for doc_file in doc_files:
                 selected_md_files.append(os.path.join(doc_dir_abs_path, doc_file))
-
+        # print(f"DEBUG: selected_md_files for overview doc generation:\n{selected_md_files}\n")
         # generate the overview sections for the selected md files in parallel
         if not selected_md_files:
             return ""
-        
+
         effective_workers = min(max_workers, len(selected_md_files))
         effective_workers = max(1, effective_workers)  # Ensure at least 1 worker
         with ThreadPoolExecutor(max_workers=effective_workers) as executor:
@@ -124,6 +127,7 @@ class RepoInfoSubGraphBuilder:
             module_sections = [f.result() for f in futures]
 
         module_sections = [s.strip() for s in module_sections if s and s.strip()]
+        # print(f"DEBUG: module_sections for overview doc generation:\n{module_sections}\n")
         if not module_sections:
             return ""
 
@@ -317,6 +321,9 @@ class RepoInfoSubGraphBuilder:
         print(
             f"   → [commit_doc_generation_node] writing commit info to {commit_doc_path}"
         )
+        if not result_info:
+            # no commit
+            result_info = "No commit information available."
         write_file(
             commit_doc_path,
             result_info,
@@ -428,6 +435,9 @@ class RepoInfoSubGraphBuilder:
             print("   → [pr_doc_generation_node] PR documentation generated")
 
         print(f"   → [pr_doc_generation_node] writing PR info to {pr_doc_path}")
+        if not result_info:
+            # no PR
+            result_info = "No pull request information available."
         write_file(
             pr_doc_path,
             result_info,
@@ -537,6 +547,9 @@ class RepoInfoSubGraphBuilder:
         print(
             f"→ [release_note_doc_generation_node] writing release note info to {release_note_doc_path}"
         )
+        if not result_info:
+            # no release note
+            result_info = "No release note information available."
         write_file(
             release_note_doc_path,
             result_info,
