@@ -86,7 +86,7 @@ def get_github_repo_info(
     Returns:
         dict: Repository information.
     """
-    g = Github(auth=Auth.Token(token)) if token else Github()
+    g = Github(auth=Auth.Token(token), timeout=30) if token else Github(timeout=30)
     repo_obj = g.get_repo(f"{owner}/{repo}")
     return {
         "name": repo_obj.name,
@@ -116,7 +116,7 @@ def get_gitee_repo_info(
     """
     url = f"https://gitee.com/api/v5/repos/{owner}/{repo}"
     headers = {"Authorization": f"token {token}"} if token else {}
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=30)
     response.raise_for_status()
     data = response.json()
     return {
@@ -171,9 +171,13 @@ def get_github_commits(
     Returns:
         list: List of commit information.
     """
-    g = Github(auth=Auth.Token(token)) if token else Github()
+    g = Github(auth=Auth.Token(token), timeout=30) if token else Github(timeout=30)
     repo_obj = g.get_repo(f"{owner}/{repo}")
-    commits = repo_obj.get_commits()[:per_page]
+    commits = []
+    for i, commit in enumerate(repo_obj.get_commits()):
+        if i >= per_page:
+            break
+        commits.append(commit)
     commit_list = []
     for commit in commits:
         commit_list.append(
@@ -204,7 +208,7 @@ def get_gitee_commits(
     url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/commits"
     headers = {"Authorization": f"token {token}"} if token else {}
     params = {"per_page": per_page}
-    response = requests.get(url, headers=headers, params=params)
+    response = requests.get(url, headers=headers, params=params, timeout=30)
     response.raise_for_status()
     data = response.json()
     commit_list = []
@@ -266,7 +270,7 @@ def get_github_commit_files(
     Returns:
         list: List of modified files in the commit.
     """
-    g = Github(auth=Auth.Token(token)) if token else Github()
+    g = Github(auth=Auth.Token(token), timeout=30) if token else Github(timeout=30)
     repo_obj = g.get_repo(f"{owner}/{repo}")
     commit = repo_obj.get_commit(sha)
     files = []
@@ -300,7 +304,7 @@ def get_gitee_commit_files(
     """
     url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/commits/{sha}"
     headers = {"Authorization": f"token {token}"} if token else {}
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=30)
     response.raise_for_status()
     data = response.json()
     files = []
@@ -394,7 +398,7 @@ def get_github_release_note(
     Returns:
         Dict[str, Any]: Release notes for the specified release or list of latest releases.
     """
-    g = Github(auth=Auth.Token(token)) if token else Github()
+    g = Github(auth=Auth.Token(token), timeout=30) if token else Github(timeout=30)
     repo_obj = g.get_repo(f"{owner}/{repo}")
     release_list = {
         "repo": f"{owner}/{repo}",
@@ -414,9 +418,12 @@ def get_github_release_note(
         )
         release_list["releases_count"] += 1
     else:
+        releases = []
         for i, release in enumerate(repo_obj.get_releases()):
             if i >= limit:
                 break
+            releases.append(release)
+        for release in releases:
             release_list["releases"].append(
                 {
                     "tag_name": release.tag_name,
@@ -458,7 +465,7 @@ def get_gitee_release_note(
     }
     if release_tag:
         url += f"/tags/{release_tag}"
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         data = response.json()
         release_list["releases"].append(
@@ -473,7 +480,7 @@ def get_gitee_release_note(
         release_list["releases_count"] += 1
     else:
         params = {"per_page": limit}
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
         for release in data:
@@ -538,7 +545,7 @@ def get_github_pr(
     Returns:
         Dict[str, Any]: Pull request information.
     """
-    g = Github(auth=Auth.Token(token)) if token else Github()
+    g = Github(auth=Auth.Token(token), timeout=30) if token else Github(timeout=30)
     repo_obj = g.get_repo(f"{owner}/{repo}")
     pr_list = {
         "repo": f"{owner}/{repo}",
@@ -564,7 +571,11 @@ def get_github_pr(
         )
         pr_list["prs_count"] += 1
     else:
-        prs = repo_obj.get_pulls(state="all")[:limit]
+        prs = []
+        for i, pr in enumerate(repo_obj.get_pulls(state="all")):
+            if i >= limit:
+                break
+            prs.append(pr)
         for pr in prs:
             pr_list["prs"].append(
                 {
@@ -613,7 +624,7 @@ def get_gitee_pr(
     }
     if pr_tag:
         url += f"/{pr_tag}"
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         data = response.json()
         pr_list["prs"].append(
@@ -634,7 +645,7 @@ def get_gitee_pr(
         pr_list["prs_count"] += 1
     else:
         params = {"per_page": limit}
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
         for pr in data:
@@ -703,7 +714,7 @@ def get_github_pr_files(
     Returns:
         Dict[str, Any]: List of modified files in the pull request.
     """
-    g = Github(auth=Auth.Token(token)) if token else Github()
+    g = Github(auth=Auth.Token(token), timeout=30) if token else Github(timeout=30)
     repo_obj = g.get_repo(f"{owner}/{repo}")
     files = {
         "repo": f"{owner}/{repo}",
@@ -768,7 +779,7 @@ def get_gitee_pr_files(
     }
     if pr_tag:
         url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/pulls/{pr_tag}/files"
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         data = response.json()
         for file in data:
@@ -786,7 +797,7 @@ def get_gitee_pr_files(
         # If no pr_tag is provided, get the latest pull request
         prs_url = f"https://gitee.com/api/v5/repos/{owner}/{repo}/pulls"
         params = {"per_page": 1}
-        response = requests.get(prs_url, headers=headers, params=params)
+        response = requests.get(prs_url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
         prs_data = response.json()
         if prs_data:
@@ -796,7 +807,7 @@ def get_gitee_pr_files(
             files_url = (
                 f"https://gitee.com/api/v5/repos/{owner}/{repo}/pulls/{pr_number}/files"
             )
-            response = requests.get(files_url, headers=headers)
+            response = requests.get(files_url, headers=headers, timeout=30)
             response.raise_for_status()
             data = response.json()
             for file in data:
@@ -843,13 +854,13 @@ def get_pr_files(
 if __name__ == "__main__":
     # Example usage
     # use "uv run python -m utils.repo" to run this file
-    # owner = "sse-orz"
-    # repo = "repo-agent"
-    # platform = "github"
-
     owner = "facebook"
     repo = "zstd"
     platform = "github"
+
+    # owner = "xudong7"
+    # repo = "StyTr-2-pytorch"
+    # platform = "github"
 
     # owner = "openharmony"
     # repo = "arkui_ace_engine"
@@ -861,8 +872,8 @@ if __name__ == "__main__":
     # print("Release Note:", release_note)
 
     # To get the latest 2 releases
-    # latest_releases = get_release_note(owner, repo, platform=platform)
-    # print("Latest Releases:", latest_releases)
+    latest_releases = get_release_note(owner, repo, platform=platform)
+    print("Latest Releases:", latest_releases)
 
     # pr_tag = "1"  # Specify the pull request number you want to retrieve
     # pr_info = get_pr(owner, repo, pr_tag, platform=platform)
@@ -880,8 +891,8 @@ if __name__ == "__main__":
     commit_info = get_repo_commit_info(owner, repo, platform=platform)
     print("\n\nCommit Info:", commit_info)
 
-    # pr = get_pr(owner, repo, platform=platform)
-    # print("Pull Requests:", pr)
+    pr = get_pr(owner, repo, platform=platform)
+    print("Pull Requests:", pr)
 
     # pr_files = get_pr_files(owner, repo, platform=platform)
     # print("\n\nPull Request Files:", pr_files)
